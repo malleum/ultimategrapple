@@ -27,6 +27,8 @@ const STYLES := {
 		"arp_i": "bell", "arp_rate": 1, "lead_i": "lead_sq", "pad_i": "pad_saw", "hat_vol": 0.18},
 	"industrial": {"kick": "x...x...x...x.x.", "snare": "....x.......x...", "hat": "..x..x..x..x..x.", "metal": true, "bass": "x.xx.x.xx.x.x.xx", "bass_i": "sq_dist",
 		"arp_i": "", "arp_rate": 2, "lead_i": "lead_saw", "pad_i": "pad_saw", "hat_vol": 0.2},
+	"desert": {"kick": "x.......x..x....", "snare": "....x.......x...", "hat": "..x...x...x.x.x.", "bass": "x.....x...x.....", "bass_i": "saw",
+		"arp_i": "ks", "arp_rate": 2, "lead_i": "flute", "pad_i": "pad_soft", "hat_vol": 0.15},
 	"ambient": {"kick": "x.......x.......", "snare": "............x...", "hat": "..x...x...x...x.", "bass": "x...............", "bass_i": "sub",
 		"arp_i": "bell", "arp_rate": 2, "lead_i": "flute", "pad_i": "pad_soft", "hat_vol": 0.1},
 }

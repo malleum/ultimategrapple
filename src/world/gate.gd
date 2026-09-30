@@ -33,6 +33,10 @@ func setup(data: Dictionary, p_theme: Dictionary) -> void:
 	_apply()
 
 
+func set_physics_layer(bits: int) -> void:
+	body.collision_layer = bits
+
+
 func _apply() -> void:
 	var solid := (mode == "open" and not triggered) or (mode == "bridge" and triggered)
 	body.process_mode = Node.PROCESS_MODE_INHERIT if solid else Node.PROCESS_MODE_DISABLED

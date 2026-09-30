@@ -22,6 +22,12 @@ var seed_edit: LineEdit
 var lobby_box: VBoxContainer
 var server_list: VBoxContainer
 var status_label: Label
+var page := ""
+var couch_players: Array = []   # [{device, name, color}]
+var couch_box: VBoxContainer
+var couch_wins := 3
+var couch_source := "random"
+var couch_diff := 0.5
 
 
 func _ready() -> void:
@@ -78,7 +84,9 @@ func _clear() -> Control:
 
 func show_page(p: String) -> void:
 	Net.stop_discovery()
+	page = p
 	match p:
+		"couch": _page_couch()
 		"courses": _page_courses()
 		"random": _page_random()
 		"multi": _page_multi()
@@ -110,7 +118,8 @@ func _page_title() -> void:
 	col.add_child(UI.button("COURSES", func(): show_page("courses"), 30))
 	col.add_child(UI.button("RANDOM COURSE", func(): show_page("random"), 30))
 	col.add_child(UI.button("QUICK RANDOM", func(): Game.start_random(randi() % 1000000, "", 0.5, 12), 30))
-	col.add_child(UI.button("MULTIPLAYER", func(): show_page("multi"), 30))
+	col.add_child(UI.button("COUCH VERSUS", func(): show_page("couch"), 30))
+	col.add_child(UI.button("ONLINE / LAN", func(): show_page("multi"), 30))
 	col.add_child(UI.button("CONTROLS", func(): show_page("controls"), 24))
 	col.add_child(UI.button("SETTINGS", func(): show_page("settings"), 24))
 	col.add_child(UI.button("QUIT", func(): get_tree().quit(), 24))
@@ -317,6 +326,140 @@ func _on_lobby_changed() -> void:
 func _on_status(tx: String) -> void:
 	if status_label and is_instance_valid(status_label):
 		status_label.text = tx
+
+
+# ------------------------------------------------------------------ couch
+
+func _page_couch() -> void:
+	if couch_players.is_empty() and not Game.couch_last_players.is_empty():
+		for p in Game.couch_last_players:
+			couch_players.append({"device": int(p.device), "name": p.name, "color": int(p.color)})
+	var c := _clear()
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(1000, 640)
+	c.add_child(panel)
+	var v := UI.vbox(14)
+	panel.add_child(v)
+	v.add_child(UI.label("COUCH VERSUS", 48, UI.NEON))
+	if Game.couch_champion != "":
+		v.add_child(UI.label(Game.couch_champion, 32, UI.GOLD))
+	v.add_child(UI.label("Split-screen race, up to 4 players. Everyone has their own gates, glass and grapple points.\nPress A on a controller (or SPACE on the keyboard) to join. B / BACKSPACE to leave. X / C to change color.", 18, UI.DIM))
+	couch_box = UI.vbox(8)
+	couch_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	v.add_child(couch_box)
+	_refresh_couch()
+	var s := UI.hbox()
+	s.add_child(UI.label("First to", 20))
+	var sb := SpinBox.new()
+	sb.min_value = 1
+	sb.max_value = 15
+	sb.value = couch_wins
+	sb.value_changed.connect(func(x): couch_wins = int(x))
+	s.add_child(sb)
+	var src := OptionButton.new()
+	src.add_item("Random courses")
+	src.add_item("Pinned courses")
+	src.selected = 1 if couch_source == "pinned" else 0
+	src.item_selected.connect(func(i): couch_source = "pinned" if i == 1 else "random")
+	s.add_child(src)
+	s.add_child(UI.label("Difficulty", 20))
+	var ds := UI.slider(0, 1, couch_diff, 0.1, func(x): couch_diff = x)
+	ds.custom_minimum_size = Vector2(180, 28)
+	s.add_child(ds)
+	v.add_child(s)
+	var h := UI.hbox()
+	h.add_child(UI.button("START (START / ENTER)", _start_couch, 26))
+	h.add_child(_back_button())
+	v.add_child(h)
+
+
+func _refresh_couch() -> void:
+	if couch_box == null or not is_instance_valid(couch_box):
+		return
+	for ch in couch_box.get_children():
+		ch.queue_free()
+	for i in 4:
+		if i < couch_players.size():
+			var p: Dictionary = couch_players[i]
+			var dev := "Keyboard + Mouse" if int(p.device) < 0 else "%s (#%d)" % [Input.get_joy_name(int(p.device)), int(p.device)]
+			couch_box.add_child(UI.label("P%d  %s   ·   %s" % [i + 1, p.name, dev], 26, Game.player_palette(int(p.color)) * 1.4))
+		else:
+			couch_box.add_child(UI.label("P%d  — press A / SPACE to join —" % (i + 1), 22, Color(0.5, 0.55, 0.65)))
+	var pads := Input.get_connected_joypads()
+	couch_box.add_child(UI.label("%d controller(s) connected" % pads.size(), 16, UI.DIM))
+
+
+func _couch_index(device: int) -> int:
+	for i in couch_players.size():
+		if int(couch_players[i].device) == device:
+			return i
+	return -1
+
+
+func _couch_join(device: int) -> void:
+	if _couch_index(device) >= 0 or couch_players.size() >= 4:
+		return
+	var used := []
+	for p in couch_players:
+		used.append(int(p.color))
+	var col := 0
+	while used.has(col):
+		col += 1
+	var nm: String = str(Game.settings.player_name) if device < 0 else "P%d" % (couch_players.size() + 1)
+	couch_players.append({"device": device, "name": nm, "color": col})
+	Sfx.play("ui_click")
+	_refresh_couch()
+
+
+func _couch_leave(device: int) -> void:
+	var i := _couch_index(device)
+	if i >= 0:
+		couch_players.remove_at(i)
+		_refresh_couch()
+
+
+func _couch_color(device: int) -> void:
+	var i := _couch_index(device)
+	if i >= 0:
+		couch_players[i].color = (int(couch_players[i].color) + 1) % 8
+		_refresh_couch()
+
+
+func _start_couch() -> void:
+	if couch_players.is_empty():
+		return
+	Game.couch_champion = ""
+	var players := []
+	for p in couch_players:
+		players.append({"device": p.device, "name": p.name, "color": p.color, "wins": 0})
+	Game.start_couch(players, couch_wins, couch_source, couch_diff)
+
+
+func _input(event: InputEvent) -> void:
+	if page != "couch":
+		return
+	if event is InputEventJoypadButton and event.pressed:
+		match event.button_index:
+			JOY_BUTTON_A: _couch_join(event.device)
+			JOY_BUTTON_B: _couch_leave(event.device)
+			JOY_BUTTON_X: _couch_color(event.device)
+			JOY_BUTTON_START:
+				if _couch_index(event.device) >= 0:
+					_start_couch()
+		get_viewport().set_input_as_handled()
+	elif event is InputEventKey and event.pressed and not event.echo:
+		var focus := get_viewport().gui_get_focus_owner()
+		if focus is LineEdit:
+			return
+		match event.physical_keycode:
+			KEY_SPACE:
+				_couch_join(-1)
+				get_viewport().set_input_as_handled()
+			KEY_BACKSPACE: _couch_leave(-1)
+			KEY_C: _couch_color(-1)
+			KEY_ENTER, KEY_KP_ENTER:
+				_start_couch()
+				get_viewport().set_input_as_handled()
 
 
 # ------------------------------------------------------------------ controls

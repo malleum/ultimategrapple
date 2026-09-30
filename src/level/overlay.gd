@@ -4,7 +4,7 @@ extends Node2D
 const Player = preload("res://src/player/player.gd")
 const ThrowTypes = preload("res://src/disc/throw_types.gd")
 
-var level: Node = null
+var runner: Node = null
 var _last_target: Node = null
 
 
@@ -18,10 +18,10 @@ func _process(_dt: float) -> void:
 
 
 func _draw() -> void:
-	if level == null or level.player == null:
+	if runner == null or runner.player == null:
 		return
-	var p = level.player
-	var th: Dictionary = level.th
+	var p = runner.player
+	var th: Dictionary = runner.level.th
 	var ppos: Vector2 = p.interp_pos()
 	var hand: Vector2 = ppos + (p.hand() - p.global_position)
 	var gcol: Color = th.get("grapple", Color(2, 2, 0.4))
@@ -72,14 +72,14 @@ func _draw() -> void:
 	# ---- reticle
 	if p.state == Player.DEAD:
 		return
-	var m: Vector2 = get_global_mouse_position()
+	var m: Vector2 = p.mouse_world()
 	var rc := Color(2.2, 2.2, 2.2, 0.9)
 	draw_arc(m, 10, 0, TAU, 20, rc, 1.5, true)
 	draw_circle(m, 1.8, rc)
 	if p.charging:
 		var power: float = p.charge_power()
 		var oc: float = p.overcharge()
-		var col: Color = level.disc.color if oc <= 0.0 else Color(2.2, 0.4, 0.3)
+		var col: Color = runner.disc.color if oc <= 0.0 else Color(2.2, 0.4, 0.3)
 		draw_arc(m, 16, -PI * 0.5, -PI * 0.5 + TAU * power, 32, col, 3.0, true)
 		# throw direction with sway + spread cone (move penalty)
 		var ang: float = p.aim_dir.angle() + p.sway_angle()

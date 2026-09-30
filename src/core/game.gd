@@ -258,10 +258,11 @@ func goto_menu(page: String = "title") -> void:
 
 
 ## mode: "solo" | "multi"
-func play_level(data: Dictionary, mode: String = "solo") -> Node:
+func play_level(data: Dictionary, mode: String = "solo", local_players: Array = []) -> Node:
 	var lvl := LevelScript.new()
 	lvl.level_data = data
 	lvl.mode = mode
+	lvl.local_players = local_players
 	change_scene(lvl)
 	return lvl
 
@@ -287,6 +288,106 @@ func next_level() -> void:
 			start_pinned(int(session.index) + 1)
 		_:
 			start_random(randi() % 1000000, session.get("theme", ""), session.get("difficulty", 0.5), session.get("length", 12))
+
+
+# ---------------------------------------------------------------- couch (local split-screen)
+
+const PlayerInput = preload("res://src/core/player_input.gd")
+
+## {"players": [{device, name, color, wins}], "wins": int, "source": String,
+##  "difficulty": float, "round": int, "winner": int, "results": {}, "next_at": float}
+var couch := {}
+var couch_champion := ""
+var couch_last_players: Array = []
+
+
+func start_couch(players: Array, wins: int, source: String, difficulty: float) -> void:
+	couch = {"players": players, "wins": wins, "source": source, "difficulty": difficulty,
+		"round": 0, "winner": -1, "set_winner": -1, "results": {}, "next_at": -1.0, "champion": ""}
+	for p in players:
+		p.wins = 0
+	_couch_round()
+
+
+func _couch_round() -> void:
+	couch.winner = -1
+	couch.results = {}
+	couch.next_at = -1.0
+	var data: Dictionary
+	var pool := list_pinned_levels()
+	if couch.source == "pinned" and not pool.is_empty():
+		data = pool[int(couch.round) % pool.size()]
+	else:
+		data = generate_level(randi() % 1000000, "", couch.difficulty, 10)
+	var locals := []
+	for p in couch.players:
+		locals.append({"input": PlayerInput.new(int(p.device)), "name": p.name, "color": player_palette(int(p.color))})
+	var lvl := play_level(data, "couch", locals)
+	lvl.start_countdown(3.0)
+	Sfx.play("beep")
+
+
+func couch_runner_finished(index: int, t: float) -> void:
+	if couch.is_empty() or couch.results.has(index):
+		return
+	couch.results[index] = t
+	var p: Dictionary = couch.players[index]
+	var lvl = current_scene
+	if couch.winner == -1:
+		couch.winner = index
+		p.wins = int(p.wins) + 1
+		if int(p.wins) >= int(couch.wins):
+			couch.set_winner = index
+		couch.next_at = Time.get_ticks_msec() / 1000.0 + 6.0
+		if lvl and lvl.has_method("couch_popup"):
+			lvl.couch_popup("%s SANK IT FIRST!" % p.name, player_palette(int(p.color)) * 1.6)
+		Sfx.play("fanfare")
+	if couch.results.size() >= couch.players.size():
+		couch.next_at = minf(couch.next_at, Time.get_ticks_msec() / 1000.0 + 3.0)
+
+
+func couch_waiting_text() -> String:
+	if couch.is_empty() or couch.winner == -1:
+		return ""
+	var left := maxf(0.0, float(couch.next_at) - Time.get_ticks_msec() / 1000.0)
+	var who: String = couch.players[couch.winner].name
+	if couch.set_winner != -1:
+		return "%s TAKES THE SET  ·  %d" % [who, int(ceil(left))]
+	return "%s wins round %d  ·  next course in %d" % [who, int(couch.round) + 1, int(ceil(left))]
+
+
+func couch_scoreboard() -> String:
+	if couch.is_empty():
+		return ""
+	var lines := ["FIRST TO %d" % int(couch.wins)]
+	for i in couch.players.size():
+		var p: Dictionary = couch.players[i]
+		var stars := ""
+		for k in int(couch.wins):
+			stars += "●" if k < int(p.wins) else "○"
+		lines.append("%s %s" % [stars, p.name])
+	return "\n".join(lines)
+
+
+func end_couch() -> void:
+	if not couch.is_empty():
+		couch_last_players = couch.players
+	couch = {}
+	goto_menu("couch")
+
+
+func _process(_dt: float) -> void:
+	if couch.is_empty() or float(couch.get("next_at", -1.0)) < 0.0:
+		return
+	if Time.get_ticks_msec() / 1000.0 >= float(couch.next_at):
+		if int(couch.set_winner) != -1:
+			couch_champion = "%s WINS THE COUCH SET!" % couch.players[couch.set_winner].name
+			couch_last_players = couch.players
+			couch = {}
+			goto_menu("couch")
+		else:
+			couch.round = int(couch.round) + 1
+			_couch_round()
 
 
 static func format_time(t: float) -> String:

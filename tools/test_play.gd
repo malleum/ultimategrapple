@@ -22,6 +22,10 @@ func _initialize() -> void:
 
 func _next_level() -> void:
 	if level_idx >= seeds.size():
+		if level_idx == seeds.size():
+			_couch_test()
+			level_idx += 1
+			return
 		for l in log_lines:
 			print(l)
 		quit()
@@ -32,6 +36,30 @@ func _next_level() -> void:
 	lvl = Game.play_level(data)
 	frame = 0
 	level_idx += 1
+
+
+func _couch_test() -> void:
+	var Game = root.get_node("Game")
+	const PI_ = preload("res://src/core/player_input.gd")
+	var data: Dictionary
+	var has_gate := false
+	var sd := 70
+	while not has_gate:
+		sd += 1
+		data = Game.generate_level(sd, "field", 0.5, 8)
+		for e in data.entities:
+			if e.t == "gate":
+				has_gate = true
+	var locals := [{"input": PI_.new(PI_.KBM), "name": "A", "color": Color(0, 1, 1)}, {"input": PI_.new(0), "name": "B", "color": Color(1, 0, 1)}]
+	lvl = Game.play_level(data, "couch", locals)
+	var r0 = lvl.runners[0]
+	var r1 = lvl.runners[1]
+	var msg := "couch: runners=%d views=%s,%s layers p0=%d p1=%d gates=%d/%d grapple=%d/%d" % [lvl.runners.size(), r0.view.get_class(), r1.view.get_class(), r0.player.collision_mask, r1.player.collision_mask, r0.gates.size(), r1.gates.size(), r0.grapple_points.size(), r1.grapple_points.size()]
+	if has_gate and r0.gates.size() > 0:
+		r0.gates[0].trigger()
+		msg += " | after P1 opens gate: p1 gate=%s p2 gate=%s" % [r0.gates[0].triggered, r1.gates[0].triggered]
+	log_lines.append(msg)
+	frame = 400
 
 
 func _press(a: String) -> void:
@@ -92,7 +120,7 @@ func _physics_process(_dt: float) -> bool:
 			_release("move_right")
 			var d = lvl.disc
 			log_lines.append("level %s (%s, %d segs): player x=%.0f y=%.0f state=%d throws=%d disc_state=%d disc_x=%.0f spin=%.2f deaths=%d time=%.2f snap=%s" % [
-				lvl.level_data.name, lvl.level_data.theme, lvl.level_data.segments.size(), p.global_position.x, p.global_position.y, p.state, p.throws, d.state, d.global_position.x, d.spin, lvl.deaths, lvl.total_time(), p.last_snap_quality])
+				lvl.level_data.name, lvl.level_data.theme, lvl.level_data.segments.size(), p.global_position.x, p.global_position.y, p.state, p.throws, d.state, d.global_position.x, d.spin, lvl.runners[0].deaths, lvl.runners[0].total_time(), p.last_snap_quality])
 		430:
 			# teleport disc into the basket region to verify scoring
 			var d2 = lvl.disc
@@ -101,6 +129,6 @@ func _physics_process(_dt: float) -> bool:
 			p.has_disc = false
 			d2.launch(lvl.basket_pos + Vector2(-60, -80), Vector2(300, 0), 0, 1.0, 0.0, 0.0)
 		520:
-			log_lines.append("   scored=%s done=%s finish=%.2f" % [str(lvl.disc.state == Disc.SCORED), str(lvl.done), lvl.finish_time])
+			log_lines.append("   scored=%s done=%s finish=%.2f" % [str(lvl.disc.state == Disc.SCORED), str(lvl.done), lvl.runners[0].finish_time])
 			_next_level()
 	return false

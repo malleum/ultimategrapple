@@ -62,11 +62,21 @@ void fragment() {
 		float a = smoothstep(0.6, 1.0, band) * smoothstep(0.55, 0.1, y) * smoothstep(0.0, 0.15, y);
 		col += mix(vec3(0.1, 1.2, 0.6), vec3(0.8, 0.2, 1.2), sp.x) * a * 0.5;
 	}
+	if (style == 6) {
+		vec2 sun = vec2(0.3, 0.62 * aspect);
+		float d = length(sp - sun);
+		col += vec3(1.0, 0.7, 0.3) * smoothstep(0.5, 0.0, d) * 0.45;
+		float disk = smoothstep(0.075, 0.07, d);
+		float bands = step(0.5, fract((sp.y - sun.y) * 60.0)) * step(sun.y + 0.01, sp.y);
+		col = mix(col, vec3(1.0, 0.85, 0.5), disk * (1.0 - bands * 0.8));
+		float c2 = fbm(vec2(sp.x * 3.0 + time_s * 0.015, sp.y * 12.0));
+		col = mix(col, vec3(0.95, 0.5, 0.45), smoothstep(0.6, 0.8, c2) * (1.0 - smoothstep(0.2, 0.55, y)) * 0.5);
+	}
 	COLOR = vec4(col, 1.0);
 }
 """
 
-const STYLE_IDS := {"field": 0, "city": 1, "forest": 2, "heaven": 3, "factory": 4, "mountains": 5}
+const STYLE_IDS := {"field": 0, "city": 1, "forest": 2, "heaven": 3, "factory": 4, "mountains": 5, "canyon": 6}
 const REPEAT := 4096.0
 
 var th: Dictionary = {}
@@ -176,6 +186,19 @@ func _add_particles() -> void:
 			p.color = Color(2.5, 0.8, 0.1, 0.9)
 			p.lifetime = 6.0
 			p.preprocess = 6.0
+		"dust":
+			p.position = Vector2(-60, 540)
+			p.emission_rect_extents = Vector2(10, 600)
+			p.direction = Vector2(1, 0.05)
+			p.spread = 8.0
+			p.initial_velocity_min = 300
+			p.initial_velocity_max = 700
+			p.scale_amount_min = 1.5
+			p.scale_amount_max = 3.5
+			p.amount = 90
+			p.lifetime = 4.0
+			p.preprocess = 4.0
+			p.color = Color(1.0, 0.8, 0.6, 0.35)
 		"fireflies", "sparkle", "pollen":
 			p.emission_rect_extents = Vector2(1100, 600)
 			p.position = Vector2(960, 540)
@@ -216,6 +239,8 @@ class BgLayer:
 		var sky_b: Color = th.sky_bottom
 		var sky_t: Color = th.sky_top
 		var base: Color = sky_b.lerp(sky_t, 0.4).darkened(0.25 + depth * 0.22)
+		if style == "city":
+			base = sky_b.lerp(sky_t, 0.3 + depth * 0.2).lightened(0.06 - depth * 0.03)
 		if style == "heaven":
 			base = sky_b.lerp(Color(1, 1, 1), 0.3 - depth * 0.08)
 		var W := 4096.0
@@ -229,10 +254,11 @@ class BgLayer:
 					var r := Rect2(x, ground_y - bh, bw, bh + 3000)
 					draw_rect(r, base)
 					var win: Color = th.accent2 if rng.randf() < 0.5 else th.accent
+					win = Color(minf(win.r, 1.0), minf(win.g, 1.0), minf(win.b, 1.0)) * (0.25 + depth * 0.12)
 					for wy in range(int(r.position.y) + 20, int(ground_y), 26):
 						for wx in range(int(r.position.x) + 10, int(r.end.x) - 10, 22):
-							if rng.randf() < 0.18:
-								draw_rect(Rect2(wx, wy, 8, 12), Color(win, 0.25 + depth * 0.1))
+							if rng.randf() < 0.12:
+								draw_rect(Rect2(wx, wy, 6, 9), Color(win, 0.8))
 					if depth == 2 and rng.randf() < 0.4:
 						var sc: Color = th.accent if rng.randf() < 0.5 else th.accent2
 						draw_rect(Rect2(r.position.x + 10, r.position.y + 40, bw - 20, 30), Color(sc, 0.5), false, 3.0)
@@ -303,6 +329,24 @@ class BgLayer:
 					if depth == 2:
 						draw_line(Vector2(fx, ground_y - fh + 40), Vector2(fx + fw + 200, ground_y - fh + 80), Color(0.3, 0.25, 0.2), 8.0)
 					fx += fw + rng.randf_range(20, 200)
+			"canyon":
+				var mx := -100.0
+				var mc := base.lerp(Color(0.5, 0.2, 0.25), 0.4 - depth * 0.1)
+				while mx < W:
+					var mw := rng.randf_range(200, 600) * (0.8 + depth * 0.3)
+					var mh := rng.randf_range(150, 420) * (1.0 + depth * 0.2)
+					var slope := rng.randf_range(30, 90)
+					draw_colored_polygon(PackedVector2Array([Vector2(mx, ground_y + 3000), Vector2(mx, ground_y), Vector2(mx + slope, ground_y - mh), Vector2(mx + mw - slope, ground_y - mh), Vector2(mx + mw, ground_y), Vector2(mx + mw, ground_y + 3000)]), mc)
+					for k in 3:
+						var sy := ground_y - mh + 30 + k * mh * 0.25
+						draw_line(Vector2(mx + slope * 0.6, sy), Vector2(mx + mw - slope * 0.6, sy), Color(mc.lightened(0.12), 0.6), 3.0)
+					if depth == 2 and rng.randf() < 0.3:
+						# hoodoo spire
+						var hx := mx + mw + 60
+						draw_rect(Rect2(hx, ground_y - mh * 0.8, 26, mh * 0.8 + 3000), mc)
+						draw_circle(Vector2(hx + 13, ground_y - mh * 0.8), 20, mc)
+					mx += mw + rng.randf_range(60, 400)
+				draw_rect(Rect2(-100, ground_y, W + 200, 3000), mc)
 			"mountains":
 				if depth < 2:
 					_mountains(rng, ground_y + depth * 100, 700 - depth * 250, base, W, true)

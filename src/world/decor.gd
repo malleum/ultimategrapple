@@ -7,6 +7,7 @@ var s := 1.0
 var v := 0
 var t := 0.0
 var animated := false
+var text := ""
 
 
 func setup(data: Dictionary, p_theme: Dictionary) -> void:
@@ -16,7 +17,10 @@ func setup(data: Dictionary, p_theme: Dictionary) -> void:
 	v = int(data.get("v", 0))
 	position = Vector2(data.p[0], data.p[1])
 	z_index = -2
-	animated = kind in ["flag", "antenna", "holo", "vent", "neon_sign", "crystal", "chain", "cloud_puff", "ice_crystal"]
+	animated = kind in ["flag", "antenna", "holo", "vent", "neon_sign", "crystal", "chain", "cloud_puff", "ice_crystal", "tumbleweed", "sign"]
+	text = str(data.get("text", ""))
+	if kind == "sign":
+		z_index = -1
 	t = v * 0.37
 	set_physics_process(animated)
 
@@ -169,5 +173,40 @@ func _draw() -> void:
 			draw_circle(Vector2(0, -36), 10, Color(0.95, 0.97, 1.0))
 			draw_line(Vector2(2, -37), Vector2(12, -35), Color(1.5, 0.6, 0.1), 3.0)
 			draw_line(Vector2(-6, -46), Vector2(6, -46), Color(0.1, 0.1, 0.1), 3.0)
+		"cactus":
+			var cc := Color(0.25, 0.55, 0.3)
+			draw_line(Vector2(0, 0), Vector2(0, -60), cc, 12.0)
+			draw_circle(Vector2(0, -60), 6, cc)
+			draw_polyline(PackedVector2Array([Vector2(0, -28), Vector2(-16, -28), Vector2(-16, -46)]), cc, 8.0)
+			draw_polyline(PackedVector2Array([Vector2(0, -36), Vector2(14, -36), Vector2(14, -52)]), cc, 8.0)
+			if v % 3 == 0:
+				draw_circle(Vector2(0, -67), 4, Color(2.0, 0.5, 0.8))
+		"mesa_rock":
+			draw_colored_polygon(PackedVector2Array([Vector2(-34, 0), Vector2(-26, -40), Vector2(24, -44), Vector2(34, 0)]), Color(0.6, 0.3, 0.2))
+			draw_line(Vector2(-28, -22), Vector2(28, -24), Color(0.75, 0.42, 0.28), 3.0)
+		"skull":
+			draw_circle(Vector2(0, -8), 8, Color(0.95, 0.9, 0.8))
+			draw_rect(Rect2(-5, -4, 10, 4), Color(0.95, 0.9, 0.8))
+			draw_circle(Vector2(-3, -9), 2, Color(0.1, 0.05, 0.05))
+			draw_circle(Vector2(3, -9), 2, Color(0.1, 0.05, 0.05))
+			draw_arc(Vector2(-12, -10), 10, PI * 1.1, PI * 1.6, 8, Color(0.95, 0.9, 0.8), 2.0)
+			draw_arc(Vector2(12, -10), 10, -PI * 0.6, -PI * 0.1, 8, Color(0.95, 0.9, 0.8), 2.0)
+		"tumbleweed":
+			var roll := fmod(t * 40.0 + v * 13.0, 240.0) - 120.0
+			var c2 := Color(0.6, 0.45, 0.25)
+			var ctr := Vector2(roll, -14 - absf(sin(t * 4.0)) * 6.0)
+			for i in 6:
+				draw_arc(ctr, 12 - i, t * 3.0 + i, t * 3.0 + i + 4.0, 10, c2, 1.5)
+		"sign":
+			var pole := Color(0.5, 0.5, 0.55)
+			draw_line(Vector2(0, 0), Vector2(0, -70), pole, 4.0)
+			var col: Color = acc2 if text == "TUNNEL" else acc
+			var w := 118.0
+			var rr := Rect2(-w * 0.5, -104, w, 34)
+			draw_rect(rr, Color(0.02, 0.02, 0.05, 0.9))
+			draw_rect(rr, col * (0.85 + 0.15 * sin(t * 3.0)), false, 3.0)
+			draw_string(ThemeDB.fallback_font, Vector2(-w * 0.5, -80), text, HORIZONTAL_ALIGNMENT_CENTER, w, 20, col)
+			var hint := "throw it ahead" if text == "FAIRWAY" else "keep it in hand"
+			draw_string(ThemeDB.fallback_font, Vector2(-w * 0.5 - 20, -58), hint, HORIZONTAL_ALIGNMENT_CENTER, w + 40, 13, Color(0.9, 0.9, 1.0, 0.8))
 		_:
 			draw_circle(Vector2(0, -8), 8, dark)

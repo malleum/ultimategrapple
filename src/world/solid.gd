@@ -104,9 +104,9 @@ func _draw_block() -> void:
 			var rows := int(pat_h / 30.0)
 			for cx in cols:
 				for cy in range(1, rows):
-					if rng.randf() < 0.22:
+					if rng.randf() < 0.1:
 						var lit := detail if rng.randf() < 0.5 else _col("accent2")
-						draw_rect(Rect2(r.position.x + 6 + cx * 24, r.position.y + cy * 30, 10, 14), Color(lit, 0.35 * (1.0 - cy / float(rows))))
+						draw_rect(Rect2(r.position.x + 6 + cx * 24, r.position.y + cy * 30, 8, 3), Color(lit, 0.3 * (1.0 - cy / float(rows))))
 			draw_line(r.position + Vector2(0, 14), Vector2(r.end.x, r.position.y + 14), Color(detail, 0.4), 1.5)
 		"forest":
 			var row := 0

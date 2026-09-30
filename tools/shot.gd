@@ -25,7 +25,14 @@ func _process(_dt: float) -> bool:
 			Game.goto_menu(args[5] if args.size() > 5 else "title")
 			return false
 		var data: Dictionary = Game.generate_level(int(args[0]), args[1], 0.6, 12)
-		lvl = Game.play_level(data)
+		if args.size() > 4 and args[4] == "split":
+			const PI_ = preload("res://src/core/player_input.gd")
+			var locals := []
+			for i in int(args[5]):
+				locals.append({"input": PI_.new(PI_.KBM if i == 0 else i - 1), "name": "P%d" % (i + 1), "color": Game.player_palette(i)})
+			lvl = Game.play_level(data, "couch", locals)
+		else:
+			lvl = Game.play_level(data)
 		return false
 	frame += 1
 	if frame == 3 and lvl:
@@ -33,8 +40,9 @@ func _process(_dt: float) -> bool:
 		var route: Array = lvl.level_data.route
 		if idx >= 0 and idx < route.size():
 			var p := Vector2(route[idx][0], route[idx][1] - 4)
-			lvl.player.respawn(p)
-			lvl.camera.position = p
+			for r in lvl.runners:
+				r.player.respawn(p + Vector2(r.index * 200, 0))
+				r.camera.position = p
 		elif idx < 0:
 			var bp: Vector2 = lvl.basket_pos
 			lvl.player.respawn(bp + Vector2(-300, -10))

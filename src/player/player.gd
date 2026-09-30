@@ -5,6 +5,7 @@ extends CharacterBody2D
 const ThrowTypes = preload("res://src/disc/throw_types.gd")
 const PlayerVisual = preload("res://src/player/player_visual.gd")
 const Disc = preload("res://src/disc/disc.gd")
+const PlayerInput = preload("res://src/core/player_input.gd")
 
 signal died
 signal fx(kind: String, pos: Vector2, data: Variant)
@@ -69,7 +70,9 @@ const PIVOT_LAUNCH_WINDOW := 0.3
 const STAND := Vector2(20, 44)
 const LOW := Vector2(20, 22)
 
-var level: Node = null
+var level: Node = null     # shared world (kill_y, basket)
+var runner: Node = null    # per-player context (grapple points, gates, hud)
+var inp: PlayerInput = PlayerInput.new()
 var disc: Node = null
 var visual: Node2D
 var shape_node: CollisionShape2D
@@ -164,7 +167,9 @@ func _ready() -> void:
 func mouse_world() -> Vector2:
 	if aim_override != null:
 		return aim_override
-	return get_global_mouse_position()
+	if not inp.mouse_world_fn.is_valid():
+		inp.mouse_world_fn = get_global_mouse_position
+	return inp.aim_point(center())
 
 
 func center() -> Vector2:
@@ -184,6 +189,10 @@ func interp_pos() -> Vector2:
 func _physics_process(dt: float) -> void:
 	prev_pos = cur_pos
 	anim_t += dt
+	if input_enabled:
+		inp.poll()
+	else:
+		inp.clear()
 	if state == DEAD:
 		cur_pos = global_position
 		return
@@ -223,19 +232,21 @@ func _read_input() -> void:
 	if not input_enabled:
 		input_x = 0.0
 		return
-	input_x = Input.get_axis("move_left", "move_right")
-	if Input.is_action_just_pressed("jump"):
+	input_x = inp.move.x
+	if inp.just_pressed("jump"):
 		buffer_t = JUMP_BUFFER
-	if Input.is_action_just_pressed("throw_next"):
+	if inp.just_pressed("throw_next"):
 		set_throw_type(throw_type + 1)
+	if inp.just_pressed("throw_prev"):
+		set_throw_type(throw_type - 1)
 	for i in 6:
-		if Input.is_action_just_pressed("throw_%d" % (i + 1)):
+		if inp.just_pressed("throw_%d" % (i + 1)):
 			set_throw_type(i)
-	if Input.is_action_just_pressed("nose_up"):
+	if inp.just_pressed("nose_up"):
 		adjust_nose(1)
-	if Input.is_action_just_pressed("nose_down"):
+	if inp.just_pressed("nose_down"):
 		adjust_nose(-1)
-	if Input.is_action_just_pressed("recall"):
+	if inp.just_pressed("recall"):
 		recall()
 	var aim := mouse_world() - hand()
 	if aim.length() > 4.0:
@@ -243,7 +254,7 @@ func _read_input() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not input_enabled:
+	if not input_enabled or not inp.uses_kbm():
 		return
 	if event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
@@ -271,7 +282,7 @@ func carry_mult() -> float:
 func _normal(dt: float) -> void:
 	var max_speed := RUN_SPEED * carry_mult()
 	var jump_mult := CARRY_JUMP_MULT if has_disc else 1.0
-	var down := Input.is_action_pressed("move_down") and input_enabled
+	var down := inp.pressed("move_down") and input_enabled
 
 	if on_floor:
 		coyote_t = COYOTE
@@ -282,8 +293,8 @@ func _normal(dt: float) -> void:
 		air_time += dt
 
 	# ---- dash
-	if input_enabled and Input.is_action_just_pressed("dash") and dash_cd <= 0.0 and (on_floor or has_air_dash):
-		var dv := Vector2(input_x, Input.get_axis("move_up", "move_down"))
+	if input_enabled and inp.just_pressed("dash") and dash_cd <= 0.0 and (on_floor or has_air_dash):
+		var dv := Vector2(input_x, inp.move.y)
 		if dv.length() < 0.1:
 			dv = Vector2(facing, 0)
 		dash_dir = dv.normalized()
@@ -333,7 +344,7 @@ func _normal(dt: float) -> void:
 			buffer_t = 0.0
 			jump_held_cut = false
 			fx.emit("walljump", global_position, wall_dir)
-	if not jump_held_cut and velocity.y < 0.0 and not Input.is_action_pressed("jump") and pad_lock_t <= 0.0:
+	if not jump_held_cut and velocity.y < 0.0 and not inp.pressed("jump") and pad_lock_t <= 0.0:
 		velocity.y *= JUMP_CUT
 		jump_held_cut = true
 
@@ -459,23 +470,23 @@ func _handle_grapple_input() -> void:
 		return
 	if state == NORMAL or state == PIVOT:
 		if grapple_cd <= 0.0 and not target.is_empty():
-			if Input.is_action_just_pressed("grapple"):
+			if inp.just_pressed("grapple"):
 				_attach(target, SWING)
-			elif Input.is_action_just_pressed("zip"):
+			elif inp.just_pressed("zip"):
 				_attach(target, ZIP)
 	elif state == SWING:
-		if not Input.is_action_pressed("grapple"):
+		if not inp.pressed("grapple"):
 			_detach(false)
-		elif Input.is_action_just_pressed("jump"):
+		elif inp.just_pressed("jump"):
 			buffer_t = 0.0
 			_detach(true)
-		elif Input.is_action_just_pressed("dash") and has_air_dash:
+		elif inp.just_pressed("dash") and has_air_dash:
 			_detach(false)
 			_normal(0.0)
 	elif state == ZIP:
-		if not Input.is_action_pressed("zip"):
+		if not inp.pressed("zip"):
 			_detach(false)
-		elif Input.is_action_just_pressed("jump"):
+		elif inp.just_pressed("jump"):
 			buffer_t = 0.0
 			_detach(true)
 
@@ -490,7 +501,8 @@ func _find_target() -> Dictionary:
 	var best := {}
 	var best_score := INF
 	var space := get_world_2d().direct_space_state
-	for gp in level.grapple_points:
+	var cone := TARGET_CONE * (1.5 if inp.is_pad_aim() else 1.0)
+	for gp in runner.grapple_points:
 		if not gp.active:
 			continue
 		var p: Vector2 = gp.global_position
@@ -499,12 +511,12 @@ func _find_target() -> Dictionary:
 		if dist > GRAPPLE_RANGE or dist < 20.0:
 			continue
 		var ang := absf(aim.angle_to(d))
-		if ang > TARGET_CONE:
+		if ang > cone:
 			continue
 		var score := ang + dist / GRAPPLE_RANGE * 0.35
 		if score >= best_score:
 			continue
-		var q := PhysicsRayQueryParameters2D.create(c, p, 1, [get_rid()])
+		var q := PhysicsRayQueryParameters2D.create(c, p, collision_mask, [get_rid()])
 		var hit := space.intersect_ray(q)
 		if not hit.is_empty():
 			continue
@@ -513,7 +525,7 @@ func _find_target() -> Dictionary:
 	if not best.is_empty():
 		return best
 	# grip surfaces: grapple anywhere on them
-	var q2 := PhysicsRayQueryParameters2D.create(c, c + aim.normalized() * GRAPPLE_RANGE, 1, [get_rid()])
+	var q2 := PhysicsRayQueryParameters2D.create(c, c + aim.normalized() * GRAPPLE_RANGE, collision_mask, [get_rid()])
 	var hit2 := space.intersect_ray(q2)
 	if not hit2.is_empty() and hit2.collider and hit2.collider.has_meta("grip"):
 		return {"pos": hit2.position + hit2.normal * 2.0, "node": null}
@@ -586,7 +598,7 @@ func _swing(dt: float) -> void:
 
 	# reel in/out (reel-in conserves angular momentum -> speeds up the swing)
 	if input_enabled:
-		var reel := Input.get_axis("move_up", "move_down")
+		var reel := inp.move.y
 		if reel != 0.0:
 			var old := rope_len
 			rope_len = clampf(rope_len + reel * REEL_SPEED * dt, ROPE_MIN, ROPE_MAX)
@@ -635,7 +647,7 @@ func _zip(dt: float) -> void:
 	var side := velocity - dir * along
 	velocity = dir * minf(along, ZIP_MAX) + side * pow(0.02, dt)
 	_move(dt)
-	var q := PhysicsRayQueryParameters2D.create(center(), a, 1, [get_rid()])
+	var q := PhysicsRayQueryParameters2D.create(center(), a, collision_mask, [get_rid()])
 	if not get_world_2d().direct_space_state.intersect_ray(q).is_empty():
 		_detach(false)
 
@@ -653,7 +665,7 @@ func _update_wraps() -> void:
 			wrap_signs.pop_back()
 			return
 	var a: Vector2 = anchors[-1]
-	var q := PhysicsRayQueryParameters2D.create(c, a, 1, [get_rid()])
+	var q := PhysicsRayQueryParameters2D.create(c, a, collision_mask, [get_rid()])
 	var hit := get_world_2d().direct_space_state.intersect_ray(q)
 	if hit.is_empty() or hit.position.distance_to(a) < 4.0:
 		return
@@ -702,7 +714,7 @@ func _pivot(dt: float) -> void:
 	pivot_t += dt
 	velocity = Vector2.ZERO
 	var limit := AIR_PIVOT_MAX if pivot_air else PIVOT_MAX
-	var released := not Input.is_action_pressed("pivot") or not input_enabled
+	var released := not inp.pressed("pivot") or not input_enabled
 	if released or pivot_t > limit or (not has_disc and pivot_threw_t < 0.0):
 		_end_pivot(released)
 		return
@@ -745,7 +757,7 @@ func _handle_disc_input(dt: float) -> void:
 		charging = false
 		return
 	var now := Time.get_ticks_msec()
-	if Input.is_action_just_pressed("snap"):
+	if inp.just_pressed("snap"):
 		last_snap_ms = now
 		if pending_late_snap and now - last_release_ms <= SNAP_GOOD_MS and disc:
 			var dtm := now - last_release_ms
@@ -757,13 +769,13 @@ func _handle_disc_input(dt: float) -> void:
 		pending_late_snap = false
 		_snap_feedback("NO SNAP")
 
-	if Input.is_action_just_pressed("pivot") and has_disc and (state == NORMAL) and (on_floor or air_pivot_ready):
+	if inp.just_pressed("pivot") and has_disc and (state == NORMAL) and (on_floor or air_pivot_ready):
 		_start_pivot()
 
 	if not has_disc:
 		charging = false
 		return
-	if Input.is_action_just_pressed("throw"):
+	if inp.just_pressed("throw"):
 		charging = true
 		charge_t = 0.0
 		sway_t = _rng.randf() * 10.0
@@ -772,7 +784,7 @@ func _handle_disc_input(dt: float) -> void:
 		charge_t += dt
 		sway_t += dt
 		move_factor = _move_factor()
-		if not Input.is_action_pressed("throw"):
+		if not inp.pressed("throw"):
 			_throw()
 
 
@@ -828,7 +840,7 @@ func _throw() -> void:
 	var wobble := (0.25 + mf * 0.9 + oc * 0.8) * wob_mult
 	var from := hand() + dir * 16.0
 	var space := get_world_2d().direct_space_state
-	var q := PhysicsRayQueryParameters2D.create(center(), from, 1, [get_rid()])
+	var q := PhysicsRayQueryParameters2D.create(center(), from, collision_mask, [get_rid()])
 	if not space.intersect_ray(q).is_empty():
 		from = center()
 	has_disc = false

@@ -45,6 +45,12 @@ const SEGMENTS := {
 	"booster_gap":   {"w": 4.0,  "min_d": 0.0, "dir": 0},
 	"zip_tower":     {"w": 4.0,  "min_d": 0.3, "dir": -1},
 	"wrap_block":    {"w": 3.0,  "min_d": 0.45, "dir": 0},
+	# disc-loop style sections: open fairways reward throw-and-chase,
+	# tight tunnels reward carrying the disc.
+	"fairway":       {"w": 8.0,  "min_d": 0.0, "dir": 0, "style": "throw"},
+	"tunnel":        {"w": 6.0,  "min_d": 0.0, "dir": 0, "style": "carry"},
+	"slope_run":     {"w": 4.0,  "min_d": 0.0, "dir": 1},
+	"crosswind":     {"w": 2.0,  "min_d": 0.2, "dir": 0, "style": "throw"},
 }
 
 const THEME_BIAS := {
@@ -53,7 +59,8 @@ const THEME_BIAS := {
 	"fantasy": {"swing_chain": 1.6, "grip_ceiling": 1.8, "pillars": 1.4, "wrap_block": 1.5},
 	"heaven": {"bounce": 1.8, "updraft": 2.0, "disc_bridge": 1.6, "zip_tower": 1.4},
 	"foundry": {"saws": 2.0, "movers": 1.8, "chimney": 1.4, "booster_gap": 1.3},
-	"frost": {"ramp_jump": 2.0, "slide_tunnel": 1.6, "drop": 1.5, "booster_gap": 1.5},
+	"frost": {"ramp_jump": 2.0, "slide_tunnel": 1.6, "drop": 1.5, "booster_gap": 1.5, "slope_run": 3.0},
+	"canyon": {"fairway": 1.8, "crosswind": 4.0, "swing_chain": 1.3, "bounce": 1.3, "hammer_wall": 1.3},
 }
 
 const DECOR := {
@@ -63,6 +70,7 @@ const DECOR := {
 	"heaven": ["pillar", "cloud_puff", "statue", "arch"],
 	"foundry": ["barrel", "pipe", "crate", "chain", "barrel"],
 	"frost": ["pine", "ice_crystal", "rock", "pine", "snowman"],
+	"canyon": ["cactus", "cactus", "mesa_rock", "skull", "tumbleweed"],
 }
 
 const NAME_A := {
@@ -72,6 +80,7 @@ const NAME_A := {
 	"heaven": ["Halo", "Seraph", "Aether", "Zenith", "Choir", "Radiant", "Empyrean", "Vesper"],
 	"foundry": ["Slag", "Rivet", "Crucible", "Piston", "Ingot", "Furnace", "Anvil", "Cinder"],
 	"frost": ["Rime", "Glacier", "Hoarfrost", "Serac", "Crevasse", "Aurora", "Floe", "Tundra"],
+	"canyon": ["Mesa", "Dustdevil", "Sirocco", "Arroyo", "Butte", "Sundown", "Hoodoo", "Coyote"],
 }
 const NAME_B := ["Line", "Drift", "Run", "Ascent", "Circuit", "Gauntlet", "Sprint", "Spiral",
 	"Descent", "Flight", "Break", "Relay", "Rush", "Chase", "Dash", "Ladder"]
@@ -87,6 +96,7 @@ var ents: Array = []
 var route: Array = []
 var reserves: Array = []   # Array[Rect2] in tiles
 var seg_log: Array = []
+var sections: Array = []   # [{x0, x1, style}] in px: "throw" / "carry" / ""
 var est_time := 0.0
 
 # staging buffers for the segment currently being attempted
@@ -107,7 +117,7 @@ func generate(seed_value: int, theme_id: String = "", difficulty: float = 0.5, l
 	theme = theme_id if Themes.THEMES.has(theme_id) else Themes.random_id(rng)
 	ice_mode = theme == "frost"
 	length = clampi(length, 3, 40)
-	solids.clear(); polys.clear(); ents.clear(); route.clear(); reserves.clear(); seg_log.clear()
+	solids.clear(); polys.clear(); ents.clear(); route.clear(); reserves.clear(); seg_log.clear(); sections.clear()
 	est_time = 0.0
 
 	# --- start pad
@@ -131,6 +141,9 @@ func generate(seed_value: int, theme_id: String = "", difficulty: float = 0.5, l
 			var nxt: Vector2i = call("seg_" + seg, cur.x, cur.y)
 			if _box_ok():
 				_commit(seg)
+				var sty: String = SEGMENTS[seg].get("style", "")
+				if sty != "":
+					sections.append({"x0": cur.x * T, "x1": nxt.x * T, "style": sty})
 				cur = nxt
 				last = [last[1], seg]
 				since_disc = 0 if SEGMENTS[seg].get("disc", false) else since_disc + 1
@@ -151,13 +164,14 @@ func generate(seed_value: int, theme_id: String = "", difficulty: float = 0.5, l
 
 	# --- finalize geometry
 	var bounds := _compute_bounds()
-	var floor_bottom := bounds.end.y + 14 * T
+	var floor_bottom := bounds.end.y + 44 * T
 	for s in solids:
 		if s.get("fill", false):
 			var r: Array = s["r"]
 			r[3] = int(floor_bottom - r[1])
 			s.erase("fill")
-	var kill_y := floor_bottom - 4 * T
+	_merge_grounds()
+	var kill_y := bounds.end.y + 10 * T
 
 	var times := _medals()
 	var name := "%s %s" % [_pick(NAME_A[theme]), _pick(NAME_B)]
@@ -179,6 +193,7 @@ func generate(seed_value: int, theme_id: String = "", difficulty: float = 0.5, l
 		"entities": ents,
 		"route": route,
 		"segments": seg_log,
+		"sections": sections,
 		"medals": times,
 	}
 
@@ -834,6 +849,139 @@ func seg_wrap_block(x: int, y: int) -> Vector2i:
 	return Vector2i(cx, y)
 
 
+func add_sign(x: float, y: float, text: String) -> void:
+	_ent({"t": "sign", "p": _p(x, y), "text": text}, x - 1, y - 3, 3, 3)
+
+
+## Open fairway: running unencumbered + a long throw beats carrying.
+func seg_fairway(x: int, y: int) -> Vector2i:
+	var variant := ri(0, 2)
+	var cx := x
+	add_sign(x + 2, y, "FAIRWAY")
+	match variant:
+		0:  # open field with hurdles the disc sails over
+			var l := ri(34, 50)
+			ground(cx, cx + l, y)
+			var hx := cx + ri(8, 12)
+			while hx < cx + l - 8:
+				if chance(0.6):
+					block(hx, y - ri(1, 2), 1, 2)
+				else:
+					var rl := ri(3, 4)
+					_s_polys.append({"pts": [hx * T, y * T, (hx + rl) * T, (y - 1) * T, (hx + rl * 2) * T, y * T], "k": "ramp"})
+				hx += ri(8, 12)
+			cx += l
+			_s_est += l / (RUN_TILES_PER_SEC * 1.1)
+		1:  # valley: the runner drops in and climbs out, the disc flies straight across
+			ground(cx, cx + 6, y)
+			cx += 6
+			var w := ri(22, 30)
+			var depth := ri(6, 9)
+			ground(cx, cx + w, y + depth)
+			var steps := int(ceil(depth / 3.0))
+			for i in steps:
+				oneway(cx + w - 4 - (steps - 1 - i) * 4, y + depth - 3 * (i + 1), 3)
+			cx += w
+			ground(cx, cx + 10, y)
+			cx += 10
+			_s_est += (w + 16) / (RUN_TILES_PER_SEC * 1.05) + 0.6
+		_:  # high tailwind lane: lofted throws ride it
+			var l2 := ri(36, 48)
+			ground(cx, cx + l2, y)
+			_ent({"t": "wind", "r": [int((cx + 6) * T), int((y - 16) * T), (l2 - 10) * T, 8 * T], "force": [1400, 0]}, cx + 6, y - 16, l2 - 10, 8)
+			cx += l2
+			_s_est += l2 / (RUN_TILES_PER_SEC * 1.1)
+	_route(cx, y)
+	return Vector2i(cx, y)
+
+
+## Tight tunnel: low ceilings and kinks swallow throws, so carry the disc.
+func seg_tunnel(x: int, y: int) -> Vector2i:
+	var l := ri(20, 32)
+	var cx := x
+	ground(cx, cx + l + 6, y)
+	add_sign(cx + 1, y, "TUNNEL")
+	var top := y - 4
+	var kink := chance(0.5)
+	var kx := cx + 3 + l / 2
+	if kink:
+		# tunnel steps up through a short shaft halfway along
+		block(cx + 3, top - 8, kx - (cx + 3), 8)
+		block(kx + 3, top - 12, (cx + 3 + l) - (kx + 3), 8)
+		ground(kx + 3, cx + 3 + l, y - 4)
+		block(kx - 1, y - 2, 1, 2)
+	else:
+		block(cx + 3, top - 8, l, 8)
+	var bx := cx + 6
+	while bx < cx + l - 2:
+		if kink and absi(bx - kx) < 5:
+			bx += 4
+			continue
+		var floor_y := y if not (kink and bx > kx) else y - 4
+		if chance(0.5):
+			block(bx, floor_y - 1, 2, 1)
+		else:
+			block(bx, floor_y - 4, 2, 1.5)
+		bx += ri(4, 6)
+	cx += l + 6
+	var end_y := y
+	if kink:
+		ground(cx - 3, cx + 4, y - 4)
+		end_y = y - 4
+		cx += 4
+	_route(cx, end_y)
+	_s_est += l / (RUN_TILES_PER_SEC * 0.85) + 0.4
+	return Vector2i(cx, end_y)
+
+
+## Downhill slope: slide down it to build speed, then launch off a kicker.
+func seg_slope_run(x: int, y: int) -> Vector2i:
+	var cx := x
+	ground(cx, cx + 4, y)
+	cx += 4
+	var l := ri(10, 16)
+	var h := ri(5, 8)
+	var kind := "ice" if ice_mode else "ramp"
+	_s_polys.append({"pts": [cx * T, y * T, (cx + l) * T, (y + h) * T, cx * T, (y + h) * T], "k": kind})
+	_grow(cx, y, l, h)
+	var by := y + h
+	ground(cx, cx + l + 4, by)
+	cx += l + 4
+	# kicker
+	_s_polys.append({"pts": [cx * T, by * T, (cx + 3) * T, (by - 1.5) * T, (cx + 3) * T, by * T], "k": "ramp"})
+	ground(cx, cx + 3, by)
+	cx += 3
+	var gap := ri(8, 12)
+	pit(cx, cx + gap, by)
+	cx += gap
+	var land := by + ri(-1, 2)
+	ground(cx, cx + 6, land)
+	cx += 6
+	_route(cx, land)
+	_s_est += (cx - x) / (RUN_TILES_PER_SEC * 1.4)
+	return Vector2i(cx, land)
+
+
+## Gusty gap: grapple across while a crosswind pushes you (and your disc).
+func seg_crosswind(x: int, y: int) -> Vector2i:
+	var cx := x
+	ground(cx, cx + 5, y)
+	cx += 5
+	var w := ri(16, 22)
+	var dirx := 1 if chance(0.65) else -1
+	pit(cx, cx + w, y)
+	_ent({"t": "wind", "r": [int(cx * T), int((y - 14) * T), w * T, 18 * T], "force": [1500 * dirx, -150]}, cx, y - 14, w, 18)
+	var n := maxi(1, int(w / 9.0))
+	for i in n:
+		grapple_pt(cx + w * (i + 0.5) / n, y - ri(7, 9), "static")
+	cx += w
+	ground(cx, cx + 6, y)
+	cx += 6
+	_route(cx, y)
+	_s_est += w / 13.0 + 0.6
+	return Vector2i(cx, y)
+
+
 # ============================================================ finale
 
 func _finale(x: int, y: int) -> Vector2:
@@ -957,6 +1105,37 @@ func _add_decor() -> void:
 			x += rf(3, 8) * T
 
 
+## Merge horizontally touching/overlapping floor pieces with the same top so
+## the terrain draws as continuous slabs (no seams).
+func _merge_grounds() -> void:
+	var groups := {}
+	var rest := []
+	for s in solids:
+		if s.k in ["ground", "ice"]:
+			var key := "%s:%d:%d" % [s.k, s.r[1], s.r[3]]
+			if not groups.has(key):
+				groups[key] = []
+			groups[key].append(s)
+		else:
+			rest.append(s)
+	var out := []
+	for key in groups:
+		var arr: Array = groups[key]
+		arr.sort_custom(func(a, b): return a.r[0] < b.r[0])
+		var cur: Dictionary = arr[0].duplicate(true)
+		for i in range(1, arr.size()):
+			var n: Dictionary = arr[i]
+			var cur_end: int = cur.r[0] + cur.r[2]
+			if n.r[0] <= cur_end:
+				cur.r[2] = maxi(cur_end, n.r[0] + n.r[2]) - cur.r[0]
+			else:
+				out.append(cur)
+				cur = n.duplicate(true)
+		out.append(cur)
+	out.sort_custom(func(a, b): return a.r[0] < b.r[0])
+	solids = out + rest
+
+
 func _compute_bounds() -> Rect2:
 	var r := Rect2(0, -200, 100, 100)
 	var first := true
@@ -971,11 +1150,13 @@ func _compute_bounds() -> Rect2:
 	return r
 
 
+## Par = estimated time for a clean, confident run. Medals scale off par.
 func _medals() -> Dictionary:
-	var e := est_time
+	var par := snappedf(est_time * 0.85, 0.01)
 	return {
-		"ace": snappedf(e * 0.62, 0.01),
-		"gold": snappedf(e * 0.85, 0.01),
-		"silver": snappedf(e * 1.15, 0.01),
-		"bronze": snappedf(e * 1.6, 0.01),
+		"par": par,
+		"ace": snappedf(par * 0.78, 0.01),
+		"gold": par,
+		"silver": snappedf(par * 1.3, 0.01),
+		"bronze": snappedf(par * 1.8, 0.01),
 	}

@@ -33,6 +33,7 @@ var skips := 0
 var facing := 1.0          # +1 moving right, -1 left (for attitude frame)
 var winds: Array = []      # active wind zone nodes
 var level: Node = null
+var runner: Node = null
 var color := Color(2, 0.5, 1.5)
 var noise_t := 0.0
 var last_speed := 0.0
@@ -361,9 +362,9 @@ func _check_basket() -> void:
 
 
 func _check_gates() -> void:
-	if level == null:
+	if runner == null:
 		return
-	for g in level.gates:
+	for g in runner.gates:
 		if not g.triggered and g.ring_pos.distance_to(global_position) < 46.0:
 			g.trigger()
 			impact.emit("gate", velocity.length())

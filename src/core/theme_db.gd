@@ -1,7 +1,7 @@
 extends RefCounted
 ## Visual + audio theme definitions. Colors above 1.0 glow (HDR 2D + bloom).
 
-const ORDER := ["field", "cyber", "fantasy", "heaven", "foundry", "frost"]
+const ORDER := ["field", "cyber", "fantasy", "heaven", "foundry", "frost", "canyon"]
 
 const THEMES := {
 	"field": {
@@ -24,10 +24,10 @@ const THEMES := {
 		"name": "Neon Sprawl",
 		"sky_top": Color(0.02, 0.0, 0.08), "sky_bottom": Color(0.22, 0.02, 0.25),
 		"fog": Color(0.5, 0.05, 0.4, 0.25),
-		"ground": Color(0.06, 0.04, 0.12), "ground_dark": Color(0.02, 0.01, 0.05),
+		"ground": Color(0.16, 0.08, 0.26), "ground_dark": Color(0.05, 0.02, 0.1),
 		"edge": Color(0.2, 2.2, 2.4), "edge_glow": 2.0,
 		"detail": Color(1.6, 0.2, 1.4, 0.7),
-		"block": Color(0.1, 0.07, 0.18), "block_dark": Color(0.04, 0.02, 0.08),
+		"block": Color(0.2, 0.1, 0.3), "block_dark": Color(0.08, 0.04, 0.14),
 		"oneway": Color(2.0, 0.3, 1.5),
 		"hazard": Color(2.5, 0.2, 0.3), "grapple": Color(0.3, 2.5, 1.8),
 		"accent": Color(2.2, 0.2, 1.6), "accent2": Color(0.2, 1.6, 2.4),
@@ -85,7 +85,7 @@ const THEMES := {
 		"music": {"bpm": 132, "root": 40, "scale": "phrygian", "style": "industrial", "prog": [0, 1, 0, 6]},
 	},
 	"frost": {
-		"name": "Glacier Peaks",
+		"name": "Frost Peak",
 		"sky_top": Color(0.05, 0.1, 0.25), "sky_bottom": Color(0.4, 0.6, 0.8),
 		"fog": Color(0.8, 0.9, 1.0, 0.3),
 		"ground": Color(0.75, 0.85, 0.95), "ground_dark": Color(0.4, 0.5, 0.65),
@@ -99,6 +99,22 @@ const THEMES := {
 		"text": Color(0.95, 1, 1), "bg_style": "mountains", "particles": "snow",
 		"glow": 0.7,
 		"music": {"bpm": 116, "root": 52, "scale": "minor", "style": "ambient", "prog": [0, 5, 2, 6]},
+	},
+	"canyon": {
+		"name": "Sunset Canyon",
+		"sky_top": Color(0.25, 0.12, 0.35), "sky_bottom": Color(1.0, 0.55, 0.3),
+		"fog": Color(1.0, 0.6, 0.4, 0.3),
+		"ground": Color(0.72, 0.38, 0.22), "ground_dark": Color(0.38, 0.16, 0.12),
+		"edge": Color(2.0, 1.2, 0.5), "edge_glow": 1.2,
+		"detail": Color(1.0, 0.8, 0.5, 0.5),
+		"block": Color(0.62, 0.32, 0.2), "block_dark": Color(0.32, 0.14, 0.1),
+		"oneway": Color(0.8, 0.55, 0.3),
+		"hazard": Color(2.4, 0.5, 0.2), "grapple": Color(0.4, 2.0, 1.8),
+		"accent": Color(2.2, 0.9, 0.3), "accent2": Color(0.5, 1.6, 2.0),
+		"basket": Color(2.2, 2.0, 0.5), "disc": Color(0.3, 2.0, 2.2),
+		"text": Color(1, 0.95, 0.85), "bg_style": "canyon", "particles": "dust",
+		"glow": 0.6,
+		"music": {"bpm": 112, "root": 50, "scale": "phrygian", "style": "desert", "prog": [0, 1, 6, 0]},
 	},
 }
 

@@ -26,6 +26,10 @@ func setup(data: Dictionary, p_theme: Dictionary) -> void:
 	add_child(body)
 
 
+func set_physics_layer(bits: int) -> void:
+	body.collision_layer = bits
+
+
 func shatter(_vel: Vector2) -> void:
 	if broken:
 		return
