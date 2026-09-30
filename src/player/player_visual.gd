@@ -128,6 +128,12 @@ func _draw() -> void:
 		l2 = hip + Vector2(s2 * 12 * amp, 20)
 		k1 = hip + Vector2(s * 6 * amp + facing * 4 * amp, 10 - maxf(0, cos(run_phase)) * 3 * amp)
 		k2 = hip + Vector2(s2 * 6 * amp + facing * 4 * amp, 10 - maxf(0, cos(run_phase + PI)) * 3 * amp)
+	# dark under-stroke keeps the runner readable on bright themes
+	var ol := Color(0.02, 0.0, 0.06, 0.75 * alpha)
+	draw_polyline(PackedVector2Array([hip, k1, l1]), ol, w + 3.5, true)
+	draw_polyline(PackedVector2Array([hip, k2, l2]), ol, w + 3.5, true)
+	draw_line(hip, neck, ol, w + 4.5, true)
+	draw_circle(head, 9.5, ol)
 	draw_polyline(PackedVector2Array([hip, k1, l1]), c, w, true)
 	draw_polyline(PackedVector2Array([hip, k2, l2]), c, w, true)
 
@@ -154,6 +160,8 @@ func _draw() -> void:
 		var swing_a := sin(run_phase + PI) * 0.8 if on_floor else -0.9
 		hand_a = shoulder + Vector2(facing * 6 + swing_a * 8, 12)
 		hand_b = shoulder + Vector2(-facing * 4 - swing_a * 8, 13)
+	draw_line(shoulder, hand_a, ol, w + 3.5, true)
+	draw_line(shoulder, hand_b, ol, w + 3.5, true)
 	draw_line(shoulder, hand_a, c, w, true)
 	draw_line(shoulder, hand_b, c, w, true)
 	if has_disc:

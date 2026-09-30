@@ -308,13 +308,13 @@ class BgLayer:
 					var cr := rng.randf_range(80, 200) * (1.0 + depth * 0.3)
 					var cy := ground_y + rng.randf_range(-200, 100)
 					for k in 5:
-						draw_circle(Vector2(cx + k * cr * 0.6, cy - (k % 2) * cr * 0.4), cr * (0.7 + 0.1 * (k % 3)), Color(1, 1, 1, 0.5 + depth * 0.15))
+						draw_circle(Vector2(cx + k * cr * 0.6, cy - (k % 2) * cr * 0.4), cr * (0.7 + 0.1 * (k % 3)), Color(0.9, 0.93, 1.0, 0.3 + depth * 0.12))
 					if depth >= 1 and rng.randf() < 0.5:
 						var ph := rng.randf_range(200, 500)
 						draw_rect(Rect2(cx + cr, cy - ph, 40, ph), Color(0.98, 0.98, 1.0, 0.7))
 						draw_rect(Rect2(cx + cr - 10, cy - ph - 14, 60, 14), Color(th.basket, 0.6))
 					cx += cr * 3.5 + rng.randf_range(100, 400)
-				draw_rect(Rect2(0, ground_y + 200, W, 3000), Color(1, 1, 1, 0.6))
+				draw_rect(Rect2(0, ground_y + 200, W, 3000), Color(0.9, 0.92, 1.0, 0.35))
 			"factory":
 				var fx := 0.0
 				while fx < W:

@@ -162,7 +162,7 @@ func _draw_block() -> void:
 					var il := rng.randf_range(6, 22)
 					draw_colored_polygon(PackedVector2Array([Vector2(ix - 3, r.end.y), Vector2(ix + 3, r.end.y), Vector2(ix, r.end.y + il)]), Color(0.8, 0.95, 1.2, 0.8))
 	if kind == "ice":
-		_vgrad_rect(Rect2(r.position, Vector2(r.size.x, 40)), Color(0.7, 1.2, 1.6, 0.55), Color(0.7, 1.2, 1.6, 0.0))
+		_vgrad_rect(Rect2(r.position, Vector2(r.size.x, 40)), Color(0.75, 0.95, 1.0, 0.45), Color(0.75, 0.95, 1.0, 0.0))
 		for k in int(r.size.x / 40.0):
 			var gx2 := r.position.x + k * 40.0 + 10.0
 			draw_line(Vector2(gx2, r.position.y + 6), Vector2(gx2 + 14, r.position.y + 2), Color(2, 2, 2, 0.6), 1.5)

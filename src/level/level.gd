@@ -99,7 +99,7 @@ func _build_environment() -> void:
 	env.glow_intensity = 1.0 + float(th.get("glow", 0.7))
 	env.glow_strength = 1.1
 	env.glow_bloom = 0.02
-	env.glow_hdr_threshold = 1.0
+	env.glow_hdr_threshold = float(th.get("glow_threshold", 1.0))
 	env.glow_hdr_scale = 2.0
 	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
 	for i in 7:
