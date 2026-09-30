@@ -97,6 +97,7 @@ func _ready() -> void:
 				gl.set_physics_layer(personal_layer())
 	# ---- camera + background into this runner's view
 	camera = Camera2D.new()
+	camera.process_callback = Camera2D.CAMERA2D_PROCESS_PHYSICS
 	camera.zoom = Vector2(cam_zoom, cam_zoom)
 	view_root.add_child(camera)
 	camera.make_current()

@@ -44,6 +44,7 @@ func _ready() -> void:
 	we.environment = env
 	add_child(we)
 	camera = Camera2D.new()
+	camera.process_callback = Camera2D.CAMERA2D_PROCESS_PHYSICS
 	add_child(camera)
 	camera.make_current()
 	var bg := Background.new()
@@ -499,6 +500,7 @@ func _page_controls() -> void:
 		["spin", "stability, skip shots off floors, wall kicks"],
 		["catching", "grab the disc midair: refreshes dash + air pivot"],
 		["goal", "get the disc into the basket. Fastest time wins"],
+		["controller", "LS move · RS aim · A jump · X dash · LT swing · LB zip\nRT throw · RB snap · B pivot · Y recall · D-pad throw/nose"],
 	]
 	for l in lines_l:
 		left.add_child(_ctrl_row(l[0], l[1]))
