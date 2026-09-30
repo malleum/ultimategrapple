@@ -1,0 +1,111 @@
+extends RefCounted
+## Visual + audio theme definitions. Colors above 1.0 glow (HDR 2D + bloom).
+
+const ORDER := ["field", "cyber", "fantasy", "heaven", "foundry", "frost"]
+
+const THEMES := {
+	"field": {
+		"name": "Ultimate Field",
+		"sky_top": Color(0.33, 0.62, 0.95), "sky_bottom": Color(0.78, 0.9, 1.0),
+		"fog": Color(0.75, 0.88, 1.0, 0.35),
+		"ground": Color(0.16, 0.5, 0.2), "ground_dark": Color(0.08, 0.3, 0.12),
+		"edge": Color(0.95, 1.0, 0.95), "edge_glow": 1.0,
+		"detail": Color(1, 1, 1, 0.55),
+		"block": Color(0.85, 0.85, 0.82), "block_dark": Color(0.55, 0.55, 0.55),
+		"oneway": Color(1.0, 0.55, 0.1),
+		"hazard": Color(1.6, 0.25, 0.1), "grapple": Color(1.4, 0.9, 0.1),
+		"accent": Color(1.0, 0.45, 0.05), "accent2": Color(0.1, 0.4, 1.0),
+		"basket": Color(1.2, 1.0, 0.2), "disc": Color(1.6, 0.4, 0.9),
+		"text": Color(1, 1, 1), "bg_style": "field", "particles": "pollen",
+		"glow": 0.35,
+		"music": {"bpm": 124, "root": 57, "scale": "major", "style": "indie", "prog": [0, 4, 5, 3]},
+	},
+	"cyber": {
+		"name": "Neon Sprawl",
+		"sky_top": Color(0.02, 0.0, 0.08), "sky_bottom": Color(0.22, 0.02, 0.25),
+		"fog": Color(0.5, 0.05, 0.4, 0.25),
+		"ground": Color(0.06, 0.04, 0.12), "ground_dark": Color(0.02, 0.01, 0.05),
+		"edge": Color(0.2, 2.2, 2.4), "edge_glow": 2.0,
+		"detail": Color(1.6, 0.2, 1.4, 0.7),
+		"block": Color(0.1, 0.07, 0.18), "block_dark": Color(0.04, 0.02, 0.08),
+		"oneway": Color(2.0, 0.3, 1.5),
+		"hazard": Color(2.5, 0.2, 0.3), "grapple": Color(0.3, 2.5, 1.8),
+		"accent": Color(2.2, 0.2, 1.6), "accent2": Color(0.2, 1.6, 2.4),
+		"basket": Color(2.4, 2.0, 0.3), "disc": Color(2.4, 1.6, 0.2),
+		"text": Color(0.8, 1, 1), "bg_style": "city", "particles": "rain",
+		"glow": 0.9,
+		"music": {"bpm": 140, "root": 45, "scale": "minor", "style": "darksynth", "prog": [0, 5, 3, 6]},
+	},
+	"fantasy": {
+		"name": "Elderwood Ruins",
+		"sky_top": Color(0.1, 0.12, 0.3), "sky_bottom": Color(0.55, 0.4, 0.55),
+		"fog": Color(0.4, 0.5, 0.6, 0.3),
+		"ground": Color(0.28, 0.26, 0.3), "ground_dark": Color(0.14, 0.13, 0.17),
+		"edge": Color(0.45, 0.95, 0.35), "edge_glow": 1.2,
+		"detail": Color(1.3, 1.1, 0.4, 0.8),
+		"block": Color(0.4, 0.36, 0.33), "block_dark": Color(0.22, 0.2, 0.2),
+		"oneway": Color(0.55, 0.35, 0.2),
+		"hazard": Color(1.8, 0.3, 1.2), "grapple": Color(1.5, 1.3, 0.4),
+		"accent": Color(1.4, 1.1, 0.4), "accent2": Color(0.5, 1.2, 1.6),
+		"basket": Color(1.6, 1.3, 0.5), "disc": Color(0.5, 1.6, 1.8),
+		"text": Color(1, 0.95, 0.85), "bg_style": "forest", "particles": "fireflies",
+		"glow": 0.7,
+		"music": {"bpm": 108, "root": 50, "scale": "dorian", "style": "harp", "prog": [0, 3, 6, 4]},
+	},
+	"heaven": {
+		"name": "Celestial Arcade",
+		"sky_top": Color(0.5, 0.75, 1.0), "sky_bottom": Color(1.0, 0.92, 0.98),
+		"fog": Color(1, 1, 1, 0.4),
+		"ground": Color(0.94, 0.95, 1.0), "ground_dark": Color(0.72, 0.76, 0.9),
+		"edge": Color(0.3, 1.6, 2.2), "edge_glow": 1.6,
+		"detail": Color(1.8, 0.8, 1.6, 0.6),
+		"block": Color(0.98, 0.98, 1.0), "block_dark": Color(0.8, 0.82, 0.95),
+		"oneway": Color(1.8, 1.4, 0.4),
+		"hazard": Color(2.4, 0.2, 0.5), "grapple": Color(0.4, 2.0, 2.6),
+		"accent": Color(2.0, 0.6, 1.6), "accent2": Color(0.3, 1.8, 2.4),
+		"basket": Color(2.4, 1.8, 0.3), "disc": Color(2.2, 0.3, 1.4),
+		"text": Color(0.15, 0.15, 0.3), "bg_style": "heaven", "particles": "sparkle",
+		"glow": 0.6,
+		"music": {"bpm": 150, "root": 53, "scale": "lydian", "style": "breakbeat", "prog": [0, 4, 1, 5]},
+	},
+	"foundry": {
+		"name": "Iron Foundry",
+		"sky_top": Color(0.12, 0.06, 0.04), "sky_bottom": Color(0.5, 0.2, 0.06),
+		"fog": Color(0.6, 0.25, 0.05, 0.3),
+		"ground": Color(0.2, 0.18, 0.17), "ground_dark": Color(0.09, 0.08, 0.08),
+		"edge": Color(2.2, 0.9, 0.2), "edge_glow": 1.5,
+		"detail": Color(1.0, 0.8, 0.1, 0.8),
+		"block": Color(0.32, 0.3, 0.3), "block_dark": Color(0.16, 0.15, 0.15),
+		"oneway": Color(0.9, 0.7, 0.1),
+		"hazard": Color(2.6, 0.6, 0.1), "grapple": Color(0.4, 1.8, 2.4),
+		"accent": Color(2.4, 1.0, 0.2), "accent2": Color(0.3, 1.2, 2.0),
+		"basket": Color(2.2, 2.0, 1.2), "disc": Color(0.3, 2.2, 1.2),
+		"text": Color(1, 0.9, 0.8), "bg_style": "factory", "particles": "embers",
+		"glow": 0.8,
+		"music": {"bpm": 132, "root": 40, "scale": "phrygian", "style": "industrial", "prog": [0, 1, 0, 6]},
+	},
+	"frost": {
+		"name": "Glacier Peaks",
+		"sky_top": Color(0.05, 0.1, 0.25), "sky_bottom": Color(0.4, 0.6, 0.8),
+		"fog": Color(0.8, 0.9, 1.0, 0.3),
+		"ground": Color(0.75, 0.85, 0.95), "ground_dark": Color(0.4, 0.5, 0.65),
+		"edge": Color(1.6, 2.2, 2.6), "edge_glow": 1.3,
+		"detail": Color(0.6, 1.4, 2.0, 0.7),
+		"block": Color(0.55, 0.75, 0.9), "block_dark": Color(0.3, 0.45, 0.6),
+		"oneway": Color(0.8, 1.2, 1.6),
+		"hazard": Color(2.0, 0.3, 0.6), "grapple": Color(2.2, 1.6, 0.4),
+		"accent": Color(0.4, 2.0, 1.4), "accent2": Color(1.8, 0.6, 2.0),
+		"basket": Color(2.2, 1.8, 0.4), "disc": Color(2.2, 0.6, 0.3),
+		"text": Color(0.95, 1, 1), "bg_style": "mountains", "particles": "snow",
+		"glow": 0.7,
+		"music": {"bpm": 116, "root": 52, "scale": "minor", "style": "ambient", "prog": [0, 5, 2, 6]},
+	},
+}
+
+
+static func get_theme(id: String) -> Dictionary:
+	return THEMES.get(id, THEMES["cyber"])
+
+
+static func random_id(rng: RandomNumberGenerator) -> String:
+	return ORDER[rng.randi_range(0, ORDER.size() - 1)]

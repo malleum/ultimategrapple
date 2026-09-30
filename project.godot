@@ -1,0 +1,44 @@
+; Engine configuration file.
+config_version=5
+
+[application]
+
+config/name="Ultimate Grapple"
+config/description="Neon speed-disc-golf with a grappling hook."
+run/main_scene="res://scenes/main.tscn"
+config/features=PackedStringArray("4.7", "Forward Plus")
+run/max_fps=0
+boot_splash/bg_color=Color(0.02, 0.01, 0.05, 1)
+boot_splash/show_image=false
+
+[autoload]
+
+Game="*res://src/core/game.gd"
+Sfx="*res://src/audio/sfx.gd"
+Music="*res://src/audio/music.gd"
+Net="*res://src/net/net.gd"
+
+[display]
+
+window/size/viewport_width=1920
+window/size/viewport_height=1080
+window/size/window_width_override=1600
+window/size/window_height_override=900
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+window/vsync/vsync_mode=0
+
+[physics]
+
+common/physics_ticks_per_second=120
+common/max_physics_steps_per_frame=12
+common/physics_interpolation=true
+2d/default_gravity=0.0
+
+[rendering]
+
+renderer/rendering_method="forward_plus"
+viewport/hdr_2d=true
+anti_aliasing/quality/msaa_2d=1
+environment/defaults/default_clear_color=Color(0.02, 0.01, 0.05, 1)
+textures/canvas_textures/default_texture_filter=1

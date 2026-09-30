@@ -1,0 +1,476 @@
+extends Node
+## Multiplayer: ENet host/join, LAN discovery, lobby, and "first to X" race sets.
+## Everyone races the same course simultaneously as non-colliding ghosts.
+## The server (listen or dedicated) is authoritative for round order/scoring.
+
+const Themes = preload("res://src/core/theme_db.gd")
+
+const PORT := 24680
+const DISCOVERY_PORT := 24681
+const STATE_HZ := 30.0
+const ROUND_BREAK := 5.0
+
+signal lobby_changed
+signal status_changed(text: String)
+signal servers_changed
+
+var peer: ENetMultiplayerPeer = null
+var players := {}          # id -> {name, color, wins, ready}
+var settings := {"wins": 3, "source": "random", "difficulty": 0.5, "length": 10, "theme": ""}
+var in_lobby := false
+var dedicated := false
+var round_active := false
+var round_idx := 0
+var round_winner := -1
+var round_results := {}    # id -> time
+var set_winner := -1
+var next_round_at := -1.0
+var champion_text := ""
+var status := ""
+var servers := {}          # "ip:port" -> {name, count, t}
+
+var _send_accum := 0.0
+var _last_frame: Array = []
+var _bcast: PacketPeerUDP = null
+var _listen: PacketPeerUDP = null
+var _bcast_t := 0.0
+var _round_timer := -1.0
+
+
+func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	multiplayer.peer_connected.connect(_on_peer_connected)
+	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
+	multiplayer.connected_to_server.connect(_on_connected)
+	multiplayer.connection_failed.connect(_on_failed)
+	multiplayer.server_disconnected.connect(_on_server_gone)
+
+
+func is_server() -> bool:
+	return peer != null and multiplayer.is_server()
+
+
+func my_id() -> int:
+	return multiplayer.get_unique_id() if peer else 1
+
+
+func _my_info() -> Dictionary:
+	return {"name": str(Game.settings.player_name).substr(0, 16), "color": int(Game.settings.player_color), "wins": 0, "ready": false}
+
+
+func _set_status(t: String) -> void:
+	status = t
+	status_changed.emit(t)
+	if dedicated:
+		print("[server] ", t)
+
+
+# ================================================================ connect
+
+func host(port := PORT, as_dedicated := false) -> bool:
+	leave()
+	peer = ENetMultiplayerPeer.new()
+	var err := peer.create_server(port, 12)
+	if err != OK:
+		peer = null
+		_set_status("Could not host on port %d (error %d)" % [port, err])
+		return false
+	multiplayer.multiplayer_peer = peer
+	dedicated = as_dedicated
+	players.clear()
+	if not dedicated:
+		players[1] = _my_info()
+	in_lobby = true
+	_start_broadcast(port)
+	_set_status("Hosting on port %d" % port)
+	lobby_changed.emit()
+	return true
+
+
+func join(address: String) -> void:
+	leave()
+	var ip := address
+	var port := PORT
+	if ":" in address:
+		ip = address.get_slice(":", 0)
+		port = int(address.get_slice(":", 1))
+	if ip == "":
+		ip = "127.0.0.1"
+	peer = ENetMultiplayerPeer.new()
+	var err := peer.create_client(ip, port)
+	if err != OK:
+		peer = null
+		_set_status("Could not connect (error %d)" % err)
+		return
+	multiplayer.multiplayer_peer = peer
+	_set_status("Connecting to %s:%d ..." % [ip, port])
+
+
+func leave() -> void:
+	if peer:
+		peer.close()
+	peer = null
+	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
+	players.clear()
+	in_lobby = false
+	round_active = false
+	set_winner = -1
+	_round_timer = -1.0
+	if _bcast:
+		_bcast.close()
+		_bcast = null
+	lobby_changed.emit()
+
+
+func leave_if_solo() -> void:
+	pass
+
+
+func start_dedicated_server() -> void:
+	var port := PORT
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--port="):
+			port = int(a.get_slice("=", 1))
+		elif a.begins_with("--wins="):
+			settings.wins = int(a.get_slice("=", 1))
+		elif a.begins_with("--source="):
+			settings.source = a.get_slice("=", 1)
+		elif a.begins_with("--difficulty="):
+			settings.difficulty = float(a.get_slice("=", 1))
+	Game.settings.player_name = "Dedicated"
+	host(port, true)
+	print("Ultimate Grapple dedicated server on port %d. First to %d. Source: %s" % [port, settings.wins, settings.source])
+
+
+func _on_connected() -> void:
+	in_lobby = true
+	_set_status("Connected")
+	rpc_id(1, "register", _my_info())
+
+
+func _on_failed() -> void:
+	_set_status("Connection failed")
+	leave()
+
+
+func _on_server_gone() -> void:
+	_set_status("Server closed the connection")
+	var was_racing := round_active
+	leave()
+	if was_racing or Game.current_scene and Game.current_scene.has_method("restart"):
+		Game.goto_menu("multi")
+
+
+func _on_peer_connected(_id: int) -> void:
+	pass
+
+
+func _on_peer_disconnected(id: int) -> void:
+	if players.has(id):
+		var n: String = players[id].name
+		players.erase(id)
+		_set_status("%s left" % n)
+	var lvl = _level()
+	if lvl:
+		lvl.remove_remote_ghost(id)
+	if is_server():
+		_push_lobby()
+		_check_round_complete()
+
+
+@rpc("any_peer", "reliable")
+func register(info: Dictionary) -> void:
+	if not is_server():
+		return
+	var id := multiplayer.get_remote_sender_id()
+	info.wins = 0
+	info.ready = false
+	info.name = str(info.get("name", "Runner")).substr(0, 16)
+	players[id] = info
+	_set_status("%s joined" % info.name)
+	_push_lobby()
+
+
+func _push_lobby() -> void:
+	rpc("sync_lobby", players, settings, round_active)
+
+
+@rpc("authority", "call_local", "reliable")
+func sync_lobby(p: Dictionary, s: Dictionary, active: bool) -> void:
+	players = p
+	settings = s
+	round_active = active
+	lobby_changed.emit()
+
+
+@rpc("any_peer", "call_local", "reliable")
+func set_ready(r: bool) -> void:
+	if not is_server():
+		return
+	var id := multiplayer.get_remote_sender_id()
+	if id == 0:
+		id = 1
+	if players.has(id):
+		players[id].ready = r
+		_push_lobby()
+
+
+func toggle_ready() -> void:
+	var me: Dictionary = players.get(my_id(), {})
+	var want: bool = not me.get("ready", false)
+	if is_server():
+		set_ready(want)
+	else:
+		rpc_id(1, "set_ready", want)
+
+
+func update_settings(s: Dictionary) -> void:
+	if not is_server():
+		return
+	for k in s:
+		settings[k] = s[k]
+	_push_lobby()
+
+
+# ================================================================ rounds
+
+func start_set() -> void:
+	if not is_server() or players.is_empty():
+		return
+	for id in players:
+		players[id].wins = 0
+	set_winner = -1
+	round_idx = 0
+	_start_round()
+
+
+func _start_round() -> void:
+	var data: Dictionary
+	if settings.source == "pinned":
+		var pool := Game.list_pinned_levels()
+		if pool.is_empty():
+			data = Game.generate_level(randi() % 1000000, settings.theme, settings.difficulty, settings.length)
+		else:
+			data = pool[round_idx % pool.size()]
+	else:
+		data = Game.generate_level(randi() % 1000000, settings.theme, settings.difficulty, settings.length)
+	var raw := JSON.stringify(data).to_utf8_buffer()
+	var packed := raw.compress(FileAccess.COMPRESSION_ZSTD)
+	round_active = true
+	round_winner = -1
+	round_results = {}
+	_round_timer = -1.0
+	_set_status("Round %d: %s" % [round_idx + 1, data.get("name", "")])
+	rpc("begin_round", packed, raw.size(), round_idx, players)
+
+
+@rpc("authority", "call_local", "reliable")
+func begin_round(packed: PackedByteArray, size: int, idx: int, p: Dictionary) -> void:
+	players = p
+	round_idx = idx
+	round_active = true
+	round_winner = -1
+	round_results = {}
+	set_winner = -1
+	next_round_at = -1.0
+	if dedicated:
+		return
+	var txt := packed.decompress(size, FileAccess.COMPRESSION_ZSTD).get_string_from_utf8()
+	var data = JSON.parse_string(txt)
+	if not (data is Dictionary):
+		_set_status("Bad level data from server")
+		return
+	var lvl = Game.play_level(data, "multi")
+	for id in players:
+		if id != my_id():
+			var info: Dictionary = players[id]
+			lvl.add_remote_ghost(id, info.name, Game.player_palette(int(info.color)))
+	lvl.start_countdown(3.0)
+	Sfx.play("beep")
+
+
+func send_state(frame: Array) -> void:
+	_last_frame = frame
+	_send_accum += 1.0 / Engine.physics_ticks_per_second
+	if _send_accum >= 1.0 / STATE_HZ and peer:
+		_send_accum = 0.0
+		rpc("state", frame)
+
+
+@rpc("any_peer", "unreliable_ordered")
+func state(frame: Array) -> void:
+	var lvl = _level()
+	if lvl:
+		lvl.remote_state(multiplayer.get_remote_sender_id(), frame)
+
+
+func report_finish(t: float, throws: int) -> void:
+	if is_server():
+		finish(t, throws)
+	else:
+		rpc_id(1, "finish", t, throws)
+
+
+@rpc("any_peer", "reliable")
+func finish(t: float, _throws: int) -> void:
+	if not is_server() or not round_active:
+		return
+	var id := multiplayer.get_remote_sender_id()
+	if id == 0:
+		id = 1
+	if round_results.has(id) or not players.has(id):
+		return
+	round_results[id] = t
+	if round_winner == -1:
+		round_winner = id
+		players[id].wins = int(players[id].wins) + 1
+		if int(players[id].wins) >= int(settings.wins):
+			set_winner = id
+		_round_timer = ROUND_BREAK + 3.0
+	rpc("round_update", players, round_winner, round_results, set_winner, _round_timer)
+	_check_round_complete()
+
+
+func _check_round_complete() -> void:
+	if not is_server() or not round_active or round_winner == -1:
+		return
+	if round_results.size() >= players.size():
+		_round_timer = minf(_round_timer, ROUND_BREAK)
+		rpc("round_update", players, round_winner, round_results, set_winner, _round_timer)
+
+
+@rpc("authority", "call_local", "reliable")
+func round_update(p: Dictionary, winner: int, results: Dictionary, s_winner: int, next_in: float) -> void:
+	var first := round_winner == -1 and winner != -1
+	players = p
+	round_winner = winner
+	round_results = results
+	set_winner = s_winner
+	next_round_at = Time.get_ticks_msec() / 1000.0 + next_in
+	var lvl = _level()
+	if first and lvl and players.has(winner):
+		var who: String = "YOU" if winner == my_id() else str(players[winner].name)
+		lvl.hud.popup("%s SANK IT FIRST!" % who, Color(2.2, 1.8, 0.3), 2.5)
+		Sfx.play("fanfare" if winner == my_id() else "chains")
+	lobby_changed.emit()
+
+
+@rpc("authority", "call_local", "reliable")
+func set_over(winner: int, p: Dictionary) -> void:
+	players = p
+	round_active = false
+	var who: String = str(players.get(winner, {}).get("name", "?"))
+	champion_text = "%s WINS THE SET!" % who
+	for id in players:
+		players[id].ready = false
+	if not dedicated:
+		Game.goto_menu("multi")
+	lobby_changed.emit()
+
+
+func _process(dt: float) -> void:
+	_poll_discovery()
+	if _bcast:
+		_bcast_t -= dt
+		if _bcast_t <= 0.0:
+			_bcast_t = 1.0
+			_broadcast()
+	if is_server() and round_active and _round_timer > 0.0:
+		_round_timer -= dt
+		if _round_timer <= 0.0:
+			_round_timer = -1.0
+			if set_winner != -1:
+				round_active = false
+				rpc("set_over", set_winner, players)
+			else:
+				round_idx += 1
+				_start_round()
+	if is_server() and dedicated and not round_active and players.size() >= 2:
+		var all_ready := true
+		for id in players:
+			if not players[id].get("ready", false):
+				all_ready = false
+		if all_ready:
+			start_set()
+
+
+func _level():
+	var s = Game.current_scene
+	if s and is_instance_valid(s) and s.has_method("remote_state"):
+		return s
+	return null
+
+
+func scoreboard_text() -> String:
+	var ids := players.keys()
+	ids.sort_custom(func(a, b): return int(players[a].wins) > int(players[b].wins))
+	var lines := ["FIRST TO %d" % int(settings.wins)]
+	for id in ids:
+		var p: Dictionary = players[id]
+		var stars := ""
+		for i in int(settings.wins):
+			stars += "●" if i < int(p.wins) else "○"
+		var t := ""
+		if round_results.has(id):
+			t = "  " + Game.format_time(float(round_results[id]))
+		lines.append("%s %-12s%s%s" % [stars, str(p.name).substr(0, 12), t, "  <" if id == my_id() else ""])
+	return "\n".join(lines)
+
+
+func waiting_text() -> String:
+	if round_winner == -1 or next_round_at < 0.0:
+		return ""
+	var left := maxf(0.0, next_round_at - Time.get_ticks_msec() / 1000.0)
+	var who: String = str(players.get(round_winner, {}).get("name", "?"))
+	if set_winner != -1:
+		return "%s TAKES THE SET  ·  back to lobby in %d" % [who, int(ceil(left))]
+	return "%s won round %d  ·  next course in %d" % [who, round_idx + 1, int(ceil(left))]
+
+
+# ================================================================ LAN discovery
+
+func _start_broadcast(port: int) -> void:
+	_bcast = PacketPeerUDP.new()
+	_bcast.set_broadcast_enabled(true)
+	_bcast.set_dest_address("255.255.255.255", DISCOVERY_PORT)
+	set_meta("port", port)
+
+
+func _broadcast() -> void:
+	var msg := JSON.stringify({"g": "ugrapple", "n": str(Game.settings.player_name) + ("'s server" if not dedicated else " server"), "p": get_meta("port", PORT), "c": players.size()})
+	_bcast.put_packet(msg.to_utf8_buffer())
+
+
+func start_discovery() -> void:
+	if _listen:
+		return
+	_listen = PacketPeerUDP.new()
+	if _listen.bind(DISCOVERY_PORT) != OK:
+		_listen = null
+
+
+func stop_discovery() -> void:
+	if _listen:
+		_listen.close()
+		_listen = null
+
+
+func _poll_discovery() -> void:
+	if _listen == null:
+		return
+	var changed := false
+	while _listen.get_available_packet_count() > 0:
+		var pkt := _listen.get_packet()
+		var ip := _listen.get_packet_ip()
+		var d = JSON.parse_string(pkt.get_string_from_utf8())
+		if d is Dictionary and d.get("g", "") == "ugrapple":
+			var key := "%s:%d" % [ip, int(d.get("p", PORT))]
+			servers[key] = {"name": d.get("n", "?"), "count": int(d.get("c", 0)), "t": Time.get_ticks_msec()}
+			changed = true
+	var now := Time.get_ticks_msec()
+	for k in servers.keys():
+		if now - servers[k].t > 4000:
+			servers.erase(k)
+			changed = true
+	if changed:
+		servers_changed.emit()
