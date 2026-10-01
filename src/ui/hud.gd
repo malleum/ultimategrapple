@@ -49,6 +49,8 @@ var popups: Array = []
 var snap_text := ""
 var snap_color := Color.WHITE
 var snap_t := 0.0
+var snap_detail := ""
+var snap_score := 0.0
 var sel_x := -1.0
 var badge_pop := [0.0, 0.0, 0.0]
 var badge_prev := [true, true, true]
@@ -128,9 +130,11 @@ func popup(text: String, color: Color, dur := 1.2) -> void:
 		popups.pop_front()
 
 
-func snap_popup(text: String, color: Color) -> void:
+func snap_popup(text: String, color: Color, detail := "", score := 0.0) -> void:
 	snap_text = text.replace(" SNAP", "")
 	snap_color = _ldr(color)
+	snap_detail = detail
+	snap_score = score
 	snap_t = 1.0
 
 
@@ -716,20 +720,29 @@ func _draw_snap(ci: Control, vs: Vector2) -> void:
 	if snap_text == "NO SNAP":
 		# quiet note, not a shout: a missed snap is common and shouldn't nag
 		var a2 := clampf(snap_t / 0.4, 0.0, 1.0)
-		_text(ci, Vector2(c.x - 100, c.y + 16), "no snap", 15, Color(0.75, 0.78, 0.85, 0.7 * a2), HORIZONTAL_ALIGNMENT_CENTER, 200, _bold, 3)
+		var note := "no snap" if snap_detail == "" else "late snap  ·  " + snap_detail
+		_text(ci, Vector2(c.x - 150, c.y + 16), note, 15, Color(0.75, 0.78, 0.85, 0.7 * a2), HORIZONTAL_ALIGNMENT_CENTER, 300, _bold, 3)
 		return
 	var size := int((40 if big else 30) * punch)
 	if big:
-		# starburst
-		for i in 14:
-			var a := i * TAU / 14.0 + t * 0.8
+		# starburst: denser and longer the closer to frame-perfect
+		var rays := 8 + int(snap_score * 10.0)
+		for i in rays:
+			var a := i * TAU / rays + t * 0.8
 			var v := Vector2(cos(a), sin(a))
-			ci.draw_line(c + v * 46.0 * punch, c + v * (70.0 + 30.0 * (1.0 - k)) * punch, Color(snap_color, 0.45 * fade), 3.0)
+			var reach := 50.0 + 40.0 * snap_score + 30.0 * (1.0 - k)
+			ci.draw_line(c + v * 46.0 * punch, c + v * reach * punch, Color(snap_color, 0.45 * fade), 3.0)
 	var label := snap_text + (" SNAP" if snap_text != "NO SNAP" else "")
 	var tw := _text_w(label, size, _bold)
 	draw_layer.draw_set_transform(c, -0.07 if big else -0.04, Vector2.ONE)
 	_slab(ci, Rect2(-tw * 0.5 - 22, -size * 0.85, tw + 44, size * 1.25), 12.0, Color(snap_color.r * 0.15, snap_color.g * 0.15, snap_color.b * 0.15, 0.8 * fade), Color(snap_color, fade))
 	_text(ci, Vector2(-tw * 0.5, size * 0.2), label, size, Color(snap_color.lightened(0.35), fade), HORIZONTAL_ALIGNMENT_LEFT, -1, _bold, 6)
+	if snap_detail != "":
+		# exact timing + score, with a quality bar so near-misses are visible
+		var dw := 180.0
+		_text(ci, Vector2(-dw * 0.5, size * 0.2 + 24), snap_detail, 14, Color(1, 1, 1, 0.85 * fade), HORIZONTAL_ALIGNMENT_CENTER, dw, _bold, 3)
+		ci.draw_rect(Rect2(-dw * 0.5, size * 0.2 + 32, dw, 4), Color(1, 1, 1, 0.15 * fade))
+		ci.draw_rect(Rect2(-dw * 0.5, size * 0.2 + 32, dw * snap_score, 4), Color(snap_color.lightened(0.3), fade))
 	draw_layer.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 

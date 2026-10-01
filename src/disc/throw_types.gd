@@ -44,30 +44,53 @@ const TYPES := [
 ]
 
 
-## Snap outcomes. "spin" is the snap's spin level (also drives aero stability
-## in disc.gd: an unspun disc flutters, losing lift and gaining drag),
-## "speed" multiplies launch speed, "wobble" multiplies attitude noise.
-const SNAP := {
-	"PERFECT": {"spin": 1.0, "speed": 1.09, "wobble": 0.15},
-	"GOOD": {"spin": 0.62, "speed": 0.95, "wobble": 0.6},
-	"NONE": {"spin": 0.25, "speed": 0.8, "wobble": 1.5},
-}
-const SNAP_PERFECT_US := 35000   # |snap - release| for PERFECT
-const SNAP_GOOD_US := 90000      # |snap - release| for GOOD
+## Snap timing -> continuous snap score (1.0 = frame-perfect, 0 = no snap).
+## The PERFECT / GOOD / NO SNAP labels are only what the player is shown; the
+## physics uses the exact score, so a tighter snap always throws a bit better.
+const SNAP_PERFECT_US := 35000   # |snap - release| shown as PERFECT
+const SNAP_GOOD_US := 90000      # |snap - release| shown as GOOD
+const SNAP_MAX_US := 200000      # beyond this a snap does nothing
+
+# what score 0 and score 1 mean for the throw (lerped in between)
+const SNAP_SPIN := [0.25, 1.0]     # spin level, also aero stability in disc.gd
+const SNAP_SPEED := [0.8, 1.12]    # launch speed multiplier
+const SNAP_WOBBLE := [1.5, 0.1]    # attitude noise multiplier
+
+
+static func snap_score(dt_us: int) -> float:
+	if dt_us < 0 or dt_us > SNAP_MAX_US:
+		return 0.0
+	var ms := dt_us / 1000.0
+	if dt_us <= SNAP_PERFECT_US:
+		return 1.0 - 0.2 * pow(ms / 35.0, 1.3)          # 1.00 .. 0.80
+	if dt_us <= SNAP_GOOD_US:
+		return 0.8 - 0.35 * (ms - 35.0) / 55.0           # 0.80 .. 0.45
+	return 0.45 * (1.0 - (ms - 90.0) / 110.0)            # 0.45 .. 0
+
+
+static func snap_label(dt_us: int) -> String:
+	if dt_us < 0:
+		return "NONE"
+	if dt_us <= SNAP_PERFECT_US:
+		return "PERFECT"
+	if dt_us <= SNAP_GOOD_US:
+		return "GOOD"
+	return "NONE"
 
 
 ## Launch numbers for a throw. Shared by the player, late snaps and tools so
 ## early and late snaps are identical.
-##   power 0..1 (charge), mf = movement penalty factor, oc = overcharge 0..1
-static func launch_params(ty: Dictionary, power: float, quality: String, mf: float, oc: float) -> Dictionary:
-	var q: Dictionary = SNAP[quality]
+##   power 0..1 (charge), score 0..1 (snap), mf = movement penalty, oc = overcharge 0..1
+static func launch_params(ty: Dictionary, power: float, score: float, mf: float, oc: float) -> Dictionary:
+	var sc := clampf(score, 0.0, 1.0)
+	var spin_lvl := lerpf(SNAP_SPIN[0], SNAP_SPIN[1], sc)
 	var base_speed: float = ty.speed * power * (1.0 - 0.22 * minf(mf, 1.0)) * (1.0 - 0.1 * oc)
 	return {
-		"speed": base_speed * float(q.speed),
+		"speed": base_speed * lerpf(SNAP_SPEED[0], SNAP_SPEED[1], sc),
 		"base_speed": base_speed,
-		"spin": float(q.spin) * float(ty.spin) * (1.0 - 0.3 * minf(mf, 1.0)),
-		"wobble": (0.25 + mf * 0.9 + oc * 0.8) * float(q.wobble),
-		"quality": float(q.spin),
+		"spin": spin_lvl * float(ty.spin) * (1.0 - 0.3 * minf(mf, 1.0)),
+		"wobble": (0.25 + mf * 0.9 + oc * 0.8) * lerpf(SNAP_WOBBLE[0], SNAP_WOBBLE[1], sc),
+		"quality": spin_lvl,
 	}
 
 

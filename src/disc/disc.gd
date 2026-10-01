@@ -121,7 +121,7 @@ func launch(from: Vector2, vel: Vector2, p_type: int, p_spin: float, nose: float
 ## on-time snap would have produced (spin, wobble, stability, and the missing
 ## speed — including the distance that speed would already have covered).
 func apply_late_snap(p_spin: float, add_vel: Vector2, p_wobble: float, p_quality: float) -> void:
-	if state != FLIGHT or age > 0.15:
+	if state != FLIGHT or age > 0.21:
 		return
 	spin = p_spin
 	wobble = p_wobble

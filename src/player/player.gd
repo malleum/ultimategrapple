@@ -126,6 +126,7 @@ var throws := 0
 var aim_dir := Vector2.RIGHT
 var move_factor := 0.0
 var last_snap_quality := ""
+var last_snap_score := 0.0
 
 # interpolation helpers for visuals drawn in world space
 var prev_pos := Vector2.ZERO
@@ -764,11 +765,14 @@ func _handle_disc_input(dt: float) -> void:
 		last_snap_us = PlayerInput.stamp(inp.snap_us, now_us)
 		if pending_late_snap and disc:
 			var dtu := last_snap_us - last_release_us
-			if dtu >= 0 and dtu <= ThrowTypes.SNAP_GOOD_US:
-				_late_snap("PERFECT" if dtu <= ThrowTypes.SNAP_PERFECT_US else "GOOD")
-	if pending_late_snap and now_us - last_release_us > ThrowTypes.SNAP_GOOD_US:
+			if dtu >= 0 and dtu <= ThrowTypes.SNAP_MAX_US:
+				var s2 := ThrowTypes.snap_score(dtu)
+				if s2 > float(_pending.get("score", 0.0)):
+					_late_snap(s2, dtu)
+	if pending_late_snap and now_us - last_release_us > ThrowTypes.SNAP_MAX_US:
 		pending_late_snap = false
-		_snap_feedback("NO SNAP")
+		if float(_pending.get("score", 0.0)) <= 0.0:
+			_snap_feedback("NONE", -1, 0.0)
 
 	if inp.just_pressed("pivot") and has_disc and (state == NORMAL) and (on_floor or air_pivot_ready):
 		_start_pivot()
@@ -821,15 +825,13 @@ func _throw() -> void:
 	last_release_us = PlayerInput.stamp(inp.throw_release_us, now_us)
 	var mf := _move_factor()
 	var oc := overcharge()
-	# snap judged on |snap press - throw release|, either order
+	# snap judged on |snap press - throw release|, either order; the exact
+	# gap sets a continuous score, the label is just what we show
 	var snap_dt := absi(last_release_us - last_snap_us)
-	var quality := "NONE"
-	if snap_dt <= ThrowTypes.SNAP_PERFECT_US:
-		quality = "PERFECT"
-	elif snap_dt <= ThrowTypes.SNAP_GOOD_US:
-		quality = "GOOD"
+	var score := ThrowTypes.snap_score(snap_dt)
+	var label := ThrowTypes.snap_label(snap_dt)
 	var power := charge_power()
-	var lp := ThrowTypes.launch_params(ty, power, quality, mf, oc)
+	var lp := ThrowTypes.launch_params(ty, power, score, mf, oc)
 	var ang := aim_dir.angle() + sway_angle() + _rng.randfn(0.0, 0.035 * mf + 0.04 * oc)
 	var dir := Vector2.RIGHT.rotated(ang)
 	var vel: Vector2 = dir * float(lp.speed) + velocity * 0.2
@@ -842,37 +844,41 @@ func _throw() -> void:
 	throws += 1
 	disc.launch(from, vel, throw_type, lp.spin, nose * facing_sign_for(dir), lp.wobble, lp.quality)
 	disc.thrower_id = 1
-	pending_late_snap = quality == "NONE"
-	_pending = {"ty": ty, "power": power, "mf": mf, "oc": oc, "dir": dir}
+	# a snap that lands just after release can still improve the throw
+	pending_late_snap = score < 1.0
+	_pending = {"ty": ty, "power": power, "mf": mf, "oc": oc, "dir": dir, "score": score}
 	if state == PIVOT:
 		pivot_threw_t = 0.0
-	if quality != "NONE":
-		_snap_feedback(quality)
-	var info := {"type": ty.id, "power": power, "quality": quality if quality != "NONE" else "", "move": mf, "overcharge": oc}
+	if score > 0.0:
+		_snap_feedback(label, snap_dt, score)
+	var info := {"type": ty.id, "power": power, "quality": label if score > 0.0 else "", "score": score, "move": mf, "overcharge": oc}
 	threw.emit(info)
 	fx.emit("throw", from, info)
 
 
-## Snap arrived just after release: give the disc exactly what an on-time snap
-## would have (same spin/wobble/stability; the missing speed is added).
-func _late_snap(quality: String) -> void:
-	pending_late_snap = false
+## Snap arrived just after release: upgrade the disc to exactly what an
+## on-time snap with that timing would have produced.
+func _late_snap(score: float, dt_us: int) -> void:
 	if _pending.is_empty():
 		return
-	var none := ThrowTypes.launch_params(_pending.ty, _pending.power, "NONE", _pending.mf, _pending.oc)
-	var lp := ThrowTypes.launch_params(_pending.ty, _pending.power, quality, _pending.mf, _pending.oc)
-	var add_vel: Vector2 = _pending.dir * (float(lp.speed) - float(none.speed))
+	var cur := ThrowTypes.launch_params(_pending.ty, _pending.power, float(_pending.score), _pending.mf, _pending.oc)
+	var lp := ThrowTypes.launch_params(_pending.ty, _pending.power, score, _pending.mf, _pending.oc)
+	var add_vel: Vector2 = _pending.dir * (float(lp.speed) - float(cur.speed))
 	disc.apply_late_snap(lp.spin, add_vel, lp.wobble, lp.quality)
-	_snap_feedback(quality)
+	_pending.score = score
+	if score >= 1.0:
+		pending_late_snap = false
+	_snap_feedback(ThrowTypes.snap_label(dt_us), dt_us, score)
 
 
 func facing_sign_for(_dir: Vector2) -> float:
 	return 1.0
 
 
-func _snap_feedback(q: String) -> void:
-	last_snap_quality = q
-	fx.emit("snap", hand(), q)
+func _snap_feedback(label: String, dt_us: int, score: float) -> void:
+	last_snap_quality = "NO SNAP" if label == "NONE" else label
+	last_snap_score = score
+	fx.emit("snap", hand(), {"label": last_snap_quality, "ms": dt_us / 1000.0, "score": score})
 
 
 func _catch_disc() -> void:

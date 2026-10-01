@@ -431,16 +431,20 @@ func _on_player_fx(kind: String, pos: Vector2, data) -> void:
 			var types := ["backhand", "forehand", "hammer", "roller", "scoober", "thumber"]
 			play_sfx("throw", pos, 0.6 + data.power * 0.4, 0.9 + types.find(data.type) * 0.05)
 		"snap":
-			match str(data):
+			var sc: float = data.score
+			var detail := "%.0f ms  ·  %d%%" % [data.ms, int(round(sc * 100.0))] if data.ms >= 0.0 else ""
+			if data.ms >= 0.0 and data.ms < 1.0:
+				detail = "FRAME PERFECT  ·  100%"
+			match str(data.label):
 				"PERFECT":
-					play_sfx("snap_perfect", pos)
-					hud.snap_popup("PERFECT SNAP", Color(0.4, 2.4, 1.2))
+					play_sfx("snap_perfect", pos, 1.0, 0.94 + sc * 0.1)
+					hud.snap_popup("PERFECT SNAP", Color(0.4, 2.4, 1.2), detail, sc)
 					hud.flow_event("SNAP")
 				"GOOD":
 					play_sfx("snap_good", pos)
-					hud.snap_popup("GOOD SNAP", Color(1.8, 1.8, 0.4))
+					hud.snap_popup("GOOD SNAP", Color(1.8, 1.8, 0.4), detail, sc)
 				_:
-					hud.snap_popup("NO SNAP", Color(1.4, 0.4, 0.4))
+					hud.snap_popup("NO SNAP", Color(1.4, 0.4, 0.4), detail, sc)
 		"catch":
 			play_sfx("catch", pos)
 			if data:

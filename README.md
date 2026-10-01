@@ -59,12 +59,14 @@ Carry the disc, throw it, chase it, catch it, and chain your movement until it h
 
 ### Mechanics with a high skill ceiling
 
-- **Snap timing.** Press snap within ±35 ms of releasing the throw (before or after) for a
-  PERFECT; within ±90 ms is a GOOD. Timing is taken from when the input events arrive, and
-  a late snap gives exactly the same throw as an early one. Spin decides lift and drag (an
-  unspun disc flutters), wobble, skip shots and wall kicks. A PERFECT carries about 1.5×
-  (hammer, thumber) to 2.5× (backhand) as far as no snap; a GOOD lands in between.
-  `tools/snap_table.gd` and `tools/range_table.gd` measure this exactly.
+- **Snap timing.** Press snap as close as possible to releasing the throw (before or
+  after). The exact gap sets a continuous snap score: 1.0 when frame-perfect, about 0.98
+  one physics tick off, 0.80 at ±35 ms (still shown as PERFECT), 0.45 at ±90 ms (GOOD), and
+  0 by 200 ms. Spin, lift/drag stability, wobble and launch speed all scale with the score,
+  so a tighter snap always flies further: a frame-perfect backhand carries about 123 m,
+  the edge of PERFECT 104 m, GOOD 74–104 m, no snap 45 m. The HUD shows the label plus the
+  exact ms and score. Snapping late gives the same throw as snapping early by the same
+  margin. `tools/snap_table.gd` and `tools/range_table.gd` measure this exactly.
 - **Nose angle.** Tilt the nose up to float or stall, down to punch through wind.
 - **Pivot.** Plant your feet to freeze and store your momentum, then throw clean. Let go of
   pivot within 0.3 s after the throw for a **PIVOT LAUNCH** that gives the stored momentum
