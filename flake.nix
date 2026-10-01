@@ -43,6 +43,8 @@
               #   ultimate-grapple                      play
               #   ultimate-grapple --server [--port=N --wins=N --source=random|pinned]
               #   ultimate-grapple --rendering-driver opengl3   (older GPUs)
+              #   ultimate-grapple --x11 | --wayland     (native Wayland is the default;
+              #                                          falls back to X11 automatically)
               engine=()
               game=()
               while [ \$# -gt 0 ]; do
@@ -51,6 +53,10 @@
                     engine+=("\$1" "\$2"); shift 2 ;;
                   --fullscreen|--maximized|--windowed|--headless|--verbose|--print-fps)
                     engine+=("\$1"); shift ;;
+                  --x11)
+                    engine+=("--display-driver" "x11"); shift ;;
+                  --wayland)
+                    engine+=("--display-driver" "wayland"); shift ;;
                   --server)
                     engine+=("--headless"); game+=("\$1"); shift ;;
                   *) game+=("\$1"); shift ;;

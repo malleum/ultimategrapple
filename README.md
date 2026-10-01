@@ -13,10 +13,18 @@ nix run .                    # play
 nix run . -- --server        # headless dedicated server (port 24680)
 nix run .#server -- --wins=5 --source=pinned
 nix run . -- --rendering-driver opengl3   # for GPUs without Vulkan
+nix run . -- --x11           # force XWayland/X11 (native Wayland is the default)
 nix develop                  # shell with godot4 (godot4 -e opens the editor)
 ```
 
 Without Nix you can run `godot4 --path .` with any Godot 4.7 build.
+
+**Wayland:** the project sets `display/display_server/driver.linuxbsd="wayland"`, so on a
+Wayland session it runs natively (no XWayland). If there is no Wayland compositor, Godot
+falls back to X11 automatically. `--x11` / `--wayland` (or `--display-driver x11|wayland`
+when running `godot4` directly) override this. On compositors without server-side
+decorations, window decorations come from libdecor (bundled in the nixpkgs Godot);
+`GODOT_WAYLAND_DISABLE_LIBDECOR=1` turns that off.
 
 ## The loop
 
