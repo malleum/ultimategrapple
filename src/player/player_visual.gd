@@ -16,14 +16,24 @@ var aim_dir := Vector2.RIGHT
 var anchor_local := Vector2.ZERO
 var disc_color := Color(2, 0.5, 1.5)
 var run_phase := 0.0
+## Scarf: world-space verlet chain (gravity + air drag), so it hangs down when
+## you stand still and streams back when you move. scarf holds the points
+## relative to the feet at the last physics step, for drawing.
+const SCARF_N := 7
+const SCARF_SEG := 5.0
+const SCARF_GRAVITY := 1500.0
+const SCARF_DRAG := 5.0          # 1/s air drag on the cloth
 var scarf: Array = []
+var _sw: Array = []              # world positions
+var _sw_prev: Array = []
+var _flutter_t := 0.0
 var name_tag := ""
 var charge := 0.0
 
 
 func _init() -> void:
-	for i in 7:
-		scarf.append(Vector2(-i * 5.0, -38.0))
+	for i in SCARF_N:
+		scarf.append(Vector2(0, -38.0 + i * SCARF_SEG))
 
 
 func update_from_player(p) -> void:
@@ -65,16 +75,47 @@ func _step(dt: float) -> void:
 		run_phase += absf(vel.x) * dt * 0.035
 	elif not on_floor:
 		run_phase += dt * 4.0
-	# scarf: verlet-ish trailing chain
-	var neck := Vector2(0, -38 if not low else -18)
-	scarf[0] = neck
-	for i in range(1, scarf.size()):
-		var target: Vector2 = scarf[i - 1] + Vector2(-facing * 5.0, 1.5) - vel * 0.006
-		scarf[i] = (scarf[i] as Vector2).lerp(target, 0.35)
-		var dv: Vector2 = scarf[i] - scarf[i - 1]
-		if dv.length() > 6.0:
-			scarf[i] = scarf[i - 1] + dv.normalized() * 6.0
+	_step_scarf(dt)
 	queue_redraw()
+
+
+func _scarf_anchor() -> Vector2:
+	if low:
+		return Vector2(facing * 9.0, -17.0)
+	var lean := clampf(vel.x / 1400.0, -0.45, 0.45)
+	return Vector2(lean * 20.0 - facing * 2.0, -37.0)
+
+
+func _step_scarf(dt: float) -> void:
+	var origin := global_position
+	var anchor := origin + _scarf_anchor()
+	if _sw.size() != SCARF_N or (_sw[0] as Vector2).distance_to(anchor) > 160.0:
+		_sw.clear()
+		_sw_prev.clear()
+		for i in SCARF_N:
+			_sw.append(anchor + Vector2(-facing * 1.5 * i, i * SCARF_SEG))
+			_sw_prev.append(_sw[i])
+	_flutter_t += dt * (6.0 + vel.length() * 0.02)
+	var keep := exp(-SCARF_DRAG * dt)
+	_sw[0] = anchor
+	_sw_prev[0] = anchor
+	for i in range(1, SCARF_N):
+		var cur: Vector2 = _sw[i]
+		var step: Vector2 = (cur - (_sw_prev[i] as Vector2)) * keep
+		# a little flutter when the air is moving past it
+		var flutter := Vector2(0, sin(_flutter_t + i * 0.9) * minf(vel.length(), 900.0) * 0.9 * i)
+		_sw_prev[i] = cur
+		_sw[i] = cur + step + (Vector2(0, SCARF_GRAVITY) + flutter) * dt * dt
+	for _k in 3:
+		for i in range(1, SCARF_N):
+			var a: Vector2 = _sw[i - 1]
+			var b: Vector2 = _sw[i]
+			var d := b - a
+			var l := d.length()
+			if l > 0.001:
+				_sw[i] = a + d / l * SCARF_SEG
+	for i in SCARF_N:
+		scarf[i] = (_sw[i] as Vector2) - origin
 
 
 func _draw() -> void:
@@ -91,6 +132,7 @@ func _draw() -> void:
 	for p in scarf:
 		sp.append(p)
 	draw_polyline(sp, accent, 3.0, true)
+	draw_circle(sp[sp.size() - 1], 1.6, accent)
 
 	var hip: Vector2
 	var neck: Vector2

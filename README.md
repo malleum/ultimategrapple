@@ -69,11 +69,17 @@ reticle reads the screen behind it and switches to dark ink over bright skies.
   after). The exact gap sets a continuous snap score: 1.0 when frame-perfect, about 0.98
   one physics tick off, 0.80 at ±35 ms (still shown as PERFECT), 0.45 at ±90 ms (GOOD), and
   0 by 200 ms. Spin, lift/drag stability, wobble and launch speed all scale with the score,
-  so a tighter snap always flies further: a frame-perfect backhand carries about 123 m,
-  the edge of PERFECT 104 m, GOOD 74–104 m, no snap 45 m. The HUD shows the label plus the
+  so a tighter snap always flies further: a frame-perfect backhand carries about 119 m,
+  the edge of PERFECT 105 m, GOOD 80–105 m, no snap 53 m. The HUD shows the label plus the
   exact ms and score. Snapping late gives the same throw as snapping early by the same
   margin. `tools/snap_table.gd` and `tools/range_table.gd` measure this exactly.
 - **Nose angle.** Tilt the nose up to float or stall, down to punch through wind.
+- **Comebacks.** Backhands and forehands are gyroscopic: spin holds the disc's angle in the
+  world instead of letting it nose over into the flight path. Thrown steep (60°+) with the
+  nose up and a strong snap, the disc climbs, stalls with its leading edge still up, and
+  slides back down its own plane toward you. A 75° perfect backhand goes ~14 m out and lands
+  ~3 m away. Weak snaps lose the attitude and land forward. Past the stall the disc acts as a
+  flat plate. `tools/flight_path.gd` prints and plots these flights.
 - **Pivot.** Plant your feet to freeze and store your momentum, then throw clean. Let go of
   pivot within 0.3 s after the throw for a **PIVOT LAUNCH** that gives the stored momentum
   back. There is also a short one-per-airtime air pivot.

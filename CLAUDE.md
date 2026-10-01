@@ -12,5 +12,6 @@
   - `nix build .#default` (pck export + wrapper)
 - Avoid `:=` on Variant values (Dictionary/Array element access) — Godot treats failed inference as a parse error.
 - Course fairness checks live in `src/level/validator.gd` (used by test_gen on generated + `levels/*.json`). Changing generator geometry: bump `Gen.VERSION` and add a `Validator.repair()` step so old pinned saves get fixed on load.
+- Disc tuning tools: `tools/range_table.gd` (max range per throw), `tools/snap_table.gd` (range vs snap timing), `tools/flight_path.gd -- out.png` (steep throws/comebacks, plots). Re-run them after touching `disc.gd` / `throw_types.gd`.
 - Controls are rebindable (`src/core/bindings.gd`, saved in settings.json). Never hard-code key names in UI; use `Bindings.label()/labels()`.
 - Per-player state (gates, glass, grapple points) lives in `src/level/runner.gd` on per-runner physics/visibility layer bits; shared world in `src/level/level.gd`.

@@ -15,15 +15,17 @@ extends RefCounted
 ## spin       base spin factor (before snap)
 ## roll       converts to rolling on ground contact
 ## trim       initial nose attitude offset (rad) relative to aim
+## gyro       attitude held in the world frame by spin (see Disc._gyro_aero):
+##            steep nose-up throws stay nose-up and can glide back
 
 const TYPES := [
-	{"id": "backhand", "name": "BACKHAND", "icon": "BH", "speed": 1500.0, "cl0": 0.16, "cla": 1.6, "cd0": 0.075, "cda": 2.2,
-		"lift": 1.0, "flip_t": 0.0, "flip_lift": 1.0, "fade_v": 650.0, "fade": 0.9, "grav": 950.0,
-		"move_pen": 1.0, "spin": 1.0, "roll": false, "trim": 0.0,
-		"desc": "Stable glider. Long float, gentle late fade."},
-	{"id": "forehand", "name": "FOREHAND", "icon": "FH", "speed": 1700.0, "cl0": 0.1, "cla": 1.3, "cd0": 0.09, "cda": 2.4,
-		"lift": 0.8, "flip_t": 0.0, "flip_lift": 1.0, "fade_v": 900.0, "fade": 1.9, "grav": 1000.0,
-		"move_pen": 1.1, "spin": 0.9, "roll": false, "trim": -0.05,
+	{"id": "backhand", "name": "BACKHAND", "icon": "BH", "speed": 1500.0, "cl0": 0.16, "cla": 1.6, "cd0": 0.17, "cda": 2.2,
+		"lift": 1.0, "flip_t": 0.0, "flip_lift": 1.0, "fade_v": 650.0, "fade": 0.9, "grav": 700.0,
+		"move_pen": 1.0, "spin": 1.0, "roll": false, "trim": 0.0, "gyro": true,
+		"desc": "Stable glider. Long float. Steep + nose up + snap = comeback."},
+	{"id": "forehand", "name": "FOREHAND", "icon": "FH", "speed": 1700.0, "cl0": 0.1, "cla": 1.3, "cd0": 0.19, "cda": 2.4,
+		"lift": 0.8, "flip_t": 0.0, "flip_lift": 1.0, "fade_v": 900.0, "fade": 1.9, "grav": 720.0,
+		"move_pen": 1.1, "spin": 0.9, "roll": false, "trim": -0.05, "gyro": true,
 		"desc": "Fast and flat. Punches through wind, dips hard at the end."},
 	{"id": "hammer", "name": "HAMMER", "icon": "HM", "speed": 1450.0, "cl0": 0.14, "cla": 1.2, "cd0": 0.1, "cda": 2.0,
 		"lift": 0.9, "flip_t": 0.32, "flip_lift": -0.75, "fade_v": 500.0, "fade": 0.4, "grav": 1000.0,

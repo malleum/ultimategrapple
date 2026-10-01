@@ -685,10 +685,13 @@ func _offscreen(ci: Control, world_pos: Vector2, c: Color, text: String, vs: Vec
 		ci.draw_line(edge + Vector2(-9, -9), edge + Vector2(9, -9), c, 3.0)
 		ci.draw_polyline(PackedVector2Array([edge + Vector2(-9, 1), edge + Vector2(-6, 6), edge + Vector2(6, 6), edge + Vector2(9, 1)]), c, 2.0)
 	else:
+		# same tilt / squash the disc has in the world right now
+		var pz: Vector2 = runner.disc.pose()
+		var ry := maxf(absf(pz.y) * 11.0, 3.0)
 		var dp := PackedVector2Array()
-		for k in 12:
-			var a := TAU * k / 12.0
-			dp.append(edge + Vector2(cos(a) * 11.0, sin(a) * 4.5))
+		for k in 16:
+			var a := TAU * k / 16.0
+			dp.append(edge + Vector2(cos(a) * 11.0, sin(a) * ry).rotated(pz.x))
 		ci.draw_colored_polygon(dp, c)
 	_text(ci, edge + Vector2(-60, 44), "%s  %dm" % [text, int(dist / 32.0)], 13, Color(c, 0.95), HORIZONTAL_ALIGNMENT_CENTER, 120, _bold, 4)
 

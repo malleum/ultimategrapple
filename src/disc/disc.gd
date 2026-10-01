@@ -22,6 +22,9 @@ const MAX_ALPHA := 0.75
 const STALL_ALPHA := 0.42
 const FLUTTER_LIFT := 0.8    # lift multiplier at zero snap quality
 const FLUTTER_DRAG := 1.3    # drag multiplier at zero snap quality
+const GYRO_FADE_HOLD := 0.9  # share of fade a full-spin gyro throw resists
+const GYRO_VANE := 1.4       # weathervane rate (1/s) of an unspun gyro throw
+const GYRO_CN := 8.0         # flat-plate normal force coefficient past the stall (KL units)
 
 var state := HELD
 var type_idx := 0
@@ -30,7 +33,8 @@ var age := 0.0
 var spin := 1.0            # 0..1
 var quality := 1.0         # snap quality (aero stability): 1 perfect .. 0.25 none
 var spin_dir := 1          # visual + wall kick direction
-var phi := 0.0             # attitude (nose up, radians) in forward frame
+var phi := 0.0             # attitude (nose up, radians) in forward frame; world frame (att_s) for gyro throws
+var att_s := 1.0           # gyro throws: launch direction the attitude is measured against
 var wobble := 0.0          # amplitude of attitude noise
 var skips := 0
 var facing := 1.0          # +1 moving right, -1 left (for attitude frame)
@@ -107,6 +111,7 @@ func launch(from: Vector2, vel: Vector2, p_type: int, p_spin: float, nose: float
 	spin_dir = int(facing) * (1 if t.id in ["backhand", "roller", "scoober"] else -1)
 	var gamma := atan2(-vel.y, absf(vel.x))
 	phi = gamma + t.trim + nose
+	att_s = facing
 	wobble = p_wobble
 	age = 0.0
 	skips = 0
@@ -197,18 +202,28 @@ func _flight(dt: float) -> void:
 		var f := air / spd
 		if absf(f.x) > 0.05:
 			facing = signf(f.x)
-		var gamma := atan2(-air.y, absf(air.x))
-		# gyroscopic attitude: fade (nose drop) as the disc slows; wobble at low spin
-		var fade_amt := clampf((t.fade_v - spd) / t.fade_v, 0.0, 1.0)
-		phi -= t.fade * fade_amt * (1.35 - 0.6 * spin) * dt
-		phi += (gamma - phi) * 0.35 * dt  # slow aerodynamic weathervane
-		var noise := sin(noise_t * 23.0) * 0.6 + sin(noise_t * 37.0 + 1.3) * 0.4
-		phi += noise * wobble * (1.1 - spin) * 2.2 * dt
-		var alpha := clampf(phi - gamma, -MAX_ALPHA, MAX_ALPHA)
-		var cl: float = t.cl0 + t.cla * alpha
-		if absf(alpha) > STALL_ALPHA:
-			cl *= clampf(1.0 - (absf(alpha) - STALL_ALPHA) * 2.5, 0.25, 1.0)
-		var cd: float = t.cd0 + t.cda * pow(alpha + 0.07, 2)
+		var cl: float
+		var cd: float
+		var up: Vector2
+		if t.get("gyro", false):
+			var g := _gyro_aero(f, spd, dt)
+			cl = g.cl
+			cd = g.cd
+			up = g.up
+		else:
+			var gamma := atan2(-air.y, absf(air.x))
+			# attitude in the travel frame: fade (nose drop) as the disc slows,
+			# slow weathervane into the flight path, wobble at low spin
+			var fade_amt := clampf((t.fade_v - spd) / t.fade_v, 0.0, 1.0)
+			phi -= t.fade * fade_amt * (1.35 - 0.6 * spin) * dt
+			phi += (gamma - phi) * 0.35 * dt
+			phi += _wobble_noise() * wobble * (1.1 - spin) * 2.2 * dt
+			var alpha := clampf(phi - gamma, -MAX_ALPHA, MAX_ALPHA)
+			cl = t.cl0 + t.cla * alpha
+			if absf(alpha) > STALL_ALPHA:
+				cl *= clampf(1.0 - (absf(alpha) - STALL_ALPHA) * 2.5, 0.25, 1.0)
+			cd = t.cd0 + t.cda * pow(alpha + 0.07, 2)
+			up = Vector2(f.y, -f.x) * (1.0 if f.x >= 0.0 else -1.0)
 		# an unspun disc flutters: less lift, more drag
 		var lift_mul: float = t.lift
 		if quality < 0.999:
@@ -216,7 +231,6 @@ func _flight(dt: float) -> void:
 			lift_mul *= lerpf(FLUTTER_LIFT, 1.0, quality)
 		if t.flip_t > 0.0:
 			lift_mul *= lerpf(1.0, t.flip_lift, smoothstep(t.flip_t * 0.6, t.flip_t * 1.4, age))
-		var up := Vector2(f.y, -f.x) * (1.0 if f.x >= 0.0 else -1.0)
 		var q := spd * spd
 		acc += up * KL * q * cl * lift_mul
 		acc -= f * KD * q * cd
@@ -239,6 +253,61 @@ func _flight(dt: float) -> void:
 		if state != FLIGHT:
 			break
 		motion = col.get_remainder().slide(col.get_normal()) * 0.5
+
+
+func _wobble_noise() -> float:
+	return sin(noise_t * 23.0) * 0.6 + sin(noise_t * 37.0 + 1.3) * 0.4
+
+
+## Backhand / forehand: the disc plane is gyroscopically fixed in the world
+## (phi measured against the launch direction att_s), not in the travel frame.
+## Thrown steep with the nose up it stays nose-up through the apex; on the way
+## down the air hits its underside from below-behind, lift points back along
+## the tilted plane and the disc glides back toward the thrower. Spin is what
+## holds the attitude: a weak snap lets it weathervane/fade nose-down instead.
+## Angle of attack is measured against whichever edge faces the airflow, so
+## the same lift/drag curves work flying forwards or backwards.
+func _gyro_aero(f: Vector2, spd: float, dt: float) -> Dictionary:
+	# plane direction and top-surface normal in screen space (y down)
+	var p := Vector2(att_s * cos(phi), -sin(phi))
+	var n := Vector2(-att_s * sin(phi), -cos(phi))
+	var vp := f.dot(p)
+	var alpha_raw := atan2(-f.dot(n), absf(vp))   # + = air on the underside
+	var stab := clampf(spin, 0.0, 1.0)
+	var edge := signf(vp) if absf(vp) > 0.02 else 0.0   # +1 nose leads, -1 tail leads
+	# fade: the leading edge drops as the disc slows (much less with real spin)
+	var fade_amt := clampf((t.fade_v - spd) / t.fade_v, 0.0, 1.0)
+	phi -= t.fade * fade_amt * (1.0 - GYRO_FADE_HOLD * stab) * maxf(edge, 0.0) * dt
+	# weak spin: the disc weathervanes into the airflow and loses its attitude
+	phi -= alpha_raw * edge * GYRO_VANE * pow(1.0 - stab, 2.0) * dt
+	phi += _wobble_noise() * wobble * (1.1 - spin) * 2.2 * dt
+	var alpha := clampf(alpha_raw, -MAX_ALPHA, MAX_ALPHA)
+	var cl: float = t.cl0 + t.cla * alpha
+	if absf(alpha) > STALL_ALPHA:
+		cl *= clampf(1.0 - (absf(alpha) - STALL_ALPHA) * 2.5, 0.25, 1.0)
+	var cd: float = t.cd0 + t.cda * pow(alpha + 0.07, 2)
+	# past the stall the disc behaves like a flat plate: the air pushes on its
+	# face (normal force ~ sin a). Split into lift/drag along the airflow. This
+	# is what stops a steep nose-up disc at the apex and slides it back down.
+	var w := smoothstep(STALL_ALPHA, MAX_ALPHA, absf(alpha_raw))
+	if w > 0.0:
+		var sa := sin(alpha_raw)
+		var cl_plate := GYRO_CN * sa * cos(alpha_raw)
+		var cd_plate: float = t.cd0 + GYRO_CN * sa * sa * KL / KD
+		cl = lerpf(cl, cl_plate, w)
+		cd = lerpf(cd, cd_plate, w)
+	# lift is perpendicular to the airflow, on the disc's top side
+	var up := Vector2(-f.y, f.x)
+	if up.dot(n) < 0.0:
+		up = -up
+	return {"cl": cl, "cd": cd, "up": up}
+
+
+## Screen-space angle of the disc plane (what _draw uses).
+func plane_angle() -> float:
+	if state == FLIGHT and t.get("gyro", false):
+		return -phi * att_s
+	return -phi * facing
 
 
 func _flight_impact(n: Vector2, other: Object) -> void:
@@ -279,7 +348,10 @@ func _flight_impact(n: Vector2, other: Object) -> void:
 	else:  # wall
 		var tangent := Vector2(-n.y, n.x)
 		velocity = vt * 0.75 - n * vn * 0.42 + tangent * spin_dir * spin * 140.0 * signf(n.x)
-		phi = -phi * 0.5
+		if t.get("gyro", false):
+			phi *= 0.5  # attitude is world-fixed: the knock just flattens it
+		else:
+			phi = -phi * 0.5
 		facing = signf(velocity.x) if absf(velocity.x) > 1.0 else facing
 		spin *= 0.8
 		impact.emit("wall", spd)
@@ -430,22 +502,24 @@ func _update_trail() -> void:
 		trail.remove_point(0)
 
 
-func _draw() -> void:
-	var ang := 0.0
-	var squash := 0.3
+## How the disc is drawn right now: x = screen rotation, y = vertical squash
+## (1 = seen edge-on rolling, ~0.3 = flat, negative = upside down).
+func pose() -> Vector2:
 	match state:
 		FLIGHT, CHAINED:
-			ang = -phi * facing
+			var sq := 0.3
 			if t.flip_t > 0.0 and age > t.flip_t:
-				squash = -0.3
+				sq = -0.3
+			return Vector2(plane_angle(), sq)
 		ROLL:
-			ang = 0.0
-			squash = 1.0
-		SLIDE, REST:
-			ang = 0.0
-			squash = 0.28
-		SCORED:
-			squash = 0.28
+			return Vector2(0.0, 1.0)
+	return Vector2(0.0, 0.28)
+
+
+func _draw() -> void:
+	var pz := pose()
+	var ang := pz.x
+	var squash := pz.y
 	var pts := PackedVector2Array()
 	var rx := 14.0
 	var ry := 14.0 * absf(squash)
