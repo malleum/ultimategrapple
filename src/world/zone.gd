@@ -260,7 +260,6 @@ func _draw_saw(hz: Color) -> void:
 
 func _draw_wind() -> void:
 	var c: Color = th.get("accent2", Color(0.5, 1.5, 2.0))
-	draw_rect(rect, Color(c, 0.05))
 	var rng := RandomNumberGenerator.new()
 	rng.seed = _particles_seed
 	var dirv := force.normalized()

@@ -27,6 +27,7 @@ var scoreboard: Label
 var countdown_until := 0.0
 var level_name: Label
 var help_label: Label
+var ui_scale := 1.0
 
 
 func _ready() -> void:
@@ -130,6 +131,7 @@ func snap_popup(text: String, color: Color) -> void:
 func _process(dt: float) -> void:
 	if runner == null or runner.player == null:
 		return
+	_fit_scale()
 	var p = runner.player
 	timer_label.text = Game.format_time(runner.total_time())
 	var col := Color(1, 1, 1)
@@ -195,7 +197,28 @@ func _update_medals() -> void:
 # ------------------------------------------------------------------ drawing
 
 func _world_to_screen(p: Vector2) -> Vector2:
-	return runner.view.canvas_transform * p
+	return (runner.view.canvas_transform * p) / ui_scale
+
+
+## Split-screen views are smaller than the 1920x1080 design size: shrink the
+## whole HUD so it keeps its proportions inside each player's view.
+func _fit_scale() -> void:
+	var vp := get_viewport().get_visible_rect().size
+	var s := 1.0
+	if runner and runner.container:
+		s = clampf(minf(vp.x / 1920.0, vp.y / 1080.0), 0.5, 1.0)
+		if vp.y < 600.0:
+			s = maxf(s, 0.55)
+	if absf(s - ui_scale) > 0.001 or root.size != vp / s:
+		ui_scale = s
+		root.set_anchors_preset(Control.PRESET_TOP_LEFT)
+		root.position = Vector2.ZERO
+		root.size = vp / s
+		root.scale = Vector2(s, s)
+
+
+func _backdrop(ci: Control, r: Rect2) -> void:
+	ci.draw_rect(r, Color(0.0, 0.0, 0.04, 0.45))
 
 
 func _draw_hud() -> void:
@@ -203,6 +226,10 @@ func _draw_hud() -> void:
 		return
 	var ci := draw_layer
 	var vs := ci.size
+	# readable backing behind text on bright themes
+	_backdrop(ci, Rect2(vs.x * 0.5 - 190, 12, 380, 100))
+	_backdrop(ci, Rect2(vs.x - 340, 12, 330, 24.0 * medal_label.get_line_count() + 14))
+	_backdrop(ci, Rect2(10, 14, level_name.get_minimum_size().x + 20, 36))
 	var p = runner.player
 	var font := ThemeDB.fallback_font
 	var th: Dictionary = level.th
