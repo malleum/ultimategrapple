@@ -16,6 +16,7 @@ const Decor = preload("res://src/world/decor.gd")
 const Ghost = preload("res://src/player/ghost.gd")
 const Runner = preload("res://src/level/runner.gd")
 const PlayerInput = preload("res://src/core/player_input.gd")
+const Validator = preload("res://src/level/validator.gd")
 
 const SPLIT_UI_BIT := 19
 
@@ -45,6 +46,10 @@ var race_live := false
 
 
 func _ready() -> void:
+	Validator.repair(level_data)
+	if OS.is_debug_build():
+		for err in Validator.check(level_data):
+			push_warning("course %s: %s" % [level_data.get("id", "?"), err])
 	th = Themes.get_theme(level_data.get("theme", "cyber"))
 	level_id = str(level_data.get("id", "custom"))
 	spawn = _v(level_data.get("spawn", [0, 0]))

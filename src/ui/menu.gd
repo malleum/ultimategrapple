@@ -5,6 +5,7 @@ extends Node2D
 const UI = preload("res://src/ui/ui.gd")
 const Themes = preload("res://src/core/theme_db.gd")
 const Background = preload("res://src/fx/background.gd")
+const Bindings = preload("res://src/core/bindings.gd")
 
 var start_page := "title"
 var camera: Camera2D
@@ -28,6 +29,11 @@ var couch_box: VBoxContainer
 var couch_wins := 3
 var couch_source := "random"
 var couch_diff := 0.5
+# rebind page state
+var bind_device := "kbm"
+var capture := {}                 # {action, slot} while waiting for an input
+var bind_status := ""
+var bind_scroll := 0.0
 
 
 func _ready() -> void:
@@ -92,6 +98,7 @@ func show_page(p: String) -> void:
 		"random": _page_random()
 		"multi": _page_multi()
 		"controls": _page_controls()
+		"bindings": _page_bindings()
 		"settings": _page_settings()
 		_: _page_title()
 
@@ -437,6 +444,9 @@ func _start_couch() -> void:
 
 
 func _input(event: InputEvent) -> void:
+	if page == "bindings" and not capture.is_empty():
+		_capture_input(event)
+		return
 	if page != "couch":
 		return
 	if event is InputEventJoypadButton and event.pressed:
@@ -479,44 +489,184 @@ func _page_controls() -> void:
 	var right := UI.vbox(4)
 	cols.add_child(left)
 	cols.add_child(right)
+	var K := func(a): return Bindings.labels(a)
 	var lines_l := [
-		["A / D", "run  (carrying the disc is ~10% slower)"],
-		["SPACE", "jump · wall-jump · jump off rope"],
-		["S", "slide at speed (boost) · crouch · fast-fall"],
-		["SHIFT", "dash (8-way). 1 air dash, refreshed by ground, grapple, sky catch"],
-		["RMB (hold)", "grapple swing · W/S reel in/out · A/D pump"],
-		["E (hold)", "zip: reel yourself to the grapple point"],
-		["R", "instant restart"],
-		["T", "recall disc to hand (+3s)"],
-		["P", "pin this course permanently"],
+		[K.call("move_left") + " · " + K.call("move_right"), "run  (carrying the disc is ~25% slower)"],
+		[K.call("jump"), "jump · wall-jump · jump off rope"],
+		[K.call("move_down"), "slide at speed (boost) · crouch · fast-fall"],
+		[K.call("dash"), "dash (8-way). 1 air dash, refreshed by ground, grapple, sky catch"],
+		[K.call("grapple"), "grapple swing (hold) · up/down reel · run keys pump"],
+		[K.call("zip"), "zip (hold): reel yourself to the grapple point"],
+		[K.call("restart"), "instant restart"],
+		[K.call("recall"), "recall disc to hand (+3s)"],
+		[K.call("pin"), "pin this course permanently"],
 	]
 	var lines_r := [
-		["LMB hold/release", "charge + throw toward the cursor"],
-		["F  (on release)", "SNAP: press F the instant you let go of LMB.\n±35ms PERFECT (max spin, +9% speed) · ±90ms GOOD"],
-		["1-6 / Q", "throw: backhand forehand hammer roller scoober thumber"],
-		["WHEEL / Z X", "nose angle: up = float/stall, down = punch"],
-		["CTRL (hold)", "PIVOT: plant & freeze, momentum stored. Throw clean,\nthen release CTRL within 0.3s for a PIVOT LAUNCH"],
+		[K.call("throw"), "hold to charge, release to throw toward the cursor"],
+		[K.call("snap"), "SNAP: press the instant you release the throw.\n±35ms PERFECT · ±90ms GOOD · tighter = further"],
+		[K.call("throw_next") + " · 1-6", "throw: backhand forehand hammer roller scoober thumber"],
+		[K.call("nose_up") + " · " + K.call("nose_down"), "nose angle: up = float/stall, down = punch"],
+		[K.call("pivot"), "PIVOT (hold): plant & freeze, momentum stored. Throw,\nthen let go within 0.3s for a PIVOT LAUNCH"],
 		["moving throws", "sway + spray + less range. Scoober halves it"],
-		["spin", "stability, skip shots off floors, wall kicks"],
 		["catching", "grab the disc midair: refreshes dash + air pivot"],
-		["goal", "get the disc into the basket. Fastest time wins"],
-		["controller", "LS move · RS aim · A jump · X dash · LT swing · LB zip\nRT throw · RB snap · B pivot · Y recall · D-pad throw/nose"],
+		["controller", "LS move · RS aim · %s jump · %s dash · %s swing · %s zip\n%s throw · %s snap · %s pivot · %s recall" % [
+			Bindings.label("jump", true), Bindings.label("dash", true), Bindings.label("grapple", true), Bindings.label("zip", true),
+			Bindings.label("throw", true), Bindings.label("snap", true), Bindings.label("pivot", true), Bindings.label("recall", true)]],
 	]
 	for l in lines_l:
 		left.add_child(_ctrl_row(l[0], l[1]))
 	for l in lines_r:
 		right.add_child(_ctrl_row(l[0], l[1]))
-	v.add_child(_back_button())
+	var h := UI.hbox(16)
+	h.add_child(UI.button("REBIND CONTROLS", func(): capture = {}; bind_status = ""; show_page("bindings"), 22))
+	h.add_child(_back_button())
+	v.add_child(h)
 
 
 func _ctrl_row(k: String, d: String) -> Control:
 	var h := UI.hbox(14)
-	var kl := UI.label(k, 20, UI.PINK)
-	kl.custom_minimum_size = Vector2(180, 0)
+	var kl := UI.label(k, 18, UI.PINK)
+	kl.custom_minimum_size = Vector2(200, 0)
+	kl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	h.add_child(kl)
 	var dl := UI.label(d, 18, Color(0.9, 0.95, 1))
 	h.add_child(dl)
 	return h
+
+
+# ------------------------------------------------------------------ rebinding
+
+func _page_bindings() -> void:
+	var c := _clear()
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(1100, 0)
+	c.add_child(panel)
+	var v := UI.vbox(10)
+	panel.add_child(v)
+	v.add_child(UI.label("REBIND CONTROLS", 44, UI.NEON))
+	var tabs := UI.hbox(12)
+	v.add_child(tabs)
+	for dv in [["kbm", "KEYBOARD + MOUSE"], ["pad", "CONTROLLER"]]:
+		var d: String = dv[0]
+		var tb := UI.button(("▸ " if bind_device == d else "") + dv[1], func(): bind_device = d; capture = {}; bind_status = ""; bind_scroll = 0.0; show_page("bindings"), 20)
+		if bind_device == d:
+			tb.add_theme_color_override("font_color", UI.GOLD)
+		tabs.add_child(tb)
+	var hint := "Click a slot, then press a key, mouse button (LMB/RMB/MMB, MOUSE 4/5 side buttons) or wheel. ESC cancels."
+	if bind_device == "pad":
+		hint = "Click a slot, then press a controller button or pull a trigger. ESC cancels. START is reserved for pause."
+	v.add_child(UI.label(hint, 17, UI.DIM))
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(1040, 600)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	v.add_child(scroll)
+	var rows := UI.vbox(6)
+	rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(rows)
+	var actions: Array = Bindings.PAD_ACTIONS if bind_device == "pad" else Bindings.KBM_ACTIONS
+	var slots: int = Bindings.PAD_SLOTS if bind_device == "pad" else Bindings.KBM_SLOTS
+	var map: Dictionary = Bindings.pad if bind_device == "pad" else Bindings.kbm
+	for entry in actions:
+		var action: String = entry[0]
+		var h := UI.hbox(10)
+		var l := UI.label(entry[1], 20)
+		l.custom_minimum_size = Vector2(380, 0)
+		h.add_child(l)
+		var codes: Array = map.get(action, [])
+		for slot in slots:
+			var sl: int = slot
+			var waiting: bool = capture.get("action", "") == action and int(capture.get("slot", -1)) == sl
+			var txt := "· · ·"
+			if waiting:
+				txt = "press…"
+			elif sl < codes.size():
+				txt = Bindings.code_label(codes[sl])
+			var b := UI.button(txt, func(): _start_capture(action, mini(sl, codes.size()), scroll), 20)
+			b.custom_minimum_size = Vector2(240, 0)
+			if waiting:
+				b.add_theme_color_override("font_color", UI.GOLD)
+			elif sl >= codes.size():
+				b.add_theme_color_override("font_color", Color(0.5, 0.55, 0.65))
+			h.add_child(b)
+		var clr := UI.button("✕", func(): _clear_binding(action, scroll), 18)
+		clr.tooltip_text = "Unbind"
+		h.add_child(clr)
+		rows.add_child(h)
+	var st := UI.label(bind_status, 18, UI.PINK)
+	st.custom_minimum_size = Vector2(0, 26)
+	v.add_child(st)
+	var bottom := UI.hbox(16)
+	bottom.add_child(UI.button("RESET TO DEFAULTS", func(): Bindings.reset(bind_device); Game.save_bindings(); bind_status = "Defaults restored."; show_page("bindings"), 20))
+	bottom.add_child(UI.button("BACK", func(): capture = {}; show_page("controls"), 20))
+	v.add_child(bottom)
+	_restore_scroll(scroll)
+
+
+## Keep the list where it was across rebuilds (needs the layout pass first).
+func _restore_scroll(scroll: ScrollContainer) -> void:
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if is_instance_valid(scroll):
+		scroll.scroll_vertical = int(bind_scroll)
+
+
+func _start_capture(action: String, slot: int, scroll: ScrollContainer) -> void:
+	bind_scroll = scroll.scroll_vertical
+	capture = {"action": action, "slot": slot}
+	bind_status = ""
+	show_page("bindings")
+
+
+func _clear_binding(action: String, scroll: ScrollContainer) -> void:
+	bind_scroll = scroll.scroll_vertical
+	var map: Dictionary = Bindings.pad if bind_device == "pad" else Bindings.kbm
+	while not map.get(action, []).is_empty():
+		Bindings.unbind(bind_device, action, 0)
+	Game.save_bindings()
+	bind_status = "Unbound."
+	show_page("bindings")
+
+
+func _capture_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and event.physical_keycode == KEY_ESCAPE:
+		capture = {}
+		bind_status = "Cancelled."
+		get_viewport().set_input_as_handled()
+		show_page("bindings")
+		return
+	var ok := false
+	if bind_device == "pad":
+		ok = event is InputEventJoypadButton or event is InputEventJoypadMotion
+		if event is InputEventJoypadButton and event.button_index == JOY_BUTTON_START:
+			ok = false
+	else:
+		ok = event is InputEventKey or event is InputEventMouseButton
+	if not ok:
+		# swallow everything else so the GUI doesn't react mid-capture
+		if event is InputEventKey or event is InputEventMouseButton or event is InputEventJoypadButton:
+			get_viewport().set_input_as_handled()
+		return
+	var code := Bindings.code_for_event(event)
+	get_viewport().set_input_as_handled()
+	if code == "":
+		return
+	var action: String = capture.action
+	var taken := Bindings.bind(bind_device, action, int(capture.slot), code)
+	Game.save_bindings()
+	capture = {}
+	bind_status = "%s → %s" % [Bindings.code_label(code), _action_name(action)]
+	if taken != "":
+		bind_status += "   (removed from %s)" % _action_name(taken)
+	Sfx.play("ui_click", 0.8)
+	# rebuild after this event finishes so the press/release doesn't hit the new buttons
+	call_deferred("show_page", "bindings")
+
+
+func _action_name(action: String) -> String:
+	for e in Bindings.KBM_ACTIONS:
+		if e[0] == action:
+			return e[1]
+	return action
 
 
 # ------------------------------------------------------------------ settings

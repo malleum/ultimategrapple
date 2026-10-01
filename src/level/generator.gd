@@ -13,8 +13,10 @@ extends RefCounted
 const Themes = preload("res://src/core/theme_db.gd")
 
 const T := 32                 # tile size in px
-const RUN_TILES_PER_SEC := 11.0
-const VERSION := 1
+const RUN_TILES_PER_SEC := 12.0
+## 2: slide tunnels got a 48px ceiling (older saves are repaired on load)
+const VERSION := 2
+const SLIDE_CEIL := 1.5        # slide tunnel ceiling height, tiles
 
 # Player movement envelope, in tiles (kept conservative so levels are fair).
 const SAFE_JUMP_UP := 4
@@ -474,7 +476,8 @@ func seg_chimney(x: int, y: int) -> Vector2i:
 	# hanging left wall: player walks underneath then wall-jumps up
 	block(cx + 2, y - h - 2, 2, h - 2)
 	if d > 0.5 and chance(0.5):
-		spikes(cx + 2, y - h + 1, 2, "down")
+		# under the hanging wall: punishes jumping too early
+		spikes(cx + 2, y - 4, 2, "down")
 	# right side: the cliff of the upper ledge
 	var top := y - h
 	ground(cx + 4 + gapw, cx + 4 + gapw + ri(6, 9), top)
@@ -531,8 +534,10 @@ func seg_slide_tunnel(x: int, y: int) -> Vector2i:
 	ground(cx, cx + 6 + l + 5, y)
 	if chance(0.5 + d * 0.3):
 		_ent({"t": "booster", "r": [int((cx + 1) * T), int(y * T - 8), 4 * T, 8], "dir": 1}, cx + 1, y - 1, 4, 1)
-	block(cx + 6, y - 12, l, 11)
-	spikes(cx + 6, y - 1, l, "down")
+	# ceiling 48px up, spike tips at 32px: a 22px slide clears them by 10px,
+	# standing (44px) or jumping inside the tunnel does not
+	block(cx + 6, y - 12, l, 12 - SLIDE_CEIL)
+	spikes(cx + 6, y - SLIDE_CEIL, l, "down")
 	if d > 0.5 and chance(0.4):
 		# low tunnel ends in a small gap you have to slide-jump
 		pass

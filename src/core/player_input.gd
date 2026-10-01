@@ -16,21 +16,7 @@ const ACTIONS := ["jump", "dash", "grapple", "zip", "throw", "snap", "pivot", "t
 const DEADZONE := 0.25
 const TRIGGER := 0.45
 
-# Xbox-style layout
-const PAD_BUTTONS := {
-	"jump": [JOY_BUTTON_A],
-	"dash": [JOY_BUTTON_X],
-	"pivot": [JOY_BUTTON_B],
-	"recall": [JOY_BUTTON_Y],
-	"snap": [JOY_BUTTON_RIGHT_SHOULDER],
-	"zip": [JOY_BUTTON_LEFT_SHOULDER],
-	"throw_next": [JOY_BUTTON_DPAD_RIGHT],
-	"throw_prev": [JOY_BUTTON_DPAD_LEFT],
-	"nose_up": [JOY_BUTTON_DPAD_UP],
-	"nose_down": [JOY_BUTTON_DPAD_DOWN],
-	"restart": [JOY_BUTTON_BACK],
-	"pause": [JOY_BUTTON_START],
-}
+const Bindings = preload("res://src/core/bindings.gd")
 
 var device := ANY
 var _prev := {}
@@ -44,7 +30,8 @@ var mouse_world_fn: Callable     # returns the mouse position in world space for
 ## arrives rather than when a physics tick happens to poll it.
 var snap_us := -1
 var throw_release_us := -1
-var _trig_r := 0.0
+var _axes := {}                  # joy axis -> last value (for trigger press/release edges)
+var _taps := {}                  # actions pulsed by mouse wheel notches since the last poll
 
 
 func _init(p_device := ANY) -> void:
@@ -71,7 +58,8 @@ func poll() -> void:
 	_prev = _cur
 	_cur = {}
 	for a in ACTIONS:
-		_cur[a] = _raw(a)
+		_cur[a] = _raw(a) or _taps.has(a)
+	_taps.clear()
 	# movement
 	var m := Vector2.ZERO
 	if uses_kbm():
@@ -116,22 +104,22 @@ func _raw(a: String) -> bool:
 		return true
 	for id in _pads():
 		match a:
-			"throw":
-				if Input.get_joy_axis(id, JOY_AXIS_TRIGGER_RIGHT) > TRIGGER:
-					return true
-			"grapple":
-				if Input.get_joy_axis(id, JOY_AXIS_TRIGGER_LEFT) > TRIGGER:
-					return true
 			"move_down":
 				if Input.get_joy_axis(id, JOY_AXIS_LEFT_Y) > 0.6:
 					return true
 			"move_up":
 				if Input.get_joy_axis(id, JOY_AXIS_LEFT_Y) < -0.6:
 					return true
-			_:
-				for b in PAD_BUTTONS.get(a, []):
-					if Input.is_joy_button_pressed(id, b):
-						return true
+			"pause":
+				if Input.is_joy_button_pressed(id, JOY_BUTTON_START):
+					return true
+		for c in Bindings.pad.get(a, []):
+			var idx := int(str(c).substr(2))
+			if str(c).begins_with("b:"):
+				if Input.is_joy_button_pressed(id, idx):
+					return true
+			elif Input.get_joy_axis(id, idx) > TRIGGER:
+				return true
 	return false
 
 
@@ -144,17 +132,33 @@ func handle_event(ev: InputEvent) -> void:
 	if ev is InputEventKey or ev is InputEventMouseButton:
 		if not uses_kbm():
 			return
+		if ev is InputEventMouseButton and ev.pressed and Bindings.wheel.has(ev.button_index):
+			for a in Bindings.wheel[ev.button_index]:
+				_taps[a] = true
+				if a == "snap":
+					snap_us = now
+			return
 		if ev.is_action_pressed("snap"):
 			snap_us = now
 		elif ev.is_action_released("throw"):
 			throw_release_us = now
 	elif ev is InputEventJoypadButton:
-		if _pad_ok(ev.device) and ev.pressed and PAD_BUTTONS.snap.has(ev.button_index):
+		if not _pad_ok(ev.device):
+			return
+		var code := "b:%d" % ev.button_index
+		if ev.pressed and Bindings.pad.get("snap", []).has(code):
 			snap_us = now
-	elif ev is InputEventJoypadMotion and ev.axis == JOY_AXIS_TRIGGER_RIGHT and _pad_ok(ev.device):
-		if _trig_r > TRIGGER and ev.axis_value <= TRIGGER:
+		elif not ev.pressed and Bindings.pad.get("throw", []).has(code):
 			throw_release_us = now
-		_trig_r = ev.axis_value
+	elif ev is InputEventJoypadMotion and _pad_ok(ev.device):
+		var key: int = ev.device * 64 + ev.axis
+		var was: float = _axes.get(key, 0.0)
+		_axes[key] = ev.axis_value
+		var code := "a:%d" % ev.axis
+		if was <= TRIGGER and ev.axis_value > TRIGGER and Bindings.pad.get("snap", []).has(code):
+			snap_us = now
+		elif was > TRIGGER and ev.axis_value <= TRIGGER and Bindings.pad.get("throw", []).has(code):
+			throw_release_us = now
 
 
 ## Timestamp of a press/release that the poll just reported: the event time if
@@ -192,4 +196,5 @@ func is_pad_aim() -> bool:
 func clear() -> void:
 	_prev = {}
 	_cur = {}
+	_taps = {}
 	move = Vector2.ZERO

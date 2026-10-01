@@ -218,7 +218,7 @@
 			"dir": "down",
 			"r": [
 				10496,
-				-1344,
+				-1056,
 				64,
 				16
 			],
@@ -686,11 +686,11 @@
 	"kill_y": 544.0,
 	"length": 14,
 	"medals": {
-		"ace": 28.95,
-		"bronze": 66.8,
-		"gold": 37.11,
-		"par": 37.11,
-		"silver": 48.24
+		"ace": 27.78,
+		"bronze": 64.1,
+		"gold": 35.61,
+		"par": 35.61,
+		"silver": 46.29
 	},
 	"name": "Crucible",
 	"pinned": true,
@@ -1130,5 +1130,5 @@
 		0
 	],
 	"theme": "foundry",
-	"version": 1
+	"version": 2
 }

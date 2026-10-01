@@ -470,11 +470,11 @@
 	"kill_y": 1056.0,
 	"length": 11,
 	"medals": {
-		"ace": 21.45,
-		"bronze": 49.5,
-		"gold": 27.5,
-		"par": 27.5,
-		"silver": 35.75
+		"ace": 20.69,
+		"bronze": 47.75,
+		"gold": 26.53,
+		"par": 26.53,
+		"silver": 34.49
 	},
 	"name": "Elder Hollow",
 	"pinned": true,
@@ -901,5 +901,5 @@
 		0
 	],
 	"theme": "fantasy",
-	"version": 1
+	"version": 2
 }

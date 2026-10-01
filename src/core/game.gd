@@ -4,6 +4,7 @@ extends Node
 const LevelGen = preload("res://src/level/generator.gd")
 const LevelScript = preload("res://src/level/level.gd")
 const MenuScript = preload("res://src/ui/menu.gd")
+const Bindings = preload("res://src/core/bindings.gd")
 
 const SAVE_PATH := "user://save.json"
 const SETTINGS_PATH := "user://settings.json"
@@ -27,6 +28,7 @@ var settings := {
 	"screen_shake": 1.0,
 	"player_name": "Runner",
 	"player_color": 0,
+	"bindings": {},
 }
 
 ## level_id -> {time: float, throws: int, medal: String}
@@ -40,8 +42,8 @@ var session := {}
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
-	_setup_input()
 	_load_settings()
+	Bindings.load_from(settings.bindings)
 	_load_records()
 	DirAccess.make_dir_recursive_absolute(PINNED_USER_DIR)
 	DirAccess.make_dir_recursive_absolute(GHOST_DIR)
@@ -52,49 +54,10 @@ func _ready() -> void:
 
 # ---------------------------------------------------------------- input map
 
-func _key(action: String, keys: Array) -> void:
-	if not InputMap.has_action(action):
-		InputMap.add_action(action, 0.2)
-	for k in keys:
-		var ev: InputEvent
-		if k is String and k.begins_with("mouse"):
-			ev = InputEventMouseButton.new()
-			ev.button_index = {"mouse_left": MOUSE_BUTTON_LEFT, "mouse_right": MOUSE_BUTTON_RIGHT,
-				"mouse_middle": MOUSE_BUTTON_MIDDLE, "mouse_x1": MOUSE_BUTTON_XBUTTON1,
-				"mouse_x2": MOUSE_BUTTON_XBUTTON2}[k]
-		else:
-			ev = InputEventKey.new()
-			ev.physical_keycode = k
-		InputMap.action_add_event(action, ev)
-
-
-func _setup_input() -> void:
-	_key("move_left", [KEY_A, KEY_LEFT])
-	_key("move_right", [KEY_D, KEY_RIGHT])
-	_key("move_up", [KEY_W, KEY_UP])
-	_key("move_down", [KEY_S, KEY_DOWN])
-	_key("jump", [KEY_SPACE])
-	_key("dash", [KEY_SHIFT])
-	_key("grapple", ["mouse_right"])
-	_key("zip", [KEY_E, "mouse_x2"])
-	_key("throw", ["mouse_left"])
-	_key("snap", [KEY_F, "mouse_x1"])
-	_key("pivot", [KEY_CTRL])
-	_key("throw_next", [KEY_Q])
-	_key("throw_1", [KEY_1])
-	_key("throw_2", [KEY_2])
-	_key("throw_3", [KEY_3])
-	_key("throw_4", [KEY_4])
-	_key("throw_5", [KEY_5])
-	_key("throw_6", [KEY_6])
-	_key("nose_up", [KEY_X])
-	_key("nose_down", [KEY_Z])
-	_key("recall", [KEY_T])
-	_key("restart", [KEY_R])
-	_key("pause", [KEY_ESCAPE])
-	_key("pin", [KEY_P])
-	_key("next_level", [KEY_N])
-	_key("scoreboard", [KEY_TAB])
+## Rebind from the menu, then call this to persist.
+func save_bindings() -> void:
+	settings.bindings = Bindings.to_dict()
+	save_settings()
 
 
 # ---------------------------------------------------------------- settings

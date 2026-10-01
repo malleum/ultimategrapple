@@ -16,7 +16,7 @@ signal recalled
 enum { NORMAL, SWING, ZIP, PIVOT, DEAD }
 
 # --- movement tuning (px, px/s, px/s^2)
-const RUN_SPEED := 440.0
+const RUN_SPEED := 520.0         # empty-handed
 const GROUND_ACCEL := 4400.0
 const GROUND_DECEL := 5200.0
 const OVERSPEED_FRICTION := 650.0
@@ -40,9 +40,10 @@ const SLIDE_MIN_SPEED := 190.0
 const SLIDE_BOOST := 150.0
 const SLIDE_FRICTION := 300.0
 const CROUCH_SPEED := 170.0
-const CARRY_SPEED_MULT := 0.9     # carrying the disc is marginally slower
+const CARRY_SPEED_MULT := 0.76    # carrying the disc: ~395, a quarter slower
 const CARRY_JUMP_MULT := 0.97
 const MAX_SPEED := 2600.0
+const THROW_MOVE_REF := 440.0     # speed that counts as "full run" for moving-throw sway
 
 # --- grapple
 const GRAPPLE_RANGE := 520.0
@@ -257,16 +258,6 @@ func _input(event: InputEvent) -> void:
 	inp.handle_event(event)
 
 
-func _unhandled_input(event: InputEvent) -> void:
-	if not input_enabled or not inp.uses_kbm():
-		return
-	if event is InputEventMouseButton and event.pressed:
-		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
-			adjust_nose(1)
-		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			adjust_nose(-1)
-
-
 func set_throw_type(i: int) -> void:
 	throw_type = posmod(i, ThrowTypes.count())
 	fx.emit("ui_tick", global_position, throw_type)
@@ -326,8 +317,10 @@ func _normal(dt: float) -> void:
 	# ---- jump (before friction so bunny hops keep speed)
 	var jumped := false
 	if buffer_t > 0.0 and state == NORMAL:
-		if on_floor or coyote_t > 0.0:
-			var can_stand := not crouched or _can_stand()
+		if (on_floor or coyote_t > 0.0) and rect_shape.size == LOW and _spikes_overhead():
+			pass  # no jumping into tunnel spikes; the buffered jump fires once clear
+		elif on_floor or coyote_t > 0.0:
+			var can_stand := not (crouched or sliding) or _can_stand()
 			velocity.y = -JUMP_V * jump_mult
 			if sliding:
 				velocity.x *= 1.04
@@ -463,7 +456,27 @@ func _set_low(low: bool) -> void:
 func _can_stand() -> bool:
 	if rect_shape.size == STAND:
 		return true
-	return not test_move(global_transform, Vector2(0, -(STAND.y - LOW.y)))
+	if test_move(global_transform, Vector2(0, -(STAND.y - LOW.y))):
+		return false
+	return not _spikes_overhead()
+
+
+## Standing up here would put the head into a spike strip (slide tunnels):
+## stay low instead of dying for letting go of down.
+func _spikes_overhead() -> bool:
+	var q := PhysicsShapeQueryParameters2D.new()
+	var sh := RectangleShape2D.new()
+	sh.size = STAND + Vector2(4, 0)
+	q.shape = sh
+	q.transform = Transform2D(0.0, global_position + Vector2(0, -STAND.y * 0.5))
+	q.collision_mask = 1 << 3
+	q.collide_with_areas = true
+	q.collide_with_bodies = false
+	for hit in get_world_2d().direct_space_state.intersect_shape(q, 8):
+		var z: Object = hit.collider
+		if z and z.get("kind") == "hazard":
+			return true
+	return false
 
 
 # ================================================================== grapple
@@ -797,7 +810,7 @@ func _move_factor() -> float:
 	if state == PIVOT:
 		return 0.0
 	var t: Dictionary = ThrowTypes.get_type(throw_type)
-	var m := clampf(velocity.length() / RUN_SPEED, 0.0, 1.4)
+	var m := clampf(velocity.length() / THROW_MOVE_REF, 0.0, 1.4)
 	if not on_floor and state != PIVOT:
 		m += 0.2
 	return m * t.move_pen

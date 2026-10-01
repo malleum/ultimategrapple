@@ -13,18 +13,52 @@ var lock_t := 0.0
 var lock_pos := Vector2.ZERO
 var full_flash := 0.0
 var _was_full := false
+## The cursor is drawn by its own node so a screen-reading shader can flip it
+## dark over bright skies and bright over dark ones.
+var reticle: Node2D
+
+const RETICLE_SHADER := """
+shader_type canvas_item;
+uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap;
+void fragment() {
+	// average of what is behind the cursor (blurred mip so thin details don't flicker it)
+	vec3 bg = textureLod(screen_tex, SCREEN_UV, 3.0).rgb;
+	float lum = dot(min(bg, vec3(1.0)), vec3(0.299, 0.587, 0.114));
+	float k = smoothstep(0.42, 0.62, lum);
+	vec3 c = COLOR.rgb;
+	bool halo = max(c.r, max(c.g, c.b)) < 0.02;
+	if (halo) {
+		// outline: black on dark backgrounds, white on bright ones
+		COLOR = vec4(vec3(k), COLOR.a * mix(1.0, 0.9, k));
+	} else {
+		// stroke: keep its hue but sink it to deep ink over bright backgrounds
+		vec3 ink = c * 0.16 + vec3(0.06, 0.0, 0.12);
+		COLOR = vec4(mix(c, ink, k), COLOR.a);
+	}
+}
+"""
 
 
 func _init() -> void:
 	z_index = 60
 	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
+	reticle = Node2D.new()
+	var sh := Shader.new()
+	sh.code = RETICLE_SHADER
+	var mat := ShaderMaterial.new()
+	mat.shader = sh
+	reticle.material = mat
+	reticle.draw.connect(_draw_reticle)
+	add_child(reticle)
 
 
 func _process(dt: float) -> void:
 	t += dt
 	lock_t += dt
 	full_flash = maxf(0.0, full_flash - dt * 3.0)
+	reticle.visibility_layer = visibility_layer
 	queue_redraw()
+	reticle.queue_redraw()
 
 
 static func _soft(c: Color, cap := 1.15) -> Color:
@@ -118,32 +152,9 @@ func _draw() -> void:
 			var n := (tip - c).normalized()
 			draw_colored_polygon(PackedVector2Array([tip + n * 10.0, tip + n.orthogonal() * 7.0, tip - n.orthogonal() * 7.0]), Color(pc, 0.7))
 
-	# ---------------------------------------------------------------- reticle
-	var m: Vector2 = p.mouse_world()
-	var rc := Color(1.0, 1.0, 1.0, 0.92) if not has_target else Color(gcol.lightened(0.25), 0.95)
-	var spin := t * 0.7
-	for i in 4:
-		var a := spin + i * PI * 0.5
-		draw_arc(m, 13.0, a + 0.25, a + PI * 0.5 - 0.25, 8, Color(0, 0, 0, 0.45), 4.0, true)
-		draw_arc(m, 13.0, a + 0.25, a + PI * 0.5 - 0.25, 8, rc, 2.0, true)
-	draw_circle(m, 2.2, rc)
-
 	if p.charging:
 		var power: float = p.charge_power()
 		var oc: float = p.overcharge()
-		var full := power >= 0.999
-		if full and not _was_full:
-			full_flash = 1.0
-		_was_full = full
-		var segs := 16
-		for i in segs:
-			var a0 := -PI * 0.5 + i * TAU / segs + 0.05
-			var a1 := a0 + TAU / segs - 0.1
-			var on := float(i) / segs < (power - 0.3) / 0.7
-			var col := dcol if oc <= 0.0 else Color(1.0, 0.35 + 0.25 * sin(t * 30.0), 0.3)
-			draw_arc(m, 22.0, a0, a1, 4, Color(col, 0.95) if on else Color(1, 1, 1, 0.15), 4.0, true)
-		if full_flash > 0.0:
-			draw_arc(m, 22.0 + (1.0 - full_flash) * 16.0, 0, TAU, 32, Color(1, 1, 1, full_flash), 2.0, true)
 		# predicted launch arc (first ~0.3s, ballistic) + spread wedge for movement penalty
 		var ty: Dictionary = ThrowTypes.get_type(p.throw_type)
 		var ang: float = p.aim_dir.angle() + p.sway_angle()
@@ -166,6 +177,47 @@ func _draw() -> void:
 		var nd := dir.rotated(-p.nose * (1.0 if dir.x >= 0.0 else -1.0))
 		draw_line(tip - nd * 14.0, tip + nd * 14.0, Color(0, 0, 0, 0.5), 5.0, true)
 		draw_line(tip - nd * 14.0, tip + nd * 14.0, Color(1, 1, 1, 0.95), 2.5, true)
+
+
+func _draw_reticle() -> void:
+	if runner == null or runner.player == null:
+		return
+	var p = runner.player
+	if p.state == Player.DEAD:
+		return
+	var c := reticle
+	var th: Dictionary = runner.level.th
+	var gcol: Color = _soft(th.get("grapple", Color(2, 2, 0.4)))
+	var dcol: Color = _soft(runner.disc.color)
+	var has_target: bool = not p.target.is_empty()
+	var m: Vector2 = p.mouse_world()
+	# halo strokes are pure black: the shader turns them white over bright skies
+	var halo := Color(0, 0, 0, 0.6)
+	var rc := Color(1.0, 1.0, 1.0, 0.95) if not has_target else Color(gcol.lightened(0.25), 0.95)
+	var spin := t * 0.7
+	for i in 4:
+		var a := spin + i * PI * 0.5
+		c.draw_arc(m, 13.0, a + 0.25, a + PI * 0.5 - 0.25, 8, halo, 5.0, true)
+		c.draw_arc(m, 13.0, a + 0.25, a + PI * 0.5 - 0.25, 8, rc, 2.5, true)
+	c.draw_circle(m, 3.6, halo)
+	c.draw_circle(m, 2.4, rc)
+	if p.charging:
+		var power: float = p.charge_power()
+		var oc: float = p.overcharge()
+		var full := power >= 0.999
+		if full and not _was_full:
+			full_flash = 1.0
+		_was_full = full
+		var segs := 16
+		for i in segs:
+			var a0 := -PI * 0.5 + i * TAU / segs + 0.05
+			var a1 := a0 + TAU / segs - 0.1
+			var on := float(i) / segs < (power - 0.3) / 0.7
+			var col := dcol if oc <= 0.0 else Color(1.0, 0.35 + 0.25 * sin(t * 30.0), 0.3)
+			c.draw_arc(m, 22.0, a0, a1, 4, halo, 7.0, true)
+			c.draw_arc(m, 22.0, a0, a1, 4, Color(col, 0.95) if on else Color(0.6, 0.6, 0.6, 0.35), 4.0, true)
+		if full_flash > 0.0:
+			c.draw_arc(m, 22.0 + (1.0 - full_flash) * 16.0, 0, TAU, 32, Color(1, 1, 1, full_flash), 2.0, true)
 
 
 func _rope(pts: PackedVector2Array, col: Color, zip: bool) -> void:

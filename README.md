@@ -30,7 +30,7 @@ decorations, window decorations come from libdecor (bundled in the nixpkgs Godot
 
 Carry the disc, throw it, chase it, catch it, and chain your movement until it hits the chains.
 
-- **Carrying is about 10% slower.** On open *fairways*, throwing the disc ahead and sprinting
+- **Carrying is about 25% slower** (520 vs 395 px/s). On open *fairways*, throwing the disc ahead and sprinting
   after it wins. In tight *tunnels*, throws just bounce off the walls, so carrying it and
   making one final throw wins. The generator builds both kinds of section and signposts them.
 - **Throwing while moving** adds aim sway, random spray and lost range.
@@ -56,6 +56,12 @@ Carry the disc, throw it, chase it, catch it, and chain your movement until it h
 | Nose angle | wheel / Z X | D-pad up/down |
 | Recall disc | T | Y |
 | Restart / pause / pin | R / Esc / P | Back / Start / – |
+
+Every keyboard, mouse and controller binding can be changed under **Controls → Rebind
+controls** (two slots per action). Any mouse button works, including the side buttons
+(MOUSE 4 / MOUSE 5) and the wheel (a wheel notch acts as a single tap). Bindings are saved in
+`settings.json`. ESC/START (pause), TAB (scoreboard) and the sticks are fixed. The aim
+reticle reads the screen behind it and switches to dark ink over bright skies.
 
 ### Mechanics with a high skill ceiling
 
@@ -95,7 +101,12 @@ valley, or high tailwind lane), tunnels and slope runs.
   every 5 segments.
 - It adds optional high-skill sky shortcuts, decoration and one of five basket finales.
 - Par and medal times are estimated per segment.
-- `tools/test_gen.gd` stress-tests 300 seeds for validity and determinism.
+- `src/level/validator.gd` checks for unfair geometry: ceiling spikes too low to slide
+  under, gaps too tight to crawl through, buried or floating spikes, route points inside
+  solids or hazards, and grapple points in walls. `tools/test_gen.gd` runs it over 300 seeds
+  (plus a determinism check) and the shipped courses. `tools/test_tunnels.gd` drives the real
+  player through every spike tunnel. Courses saved by older generator versions are repaired
+  when they load.
 
 ## Themes
 

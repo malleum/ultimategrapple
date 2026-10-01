@@ -14,6 +14,7 @@ const UI = preload("res://src/ui/ui.gd")
 const ThrowTypes = preload("res://src/disc/throw_types.gd")
 const Player = preload("res://src/player/player.gd")
 const Disc = preload("res://src/disc/disc.gd")
+const Bindings = preload("res://src/core/bindings.gd")
 
 const MEDALS := ["ace", "gold", "silver", "bronze"]
 const MEDAL_LETTER := {"ace": "A", "gold": "G", "silver": "S", "bronze": "B"}
@@ -636,11 +637,12 @@ func _draw_hints(ci: Control, vs: Vector2) -> void:
 	var pad: bool = runner.inp.is_pad_aim()
 	var hints: Array
 	if level.mode == "solo":
-		hints = [["BACK" if pad else "R", "restart"], ["Y" if pad else "T", "recall +3s"], ["START" if pad else "ESC", "pause"], ["P", "pin"]]
-		if pad:
-			hints.pop_back()
+		hints = [[Bindings.label("restart", pad), "restart"], [Bindings.label("recall", pad), "recall +3s"], [Bindings.label("pause", pad), "pause"]]
+		if not pad:
+			hints.append([Bindings.label("pin"), "pin"])
 	else:
-		hints = [["BACK" if pad else "R", "reset"], ["Y" if pad else "T", "recall +3s"], ["START" if pad else "ESC", "menu"]]
+		hints = [[Bindings.label("restart", pad), "reset"], [Bindings.label("recall", pad), "recall +3s"], [Bindings.label("pause", pad), "menu"]]
+	hints = hints.filter(func(h): return h[0] != "")
 	var x := 18.0
 	var y := vs.y - 26.0
 	for h in hints:
