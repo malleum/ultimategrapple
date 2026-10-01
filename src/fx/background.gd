@@ -357,6 +357,26 @@ class BgLayer:
 						draw_colored_polygon(PackedVector2Array([Vector2(px - 50, ground_y + 200), Vector2(px + 50, ground_y + 200), Vector2(px, ground_y + 200 - ph2)]), base)
 						px += rng.randf_range(40, 120)
 					draw_rect(Rect2(0, ground_y + 200, W, 3000), base)
+		_atmosphere(rng, ground_y, W)
+
+	## Atmosphere pass after each layer's shapes: a haze band at its base (so
+	## layers separate in depth) and, for some themes, soft light shafts.
+	func _atmosphere(rng: RandomNumberGenerator, ground_y: float, W: float) -> void:
+		var fog: Color = th.sky_bottom
+		var a := 0.32 - depth * 0.08
+		var band := Rect2(0, ground_y - 220, W, 480)
+		draw_polygon(PackedVector2Array([band.position, Vector2(band.end.x, band.position.y), band.end, Vector2(band.position.x, band.end.y)]),
+			PackedColorArray([Color(fog, 0.0), Color(fog, 0.0), Color(fog, a), Color(fog, a)]))
+		if depth == 1 and style in ["forest", "canyon", "heaven", "mountains"]:
+			var light: Color = Color(1.0, 0.95, 0.8) if style != "forest" else Color(0.7, 1.0, 0.8)
+			var x := rng.randf_range(0, 600)
+			while x < W:
+				var w := rng.randf_range(60, 180)
+				var lean := rng.randf_range(120, 260)
+				var top := ground_y - 1400.0
+				draw_polygon(PackedVector2Array([Vector2(x, top), Vector2(x + w, top), Vector2(x + w + lean, ground_y + 100), Vector2(x + lean, ground_y + 100)]),
+					PackedColorArray([Color(light, 0.0), Color(light, 0.0), Color(light, 0.06), Color(light, 0.06)]))
+				x += rng.randf_range(500, 1200)
 
 	func _hills(rng: RandomNumberGenerator, y: float, amp: float, c: Color, W: float) -> void:
 		var pts := PackedVector2Array()

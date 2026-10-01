@@ -13,6 +13,7 @@ const Player = preload("res://src/player/player.gd")
 const Disc = preload("res://src/disc/disc.gd")
 const Ghost = preload("res://src/player/ghost.gd")
 const Overlay = preload("res://src/level/overlay.gd")
+const SpeedTrail = preload("res://src/fx/speed_trail.gd")
 const Hud = preload("res://src/ui/hud.gd")
 const PlayerInput = preload("res://src/core/player_input.gd")
 
@@ -118,6 +119,9 @@ func _ready() -> void:
 	disc.scored.connect(_on_scored)
 	disc.impact.connect(_on_disc_impact)
 	disc.out_of_bounds.connect(_on_disc_oob)
+	var trail := SpeedTrail.new()
+	trail.runner = self
+	add_child(trail)
 	player = Player.new()
 	player.color = color
 	player.level = level
@@ -331,6 +335,7 @@ func on_gate(g: Node) -> void:
 	play_sfx("gate", g.ring_pos)
 	spawn_burst(g.ring_pos, th.get("basket", Color(2, 2, 0.3)), 30)
 	hud.popup("GATE OPEN" if g.mode == "open" else "BRIDGE ONLINE", th.get("basket", Color(2, 2, 0.3)))
+	hud.flow_event("GATE")
 	shake(4.0)
 
 
@@ -376,6 +381,7 @@ func _on_disc_impact(kind: String, strength: float) -> void:
 			play_sfx("skip", p)
 			spawn_burst(p, disc.color, 8)
 			hud.popup("SKIP", disc.color, 0.6)
+			hud.flow_event("SKIP")
 		"wall", "ceiling":
 			if strength > 200.0:
 				play_sfx("disc_hit", p, clampf(strength / 1200.0, 0.3, 1.0))
@@ -413,12 +419,14 @@ func _on_player_fx(kind: String, pos: Vector2, data) -> void:
 		"boost":
 			play_sfx("boost", pos)
 			hud.popup("BOOST", th.get("basket", Color(2, 2, 0.3)), 0.6)
+			hud.flow_event("BOOST")
 		"pivot":
 			play_sfx("pivot", pos)
 		"pivot_launch":
 			play_sfx("boost", pos)
 			spawn_burst(pos, player.color * 2.0, 14)
 			hud.popup("PIVOT LAUNCH", player.color * 1.5, 0.8)
+			hud.flow_event("PIVOT")
 		"throw":
 			var types := ["backhand", "forehand", "hammer", "roller", "scoober", "thumber"]
 			play_sfx("throw", pos, 0.6 + data.power * 0.4, 0.9 + types.find(data.type) * 0.05)
@@ -427,6 +435,7 @@ func _on_player_fx(kind: String, pos: Vector2, data) -> void:
 				"PERFECT":
 					play_sfx("snap_perfect", pos)
 					hud.snap_popup("PERFECT SNAP", Color(0.4, 2.4, 1.2))
+					hud.flow_event("SNAP")
 				"GOOD":
 					play_sfx("snap_good", pos)
 					hud.snap_popup("GOOD SNAP", Color(1.8, 1.8, 0.4))
@@ -437,6 +446,7 @@ func _on_player_fx(kind: String, pos: Vector2, data) -> void:
 			if data:
 				spawn_burst(pos, disc.color, 16)
 				hud.popup("SKY CATCH", disc.color, 0.8)
+				hud.flow_event("CATCH")
 		"recall":
 			play_sfx("recall", pos)
 		"death":

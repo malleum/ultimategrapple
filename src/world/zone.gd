@@ -158,14 +158,21 @@ func _draw() -> void:
 			else:
 				_draw_spikes(hz)
 		"kill":
-			var fog := Rect2(rect.position - Vector2(0, 220), Vector2(rect.size.x, 240))
+			# abyss: dark falloff with a faint ember shimmer instead of a hard line
+			var fog := Rect2(rect.position - Vector2(0, 260), Vector2(rect.size.x, 290))
 			var pts := PackedVector2Array([fog.position, Vector2(fog.end.x, fog.position.y), fog.end, Vector2(fog.position.x, fog.end.y)])
-			draw_polygon(pts, PackedColorArray([Color(0, 0, 0, 0), Color(0, 0, 0, 0), Color(0, 0, 0, 0.85), Color(0, 0, 0, 0.85)]))
-			var hx := rect.position.x
-			while hx < rect.end.x:
-				var y := rect.position.y - 20 + sin(t * 2.0 + hx * 0.02) * 6.0
-				draw_line(Vector2(hx, y), Vector2(hx + 20, y), Color(hz, 0.4), 2.0)
-				hx += 40.0
+			var hzd := Color(hz.r * 0.25, hz.g * 0.08, hz.b * 0.12, 0.0)
+			draw_polygon(pts, PackedColorArray([Color(0, 0, 0, 0), Color(0, 0, 0, 0), Color(0.0, 0.0, 0.02, 0.92), Color(0.0, 0.0, 0.02, 0.92)]))
+			var glow := Rect2(rect.position - Vector2(0, 70), Vector2(rect.size.x, 70))
+			var gp := PackedVector2Array([glow.position, Vector2(glow.end.x, glow.position.y), glow.end, Vector2(glow.position.x, glow.end.y)])
+			draw_polygon(gp, PackedColorArray([hzd, hzd, Color(hzd, 0.35), Color(hzd, 0.35)]))
+			var rng := RandomNumberGenerator.new()
+			rng.seed = _particles_seed
+			for i in int(rect.size.x / 60.0):
+				var ex := rect.position.x + rng.randf() * rect.size.x
+				var ph := fmod(t * rng.randf_range(0.2, 0.5) + rng.randf(), 1.0)
+				var ey := rect.position.y - ph * 160.0
+				draw_circle(Vector2(ex + sin(t + i) * 6.0, ey), 1.6, Color(minf(hz.r, 1.2), minf(hz.g, 1.0) * 0.6, minf(hz.b, 1.0) * 0.4, 0.6 * (1.0 - ph)))
 		"wind":
 			_draw_wind()
 		"booster":

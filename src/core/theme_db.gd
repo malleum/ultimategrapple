@@ -119,8 +119,25 @@ const THEMES := {
 }
 
 
+## Brightness caps per colour role: keeps neon punchy without blowing out
+## the bloom (hazards and pickups glow, terrain edges only shimmer).
+const CAPS := {"hazard": 1.45, "grapple": 1.5, "edge": 1.3, "accent": 1.4, "accent2": 1.4,
+	"basket": 1.6, "disc": 1.6, "oneway": 1.25, "detail": 1.15}
+
+
 static func get_theme(id: String) -> Dictionary:
-	return THEMES.get(id, THEMES["cyber"])
+	var th: Dictionary = THEMES.get(id, THEMES["cyber"]).duplicate()
+	for k in CAPS:
+		if th.has(k):
+			th[k] = _cap(th[k], CAPS[k])
+	return th
+
+
+static func _cap(c: Color, cap: float) -> Color:
+	var m := maxf(c.r, maxf(c.g, c.b))
+	if m <= cap:
+		return c
+	return Color(c.r * cap / m, c.g * cap / m, c.b * cap / m, c.a)
 
 
 static func random_id(rng: RandomNumberGenerator) -> String:

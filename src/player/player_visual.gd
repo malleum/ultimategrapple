@@ -83,7 +83,7 @@ func _draw() -> void:
 	var c := Color(color.r * 1.8, color.g * 1.8, color.b * 1.8, alpha)
 	var body_c := Color(color.r * 0.25, color.g * 0.25, color.b * 0.25, alpha)
 	var accent := Color(2.2, 0.5, 1.4, alpha) if color.g > 0.8 else Color(0.4, 2.0, 2.2, alpha)
-	var w := 3.0
+	var w := 3.6
 	var lean := clampf(vel.x / 1400.0, -0.45, 0.45)
 
 	# scarf

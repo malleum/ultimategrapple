@@ -7,6 +7,8 @@ extends SceneTree
 const PlayerInput = preload("res://src/core/player_input.gd")
 
 var shots := [
+	{"seed": 101, "theme": "field", "idx": 0, "act": "charge", "out": "00_field_charge"},
+	{"seed": 404, "theme": "canyon", "idx": 0, "act": "pivot", "out": "00_canyon_pivot"},
 	{"seed": 101, "theme": "field", "idx": 1, "act": "throw", "out": "01_field_throw"},
 	{"seed": 202, "theme": "heaven", "idx": 2, "act": "swing", "out": "02_heaven_swing"},
 	{"seed": 303, "theme": "fantasy", "idx": 3, "act": "swing", "out": "03_fantasy_swing"},
@@ -36,11 +38,19 @@ func _initialize() -> void:
 	var a := OS.get_cmdline_user_args()
 	if a.size() > 0:
 		out_dir = a[0]
+	if a.size() > 1:
+		var keep := []
+		for sh in shots:
+			for k in range(1, a.size()):
+				if str(sh.out).contains(a[k]):
+					keep.append(sh)
+					break
+		shots = keep
 	DirAccess.make_dir_recursive_absolute(out_dir)
 
 
 func _release_all() -> void:
-	for a in ["move_right", "move_left", "jump", "grapple", "zip", "throw", "snap", "dash"]:
+	for a in ["move_right", "move_left", "jump", "grapple", "zip", "throw", "snap", "dash", "pivot"]:
 		Input.action_release(a)
 
 
@@ -98,6 +108,34 @@ func _process(_dt: float) -> bool:
 			if f == 40:
 				Input.action_press("snap")
 				Input.action_release("throw")
+		"charge":
+			if f >= 10:
+				# hold a mid-run charge so the HUD/overlay show it
+				Input.action_press("throw")
+				p.has_disc = true
+				p.charging = true
+				p.charge_t = minf(0.6, (f - 10) * 0.03)
+				p.move_factor = 0.55
+				p.aim_override = p.center() + Vector2(420, -260)
+			if f == 20:
+				r.hud.flow_event("CATCH")
+				r.hud.flow_event("SNAP")
+				r.hud.flow_event("SKIP")
+				r.hud.popup("SKY CATCH", r.disc.color, 2.0)
+				r.hud.snap_popup("PERFECT SNAP", Color(0.4, 2.4, 1.2))
+		"pivot":
+			if f >= 10:
+				p.has_disc = true
+				p.state = 3
+				p.pivot_t = 0.5
+				p.pivot_stored = Vector2(520, -120)
+				p.velocity = Vector2.ZERO
+				Input.action_press("throw")
+				Input.action_press("pivot")
+				p.charging = true
+				p.charge_t = 0.7
+				p.move_factor = 0.0
+				p.aim_override = p.center() + Vector2(380, -300)
 		"putt":
 			if f == 6:
 				p.aim_override = lvl.basket_pos + Vector2(0, -200)
@@ -125,7 +163,9 @@ func _process(_dt: float) -> bool:
 				p.velocity = Vector2(500, 0)
 			if f == 30:
 				Input.action_press("move_right")
-	var cap := 70 if s.act in ["swing", "zip"] else (75 if s.act == "throw" else (60 if s.act == "putt" else 100))
+	var cap := 34 if s.act == "charge" else (62 if s.act == "pivot" else 0)
+	if cap == 0:
+		cap = 70 if s.act in ["swing", "zip"] else (75 if s.act == "throw" else (60 if s.act == "putt" else 100))
 	if f == cap:
 		var img := root.get_viewport().get_texture().get_image()
 		img.save_png("%s/%s.png" % [out_dir, s.out])

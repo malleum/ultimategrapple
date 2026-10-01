@@ -80,6 +80,7 @@ func _draw_block() -> void:
 		draw_rect(Rect2(r.position + Vector2(0, depth), Vector2(r.size.x, r.size.y - depth)), dark)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_v
+	_texture(r, depth, base, rng)
 	var detail := _col("detail")
 	var pat_h := minf(depth, 360.0)
 	match style:
@@ -166,15 +167,47 @@ func _draw_block() -> void:
 		for k in int(r.size.x / 40.0):
 			var gx2 := r.position.x + k * 40.0 + 10.0
 			draw_line(Vector2(gx2, r.position.y + 6), Vector2(gx2 + 14, r.position.y + 2), Color(2, 2, 2, 0.6), 1.5)
-	# glowing edges
-	var ew := 3.0
-	draw_line(r.position, Vector2(r.end.x, r.position.y), edge, ew)
-	var side_len := minf(r.size.y, 260.0)
-	var side_c := Color(edge, 0.7)
-	draw_line(r.position, r.position + Vector2(0, side_len), side_c, 2.0)
-	draw_line(Vector2(r.end.x, r.position.y), Vector2(r.end.x, r.position.y + side_len), side_c, 2.0)
+	# lip + inner shadow give the slab a bevelled, solid top
+	var lip := minf(10.0, r.size.y * 0.3)
+	draw_rect(Rect2(r.position, Vector2(r.size.x, lip)), Color(base.lightened(0.18), 0.55))
+	_vgrad_rect(Rect2(r.position + Vector2(0, lip), Vector2(r.size.x, minf(46.0, r.size.y - lip))), Color(0, 0, 0, 0.28), Color(0, 0, 0, 0.0))
+	# side shading so slabs read as volumes
+	var side_len := minf(r.size.y, 300.0)
+	var sw := minf(14.0, r.size.x * 0.2)
+	_hgrad_rect(Rect2(r.position, Vector2(sw, side_len)), Color(1, 1, 1, 0.07), Color(1, 1, 1, 0.0))
+	_hgrad_rect(Rect2(Vector2(r.end.x - sw, r.position.y), Vector2(sw, side_len)), Color(0, 0, 0, 0.0), Color(0, 0, 0, 0.22))
+	# edges: crisp top rim, faint sides
+	draw_line(r.position + Vector2(0, 1), Vector2(r.end.x, r.position.y + 1), Color(edge, 0.35), 6.0)
+	draw_line(r.position, Vector2(r.end.x, r.position.y), edge, 2.0)
+	var side_c := Color(edge, 0.35)
+	draw_line(r.position, r.position + Vector2(0, minf(side_len, 140.0)), side_c, 1.5)
+	draw_line(Vector2(r.end.x, r.position.y), Vector2(r.end.x, r.position.y + minf(side_len, 140.0)), side_c, 1.5)
 	if r.size.y < 600.0:
-		draw_line(Vector2(r.position.x, r.end.y), r.end, Color(edge, 0.5), 2.0)
+		draw_line(Vector2(r.position.x, r.end.y), r.end, Color(edge, 0.3), 1.5)
+
+
+func _hgrad_rect(r: Rect2, left: Color, right: Color) -> void:
+	var pts := PackedVector2Array([r.position, Vector2(r.end.x, r.position.y), r.end, Vector2(r.position.x, r.end.y)])
+	draw_polygon(pts, PackedColorArray([left, right, right, left]))
+
+
+## Strata bands, pebbles and grain so big slabs never read as flat fills.
+func _texture(r: Rect2, depth: float, base: Color, rng: RandomNumberGenerator) -> void:
+	var h := minf(depth, 420.0)
+	var bands := int(h / 70.0)
+	for i in bands:
+		var y := r.position.y + 50.0 + i * 70.0 + rng.randf_range(-12, 12)
+		var tone := Color(1, 1, 1, 0.035) if i % 2 == 0 else Color(0, 0, 0, 0.07)
+		draw_rect(Rect2(r.position.x, y, r.size.x, rng.randf_range(10, 26)), tone)
+	var n := clampi(int(r.size.x * h / 5000.0), 4, 160)
+	for i in n:
+		var pp := Vector2(r.position.x + rng.randf() * r.size.x, r.position.y + 18.0 + pow(rng.randf(), 1.6) * (h - 18.0))
+		var sz := rng.randf_range(2.0, 6.0)
+		var c := base.lightened(0.2) if rng.randf() < 0.5 else base.darkened(0.35)
+		draw_rect(Rect2(pp, Vector2(sz * 1.6, sz)), Color(c, 0.35))
+	# fade into atmospheric depth
+	var fog: Color = th.get("sky_bottom", Color(0, 0, 0))
+	_vgrad_rect(Rect2(r.position + Vector2(0, h * 0.55), Vector2(r.size.x, h * 0.45)), Color(fog, 0.0), Color(fog.darkened(0.6), 0.25))
 
 
 func _draw_oneway() -> void:
