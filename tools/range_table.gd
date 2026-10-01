@@ -33,9 +33,8 @@ func _physics_process(_dt: float) -> bool:
 				root.add_child(d)
 				var dir := Vector2.RIGHT.rotated(-deg_to_rad(deg))
 				var from := Vector2(0, HAND_Y) + dir * 16.0
-				var spin: float = 1.0 * ty.spin
-				var vel: Vector2 = dir * float(ty.speed) * 1.0 * 1.09
-				d.launch(from, vel, ti, spin, 0.0, 0.25 * 0.15)
+				var lp := ThrowTypes.launch_params(ty, 1.0, "PERFECT", 0.0, 0.0)
+				d.launch(from, dir * float(lp.speed), ti, lp.spin, 0.0, lp.wobble, lp.quality)
 				var e := {"d": d, "type": ty.id, "deg": deg, "touch": -1.0, "touch_t": -1.0, "rest": -1.0, "apex": 0.0, "skips": 0}
 				d.impact.connect(func(kind, _s): _on_impact(e, kind))
 				runs.append(e)

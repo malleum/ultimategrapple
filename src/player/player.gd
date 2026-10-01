@@ -59,8 +59,6 @@ const CATCH_RADIUS := 46.0
 const PICKUP_RADIUS := 40.0
 const CHARGE_TIME := 0.5
 const OVERCHARGE_START := 1.1
-const SNAP_PERFECT_MS := 35
-const SNAP_GOOD_MS := 90
 const NOSE_STEP := deg_to_rad(3.0)
 const NOSE_MAX := deg_to_rad(15.0)
 const PIVOT_MAX := 1.5
@@ -115,9 +113,10 @@ var charge_t := 0.0
 var sway_t := 0.0
 var throw_type := 0
 var nose := 0.0
-var last_snap_ms := -100000
-var last_release_ms := -100000
+var last_snap_us := -100000000
+var last_release_us := -100000000
 var pending_late_snap := false
+var _pending := {}   # launch info kept for a late snap
 var pivot_t := 0.0
 var pivot_air := false
 var pivot_stored := Vector2.ZERO
@@ -251,6 +250,10 @@ func _read_input() -> void:
 	var aim := mouse_world() - hand()
 	if aim.length() > 4.0:
 		aim_dir = aim.normalized()
+
+
+func _input(event: InputEvent) -> void:
+	inp.handle_event(event)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -756,16 +759,14 @@ func _handle_disc_input(dt: float) -> void:
 	if not input_enabled:
 		charging = false
 		return
-	var now := Time.get_ticks_msec()
+	var now_us := Time.get_ticks_usec()
 	if inp.just_pressed("snap"):
-		last_snap_ms = now
-		if pending_late_snap and now - last_release_ms <= SNAP_GOOD_MS and disc:
-			var dtm := now - last_release_ms
-			var perfect := dtm <= SNAP_PERFECT_MS
-			disc.late_snap(1.0 if perfect else 0.8, 1.09 if perfect else 1.04, 0.15 if perfect else 0.5)
-			pending_late_snap = false
-			_snap_feedback("PERFECT" if perfect else "GOOD")
-	if pending_late_snap and now - last_release_ms > SNAP_GOOD_MS:
+		last_snap_us = PlayerInput.stamp(inp.snap_us, now_us)
+		if pending_late_snap and disc:
+			var dtu := last_snap_us - last_release_us
+			if dtu >= 0 and dtu <= ThrowTypes.SNAP_GOOD_US:
+				_late_snap("PERFECT" if dtu <= ThrowTypes.SNAP_PERFECT_US else "GOOD")
+	if pending_late_snap and now_us - last_release_us > ThrowTypes.SNAP_GOOD_US:
 		pending_late_snap = false
 		_snap_feedback("NO SNAP")
 
@@ -816,28 +817,22 @@ func sway_angle() -> float:
 func _throw() -> void:
 	charging = false
 	var ty: Dictionary = ThrowTypes.get_type(throw_type)
-	var now := Time.get_ticks_msec()
-	last_release_ms = now
+	var now_us := Time.get_ticks_usec()
+	last_release_us = PlayerInput.stamp(inp.throw_release_us, now_us)
 	var mf := _move_factor()
 	var oc := overcharge()
-	var snap_dt := now - last_snap_ms
-	var spin: float = 0.45
-	var speed_mult := 1.0
-	var wob_mult := 1.0
-	var quality := ""
-	if snap_dt >= 0 and snap_dt <= SNAP_PERFECT_MS:
-		spin = 1.0; speed_mult = 1.09; wob_mult = 0.15; quality = "PERFECT"
-	elif snap_dt >= 0 and snap_dt <= SNAP_GOOD_MS:
-		spin = 0.8; speed_mult = 1.04; wob_mult = 0.5; quality = "GOOD"
-	else:
-		pending_late_snap = true
-	spin *= ty.spin * (1.0 - 0.3 * minf(mf, 1.0))
+	# snap judged on |snap press - throw release|, either order
+	var snap_dt := absi(last_release_us - last_snap_us)
+	var quality := "NONE"
+	if snap_dt <= ThrowTypes.SNAP_PERFECT_US:
+		quality = "PERFECT"
+	elif snap_dt <= ThrowTypes.SNAP_GOOD_US:
+		quality = "GOOD"
+	var power := charge_power()
+	var lp := ThrowTypes.launch_params(ty, power, quality, mf, oc)
 	var ang := aim_dir.angle() + sway_angle() + _rng.randfn(0.0, 0.035 * mf + 0.04 * oc)
 	var dir := Vector2.RIGHT.rotated(ang)
-	var power := charge_power()
-	var spd: float = ty.speed * power * speed_mult * (1.0 - 0.22 * minf(mf, 1.0)) * (1.0 - 0.1 * oc)
-	var vel := dir * spd + velocity * 0.2
-	var wobble := (0.25 + mf * 0.9 + oc * 0.8) * wob_mult
+	var vel: Vector2 = dir * float(lp.speed) + velocity * 0.2
 	var from := hand() + dir * 16.0
 	var space := get_world_2d().direct_space_state
 	var q := PhysicsRayQueryParameters2D.create(center(), from, collision_mask, [get_rid()])
@@ -845,15 +840,30 @@ func _throw() -> void:
 		from = center()
 	has_disc = false
 	throws += 1
-	disc.launch(from, vel, throw_type, spin, nose * facing_sign_for(dir), wobble)
+	disc.launch(from, vel, throw_type, lp.spin, nose * facing_sign_for(dir), lp.wobble, lp.quality)
 	disc.thrower_id = 1
+	pending_late_snap = quality == "NONE"
+	_pending = {"ty": ty, "power": power, "mf": mf, "oc": oc, "dir": dir}
 	if state == PIVOT:
 		pivot_threw_t = 0.0
-	if quality != "":
+	if quality != "NONE":
 		_snap_feedback(quality)
-	var info := {"type": ty.id, "power": power, "quality": quality, "move": mf, "overcharge": oc}
+	var info := {"type": ty.id, "power": power, "quality": quality if quality != "NONE" else "", "move": mf, "overcharge": oc}
 	threw.emit(info)
 	fx.emit("throw", from, info)
+
+
+## Snap arrived just after release: give the disc exactly what an on-time snap
+## would have (same spin/wobble/stability; the missing speed is added).
+func _late_snap(quality: String) -> void:
+	pending_late_snap = false
+	if _pending.is_empty():
+		return
+	var none := ThrowTypes.launch_params(_pending.ty, _pending.power, "NONE", _pending.mf, _pending.oc)
+	var lp := ThrowTypes.launch_params(_pending.ty, _pending.power, quality, _pending.mf, _pending.oc)
+	var add_vel: Vector2 = _pending.dir * (float(lp.speed) - float(none.speed))
+	disc.apply_late_snap(lp.spin, add_vel, lp.wobble, lp.quality)
+	_snap_feedback(quality)
 
 
 func facing_sign_for(_dir: Vector2) -> float:

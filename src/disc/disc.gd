@@ -20,12 +20,15 @@ const KD := 0.00095     # drag constant
 const RADIUS := 10.0
 const MAX_ALPHA := 0.75
 const STALL_ALPHA := 0.42
+const FLUTTER_LIFT := 0.8    # lift multiplier at zero snap quality
+const FLUTTER_DRAG := 1.3    # drag multiplier at zero snap quality
 
 var state := HELD
 var type_idx := 0
 var t: Dictionary = ThrowTypes.TYPES[0]
 var age := 0.0
 var spin := 1.0            # 0..1
+var quality := 1.0         # snap quality (aero stability): 1 perfect .. 0.25 none
 var spin_dir := 1          # visual + wall kick direction
 var phi := 0.0             # attitude (nose up, radians) in forward frame
 var wobble := 0.0          # amplitude of attitude noise
@@ -92,8 +95,9 @@ func hold() -> void:
 	trail.clear_points()
 
 
-func launch(from: Vector2, vel: Vector2, p_type: int, p_spin: float, nose: float, p_wobble: float) -> void:
+func launch(from: Vector2, vel: Vector2, p_type: int, p_spin: float, nose: float, p_wobble: float, p_quality := 1.0) -> void:
 	type_idx = p_type
+	quality = p_quality
 	t = ThrowTypes.get_type(p_type)
 	global_position = from
 	reset_physics_interpolation()
@@ -113,13 +117,17 @@ func launch(from: Vector2, vel: Vector2, p_type: int, p_spin: float, nose: float
 	_set_state(FLIGHT)
 
 
-## Snap pressed slightly after release: upgrade spin/speed retroactively.
-func late_snap(spin_value: float, speed_mult: float, wobble_mult: float) -> void:
-	if state != FLIGHT or age > 0.12:
+## Snap pressed just after release: upgrade the throw to exactly what an
+## on-time snap would have produced (spin, wobble, stability, and the missing
+## speed — including the distance that speed would already have covered).
+func apply_late_snap(p_spin: float, add_vel: Vector2, p_wobble: float, p_quality: float) -> void:
+	if state != FLIGHT or age > 0.15:
 		return
-	spin = maxf(spin, spin_value)
-	velocity *= speed_mult
-	wobble *= wobble_mult
+	spin = p_spin
+	wobble = p_wobble
+	quality = p_quality
+	velocity += add_vel
+	move_and_collide(add_vel * age)
 
 
 func _set_state(s: int) -> void:
@@ -201,7 +209,11 @@ func _flight(dt: float) -> void:
 		if absf(alpha) > STALL_ALPHA:
 			cl *= clampf(1.0 - (absf(alpha) - STALL_ALPHA) * 2.5, 0.25, 1.0)
 		var cd: float = t.cd0 + t.cda * pow(alpha + 0.07, 2)
+		# an unspun disc flutters: less lift, more drag
 		var lift_mul: float = t.lift
+		if quality < 0.999:
+			cd *= lerpf(FLUTTER_DRAG, 1.0, quality)
+			lift_mul *= lerpf(FLUTTER_LIFT, 1.0, quality)
 		if t.flip_t > 0.0:
 			lift_mul *= lerpf(1.0, t.flip_lift, smoothstep(t.flip_t * 0.6, t.flip_t * 1.4, age))
 		var up := Vector2(f.y, -f.x) * (1.0 if f.x >= 0.0 else -1.0)

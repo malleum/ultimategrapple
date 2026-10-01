@@ -40,6 +40,11 @@ var stick_aim := Vector2.RIGHT   # last non-neutral right-stick direction
 var stick_active := false        # right stick currently deflected
 var using_pad := false           # last input came from a pad (ANY mode)
 var mouse_world_fn: Callable     # returns the mouse position in world space for this view
+## Event-time stamps (µs) for the snap mechanic, taken when the input event
+## arrives rather than when a physics tick happens to poll it.
+var snap_us := -1
+var throw_release_us := -1
+var _trig_r := 0.0
 
 
 func _init(p_device := ANY) -> void:
@@ -128,6 +133,36 @@ func _raw(a: String) -> bool:
 					if Input.is_joy_button_pressed(id, b):
 						return true
 	return false
+
+
+func _pad_ok(id: int) -> bool:
+	return device == id or device == ANY
+
+
+func handle_event(ev: InputEvent) -> void:
+	var now := Time.get_ticks_usec()
+	if ev is InputEventKey or ev is InputEventMouseButton:
+		if not uses_kbm():
+			return
+		if ev.is_action_pressed("snap"):
+			snap_us = now
+		elif ev.is_action_released("throw"):
+			throw_release_us = now
+	elif ev is InputEventJoypadButton:
+		if _pad_ok(ev.device) and ev.pressed and PAD_BUTTONS.snap.has(ev.button_index):
+			snap_us = now
+	elif ev is InputEventJoypadMotion and ev.axis == JOY_AXIS_TRIGGER_RIGHT and _pad_ok(ev.device):
+		if _trig_r > TRIGGER and ev.axis_value <= TRIGGER:
+			throw_release_us = now
+		_trig_r = ev.axis_value
+
+
+## Timestamp of a press/release that the poll just reported: the event time if
+## we saw the event recently, otherwise now (scripted/test input has no events).
+static func stamp(event_us: int, now_us: int) -> int:
+	if event_us > 0 and now_us - event_us < 80000:
+		return event_us
+	return now_us
 
 
 func pressed(a: String) -> bool:

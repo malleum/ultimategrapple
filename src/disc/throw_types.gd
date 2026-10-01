@@ -44,6 +44,33 @@ const TYPES := [
 ]
 
 
+## Snap outcomes. "spin" is the snap's spin level (also drives aero stability
+## in disc.gd: an unspun disc flutters, losing lift and gaining drag),
+## "speed" multiplies launch speed, "wobble" multiplies attitude noise.
+const SNAP := {
+	"PERFECT": {"spin": 1.0, "speed": 1.09, "wobble": 0.15},
+	"GOOD": {"spin": 0.62, "speed": 0.95, "wobble": 0.6},
+	"NONE": {"spin": 0.25, "speed": 0.8, "wobble": 1.5},
+}
+const SNAP_PERFECT_US := 35000   # |snap - release| for PERFECT
+const SNAP_GOOD_US := 90000      # |snap - release| for GOOD
+
+
+## Launch numbers for a throw. Shared by the player, late snaps and tools so
+## early and late snaps are identical.
+##   power 0..1 (charge), mf = movement penalty factor, oc = overcharge 0..1
+static func launch_params(ty: Dictionary, power: float, quality: String, mf: float, oc: float) -> Dictionary:
+	var q: Dictionary = SNAP[quality]
+	var base_speed: float = ty.speed * power * (1.0 - 0.22 * minf(mf, 1.0)) * (1.0 - 0.1 * oc)
+	return {
+		"speed": base_speed * float(q.speed),
+		"base_speed": base_speed,
+		"spin": float(q.spin) * float(ty.spin) * (1.0 - 0.3 * minf(mf, 1.0)),
+		"wobble": (0.25 + mf * 0.9 + oc * 0.8) * float(q.wobble),
+		"quality": float(q.spin),
+	}
+
+
 static func count() -> int:
 	return TYPES.size()
 
