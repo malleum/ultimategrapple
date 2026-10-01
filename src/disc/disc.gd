@@ -273,12 +273,22 @@ func _flight_impact(n: Vector2, other: Object) -> void:
 		impact.emit("wall", spd)
 
 
+## Floor contact under the disc. is_on_floor() alone misses most frames for a
+## rolling/sliding disc (it micro-hops off the floor), which used to skip
+## friction and made rollers travel ~2x too far.
+func _ground_probe() -> KinematicCollision2D:
+	var c := move_and_collide(Vector2(0, 4), true, 0.08)
+	if c and c.get_normal().y < -0.5:
+		return c
+	return null
+
+
 func _roll(dt: float) -> void:
 	velocity.y += t.grav * dt
-	var was_on_floor := is_on_floor()
 	move_and_slide()
-	if is_on_floor():
-		var n := get_floor_normal()
+	var g := _ground_probe()
+	if g:
+		var n := g.get_normal()
 		var tangent := Vector2(-n.y, n.x)
 		var along := velocity.dot(tangent)
 		along = move_toward(along, 0.0, 420.0 * dt)
@@ -289,18 +299,16 @@ func _roll(dt: float) -> void:
 		velocity.x = -velocity.x * 0.45
 		spin_dir = -spin_dir
 		impact.emit("wall", absf(velocity.x))
-	if not is_on_floor() and not was_on_floor and velocity.y > 900.0:
-		pass
 	spin_angle += velocity.x * dt * 0.08
 
 
 func _slide(dt: float) -> void:
 	velocity.y += 1800.0 * dt
 	move_and_slide()
-	if is_on_floor():
+	var g := _ground_probe()
+	if g:
 		var friction := 1600.0
-		var col := get_last_slide_collision()
-		if col and col.get_collider() and col.get_collider().has_meta("ice"):
+		if g.get_collider() and g.get_collider().has_meta("ice"):
 			friction = 250.0
 		velocity.x = move_toward(velocity.x, 0.0, friction * dt)
 		if absf(velocity.x) < 20.0:
