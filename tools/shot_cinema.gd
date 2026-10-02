@@ -43,10 +43,15 @@ func _setup(seed_v: int, theme: String) -> void:
 	data["id"] = "cine_%s" % scene
 	G.settings["show_ghost"] = false
 	G.settings["screen_shake"] = 0.6
+	seed(4242)   # same run seed (disc wobble noise) in the search and render passes
 	lvl = G.play_level(data)
 	r = lvl.runners[0]
 	p = r.player
 	r.inp.mouse_world_fn = func() -> Vector2: return aim
+	# fixed run seed: the disc's wobble noise is the same in every pass
+	r.run_seed = 4242
+	p.reset_run_state(4242)
+	r.disc.seed_rng(4242 ^ 0x5bd1e995)
 	r.hud.cinema = true
 	r.overlay.reticle.visible = false
 
@@ -246,6 +251,7 @@ func _far_spot() -> Vector2:
 
 
 func _perfect(ti: int, deg: float, from: Vector2) -> void:
+	r.disc.seed_rng(4242 ^ 0x5bd1e995)   # every attempt flies the same noise
 	var dir := Vector2.RIGHT.rotated(-deg_to_rad(deg))
 	var lp := ThrowTypes.launch_params(ThrowTypes.get_type(ti), 1.0, 1.0, 0.0, 0.0)
 	r.disc.launch(from, dir * float(lp.speed), ti, lp.spin, 0.0, lp.wobble, lp.quality)
@@ -292,7 +298,8 @@ func _tick_far() -> void:
 		zoom = clampf(1920.0 / (dist + 650.0), 0.4, 1.0)
 		follow = "fixed"
 		var fi := a.find("--from")
-		st["deg"] = float(a[di + 1]) if di >= 0 else (float(a[fi + 1]) if fi >= 0 else 10.0)
+		if not st.has("deg"):
+			st["deg"] = float(a[di + 1]) if di >= 0 else (float(a[fi + 1]) if fi >= 0 else 10.0)
 		st["lo"] = 4.0
 		st["hi"] = 40.0
 		print("far: %.0f px from the basket, zoom %.2f" % [dist, zoom])
@@ -327,7 +334,7 @@ func _tick_far() -> void:
 		st["cross"] = r.disc.global_position.x
 	if r.done:
 		if di < 0:
-			print("far angle %.2f scores (flight %d ticks): --deg %.2f --ticks %d" % [st.deg, f - t0, st.deg, f - t0])
+			print("far angle %.4f scores (flight %d ticks): --deg %.4f --ticks %d" % [st.deg, f - t0, st.deg, f - t0])
 			quit(0)
 			return
 		if not st.has("in"):
@@ -345,9 +352,13 @@ func _tick_far() -> void:
 		print("far: %.2f deg came down at x=%.0f (basket %.0f)" % [st.deg, miss_x, bp.x])
 		st.deg = float(st.deg) + 0.2
 		st.erase("t0")
-		r.disc.hold()
-		p.has_disc = true
-		f = 5
+		# start the attempt from a fresh course (movers back at their start)
+		var keep: float = st.deg
+		lvl.restart()
+		r.run_seed = 4242
+		p.reset_run_state(4242)
+		st["deg"] = keep
+		f = 1
 		if float(st.deg) > 42.0:
 			print("far: no angle scores from here")
 			quit(1)
