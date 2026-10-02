@@ -252,14 +252,16 @@ func _wind_chip(at: Vector2, force: Vector2, alpha: float) -> void:
 	var d := force.normalized()
 	var o := d.orthogonal()
 	var col := Color(0.75, 1.5, 2.0, alpha)
-	var span := 9.0 * n + 12.0
-	draw_line(at - d * span * 0.5, at + d * span * 0.5, Color(0, 0, 0, 0.45 * alpha), 22.0, true)
+	var span := 13.0 * n + 18.0
+	draw_line(at - d * span * 0.5, at + d * span * 0.5, Color(0, 0, 0, 0.5 * alpha), 32.0, true)
 	var pulse := fmod(t * 1.6, 1.0)
 	for i in n:
-		var c := at + d * (-span * 0.5 + 9.0 + i * 9.0 + pulse * 3.0)
-		var pts := PackedVector2Array([c - d * 5.0 + o * 6.0, c + d * 2.0, c - d * 5.0 - o * 6.0])
-		draw_polyline(pts, col, 2.6, true)
-	draw_string(ThemeDB.fallback_font, at + Vector2(-20, 24), "WIND %d" % n, HORIZONTAL_ALIGNMENT_CENTER, 40, 11, Color(0.8, 1.4, 1.9, 0.9 * alpha))
+		var c := at + d * (-span * 0.5 + 13.0 + i * 13.0 + pulse * 4.0)
+		var pts := PackedVector2Array([c - d * 7.0 + o * 9.0, c + d * 3.0, c - d * 7.0 - o * 9.0])
+		draw_polyline(pts, col, 3.4, true)
+	var lab := at + Vector2(-30, maxf(span * 0.5 * absf(d.y), 16.0) + 22.0)
+	draw_string_outline(ThemeDB.fallback_font, lab, "WIND %d" % n, HORIZONTAL_ALIGNMENT_CENTER, 60, 15, 4, Color(0, 0, 0, 0.6 * alpha))
+	draw_string(ThemeDB.fallback_font, lab, "WIND %d" % n, HORIZONTAL_ALIGNMENT_CENTER, 60, 15, Color(0.8, 1.4, 1.9, alpha))
 
 
 func _rope(pts: PackedVector2Array, col: Color, zip: bool) -> void:
