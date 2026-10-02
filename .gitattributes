@@ -1,0 +1,9 @@
+# LF everywhere, even in Windows checkouts (core.autocrlf=true turns flake.nix
+# and the build script into CRLF, and nix run then dies on $'\r').
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ogg binary
+*.wav binary
+*.res binary
+*.pck binary
