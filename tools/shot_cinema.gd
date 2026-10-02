@@ -186,7 +186,7 @@ func _tick_swing() -> void:
 		print("swing point ", best)
 		_place(best + Vector2(-300, 210), Vector2(1100, 250))
 		aim = best
-		zoom = 1.05
+		zoom = 1.8
 		shots = [26, 34, 42, 50]
 	if f == 3:
 		_press("grapple")
@@ -204,7 +204,7 @@ func _tick_zip() -> void:
 				break
 		_place(best + Vector2(-520, 300), Vector2(500, -300))
 		aim = best
-		zoom = 1.0
+		zoom = 1.7
 		shots = [16, 24, 32]
 	if f == 3:
 		_press("zip")
@@ -221,7 +221,7 @@ func _tick_pivot() -> void:
 				pos = c
 				break
 		_place(pos, Vector2(760, -520))
-		zoom = 1.1
+		zoom = 2.0
 		shots = [64, 70, 76, 86]
 	aim = p.center() + Vector2(600, -380)
 	if f == 6:
@@ -230,6 +230,9 @@ func _tick_pivot() -> void:
 		_press("throw")
 	if f == 62:
 		_release("throw")
+		_press("snap")
+	if f == 64:
+		_release("snap")
 	if f == 66:
 		_release("pivot")
 
@@ -252,13 +255,16 @@ func _tick_hammer() -> void:
 		print("hammer from ", pos)
 		_place(pos + Vector2(0, -4), Vector2.ZERO)
 		p.throw_type = 2
-		zoom = 0.62
+		zoom = 0.85
 		follow = "mid"
 	aim = p.center() + Vector2.RIGHT.rotated(-deg_to_rad(62)) * 500.0
 	if f == 6:
 		_press("throw")
 	if f == 66:
 		_release("throw")
+		_press("snap")
+	if f == 68:
+		_release("snap")
 	if r.disc.state == Disc.FLIGHT and not st.has("t0"):
 		st["t0"] = f
 		var lp := ThrowTypes.launch_params(ThrowTypes.get_type(2), 1.0, 1.0, 0.0, 0.0)
@@ -281,7 +287,7 @@ func _tick_chains() -> void:
 				pos = c
 				break
 		_place(pos + Vector2(0, -4), Vector2.ZERO)
-		zoom = 1.7
+		zoom = 2.1
 		follow = "disc"
 		st["try"] = 0
 	if f == 6 and not st.has("thrown"):
@@ -324,7 +330,7 @@ func _tick_skip() -> void:
 				break
 		print("skip from ", pos)
 		_place(pos + Vector2(0, -4), Vector2.ZERO)
-		zoom = 1.1
+		zoom = 1.9
 		follow = "disc"
 	if f == 6:
 		p.has_disc = false
@@ -347,7 +353,7 @@ func _tick_skycatch() -> void:
 				pos = rt[i]
 				break
 		_place(pos + Vector2(0, -4), Vector2.ZERO)
-		zoom = 1.25
+		zoom = 2.1
 		p.has_disc = false
 		r.disc.launch(pos + Vector2(-500, -500), Vector2(500, 0), 0, 1.0, 0.0, 0.0)
 		r.disc.age = 1.0
@@ -380,7 +386,7 @@ func _tick_charge() -> void:
 		st["gp"] = best
 		_place(best + Vector2(-300, 210), Vector2(1100, 250))
 		aim = best
-		zoom = 1.2
+		zoom = 2.0
 		shots = [40, 48, 56, 64]
 	if f == 3:
 		_press("grapple")
