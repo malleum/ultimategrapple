@@ -26,6 +26,8 @@ var level_data: Dictionary = {}
 var mode := "solo"
 ## One entry per local player: {"input": PlayerInput, "name": String, "color": Color}
 var local_players: Array = []
+## mode "replay": the saved run being played back (see Game.play_replay)
+var replay: Dictionary = {}
 var th: Dictionary = {}
 
 var world: Node2D
@@ -64,7 +66,7 @@ func _ready() -> void:
 	Music.play_theme(level_data.get("theme", "cyber"))
 	Input.mouse_mode = Input.MOUSE_MODE_HIDDEN
 	restart()
-	if mode != "solo":
+	if not is_timetrial():
 		for r in runners:
 			r.lock_input(true)
 
@@ -208,8 +210,13 @@ func _build_runners() -> void:
 
 # ================================================================== flow
 
+## Solo time trial, or a replay of one (same rules, same reset).
+func is_timetrial() -> bool:
+	return mode == "solo" or mode == "replay"
+
+
 func restart() -> void:
-	if mode == "solo":
+	if is_timetrial():
 		for s in shared_resettables:
 			if is_instance_valid(s) and s.has_method("reset"):
 				s.reset()

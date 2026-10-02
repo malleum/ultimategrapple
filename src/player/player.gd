@@ -163,6 +163,51 @@ func _ready() -> void:
 	prev_pos = global_position
 	cur_pos = global_position
 	visual.color = color
+	if not inp.mouse_world_fn.is_valid():
+		inp.mouse_world_fn = get_global_mouse_position
+
+
+## Everything a fresh run starts from, so a restarted run and a freshly loaded
+## one behave identically (replays depend on it). Throw type and nose angle
+## are the player's choice and carry over.
+func reset_run_state(seed_value: int) -> void:
+	_rng.seed = seed_value
+	coyote_t = 0.0
+	buffer_t = 0.0
+	jump_held_cut = false
+	wall_dir = 0
+	wall_lock_t = 0.0
+	dash_t = 0.0
+	dash_cd = 0.0
+	dash_dir = Vector2.ZERO
+	slide_boost_cd = 0.0
+	pad_lock_t = 0.0
+	floor_ice = false
+	air_time = 0.0
+	rope_len = 0.0
+	target = {}
+	grapple_cd = 0.0
+	charge_t = 0.0
+	sway_t = 0.0
+	last_snap_us = -100000000
+	last_release_us = -100000000
+	pending_late_snap = false
+	_pending = {}
+	pivot_t = 0.0
+	pivot_air = false
+	pivot_stored = Vector2.ZERO
+	pivot_threw_t = -1.0
+	aim_dir = Vector2.RIGHT
+	move_factor = 0.0
+	input_x = 0.0
+	anim_t = 0.0
+
+
+## Aim point for drawing the reticle: live mouse every frame.
+func mouse_world_draw() -> Vector2:
+	if aim_override != null:
+		return aim_override
+	return inp.aim_point_draw(center())
 
 
 func mouse_world() -> Vector2:
@@ -773,7 +818,7 @@ func _handle_disc_input(dt: float) -> void:
 	if not input_enabled:
 		charging = false
 		return
-	var now_us := Time.get_ticks_usec()
+	var now_us := inp.now_us()
 	if inp.just_pressed("snap"):
 		last_snap_us = PlayerInput.stamp(inp.snap_us, now_us)
 		if pending_late_snap and disc:
@@ -834,7 +879,7 @@ func sway_angle() -> float:
 func _throw() -> void:
 	charging = false
 	var ty: Dictionary = ThrowTypes.get_type(throw_type)
-	var now_us := Time.get_ticks_usec()
+	var now_us := inp.now_us()
 	last_release_us = PlayerInput.stamp(inp.throw_release_us, now_us)
 	var mf := _move_factor()
 	var oc := overcharge()

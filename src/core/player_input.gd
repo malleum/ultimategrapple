@@ -8,6 +8,7 @@ extends RefCounted
 
 const KBM := -1
 const ANY := -2
+const REPLAY := -3
 
 const ACTIONS := ["jump", "dash", "grapple", "zip", "throw", "snap", "pivot", "throw_next", "throw_prev",
 	"nose_up", "nose_down", "recall", "restart", "pause", "move_down", "move_up", "throw_1", "throw_2",
@@ -30,6 +31,15 @@ var mouse_world_fn: Callable     # returns the mouse position in world space for
 ## arrives rather than when a physics tick happens to poll it.
 var snap_us := -1
 var throw_release_us := -1
+## Per-tick snapshots, so the simulation reads one consistent value per tick
+## (and a replay can feed back exactly the same numbers).
+var _now_us := 0
+var _mouse := Vector2.ZERO
+var _has_mouse := false
+## Recording (solo runs, for replays): one entry per poll().
+var recording := false
+var rec: Dictionary = {}
+var _rec_t0 := 0
 var _axes := {}                  # joy axis -> last value (for trigger press/release edges)
 var _taps := {}                  # actions pulsed by mouse wheel notches since the last poll
 
@@ -55,6 +65,7 @@ func label() -> String:
 
 
 func poll() -> void:
+	_now_us = Time.get_ticks_usec()
 	_prev = _cur
 	_cur = {}
 	for a in ACTIONS:
@@ -89,6 +100,50 @@ func poll() -> void:
 	elif device >= 0 and m.length() > 0.5:
 		# no right stick: aim follows the movement direction
 		stick_aim = stick_aim.lerp(m.normalized(), 0.15).normalized()
+	_has_mouse = uses_kbm() and mouse_world_fn.is_valid()
+	if _has_mouse:
+		_mouse = mouse_world_fn.call()
+	if recording:
+		_record_tick()
+
+
+## Start a fresh recording (called on restart).
+func start_recording() -> void:
+	recording = true
+	_rec_t0 = Time.get_ticks_usec()
+	rec = {"bits": PackedInt32Array(), "move": PackedVector2Array(), "mouse": PackedVector2Array(),
+		"stick": PackedVector2Array(), "now": PackedInt64Array(), "snap": PackedInt64Array(), "rel": PackedInt64Array()}
+
+
+func stop_recording() -> void:
+	recording = false
+
+
+func _rel(us: int) -> int:
+	return us - _rec_t0 if us > 0 else -1
+
+
+func _record_tick() -> void:
+	var bits := 0
+	for i in ACTIONS.size():
+		if _cur.get(ACTIONS[i], false):
+			bits |= 1 << i
+	if is_pad_aim():
+		bits |= 1 << 30
+	if not _has_mouse:
+		bits |= 1 << 29
+	rec.bits.append(bits)
+	rec.move.append(move)
+	rec.mouse.append(_mouse)
+	rec.stick.append(stick_aim)
+	rec.now.append(_rel(_now_us))
+	rec.snap.append(_rel(snap_us))
+	rec.rel.append(_rel(throw_release_us))
+
+
+## Clock for gameplay timing (snap judging): the time this tick was polled.
+func now_us() -> int:
+	return _now_us if _now_us > 0 else Time.get_ticks_usec()
 
 
 func _pads() -> Array:
@@ -184,8 +239,20 @@ func just_released(a: String) -> bool:
 ## Aim target in world space. Mouse for KBM; stick direction projected from `origin` for pads.
 func aim_point(origin: Vector2) -> Vector2:
 	if uses_kbm() and not (device == ANY and using_pad) and mouse_world_fn.is_valid():
+		return _mouse if _has_mouse else mouse_world_fn.call()
+	return origin + stick_aim * 320.0
+
+
+## Same, but live every frame: for drawing the reticle smoothly.
+func aim_point_draw(origin: Vector2) -> Vector2:
+	if uses_kbm() and not (device == ANY and using_pad) and mouse_world_fn.is_valid():
 		return mouse_world_fn.call()
 	return origin + stick_aim * 320.0
+
+
+## Is this action held right now (for the keystroke overlay)?
+func held(a: String) -> bool:
+	return _cur.get(a, false)
 
 
 func is_pad_aim() -> bool:

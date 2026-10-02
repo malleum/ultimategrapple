@@ -38,6 +38,7 @@ var level: Node:
 var root: Control
 var draw_layer: Control
 var results: Control = null
+var key_glow := {}        # replay keystroke overlay: action -> 0..1 afterglow
 var pause_menu: Control = null
 var countdown_until := 0.0
 var ui_scale := 1.0
@@ -204,6 +205,9 @@ func _process(dt: float) -> void:
 		countdown_until = level.countdown
 	if not get_tree().paused and not runner.done and Input.is_action_just_pressed("pin") and level.mode == "solo":
 		level.pin_current()
+	if runner.done and results and level.mode == "replay" and not Game.render_mode:
+		if Input.is_action_just_pressed("pause"):
+			Game.goto_menu("replays")
 	if runner.done and results and level.mode == "solo":
 		if Input.is_action_just_pressed("next_level"):
 			_next()
@@ -218,10 +222,12 @@ func _input(event: InputEvent) -> void:
 	if runner == null or runner.done:
 		return
 	var hit := false
-	if event.is_action_pressed("pause") and runner.inp.uses_kbm():
+	if Game.render_mode:
+		return
+	if event.is_action_pressed("pause") and (runner.inp.uses_kbm() or level.mode == "replay"):
 		hit = true
 	elif event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_START:
-		hit = runner.inp.device == -2 or runner.inp.device == event.device
+		hit = runner.inp.device == -2 or runner.inp.device == event.device or level.mode == "replay"
 	if hit:
 		get_viewport().set_input_as_handled()
 		toggle_pause()
@@ -322,6 +328,8 @@ func _draw_hud() -> void:
 	_draw_snap(ci, vs)
 	_draw_scoreboard(ci, vs)
 	_draw_countdown(ci, vs)
+	if level.mode == "replay":
+		_draw_keys(ci, vs)
 
 
 func _draw_speedlines(ci: Control, vs: Vector2, p) -> void:
@@ -426,7 +434,13 @@ func _draw_course_card(ci: Control, vs: Vector2) -> void:
 	_text(ci, r.position + Vector2(28, 32), name, 22, Color(1, 1, 1), HORIZONTAL_ALIGNMENT_LEFT, -1, _bold, 4)
 	_text(ci, r.position + Vector2(28, 52), sub, 14, Color(0.75, 0.8, 0.9), HORIZONTAL_ALIGNMENT_LEFT, -1, null, 3)
 	var rec = Game.get_record(level.level_id)
-	if rec and level.mode == "solo":
+	if level.mode == "replay":
+		var rl := "REPLAY  ·  %s's best  %s" % [str(level.replay.get("player", "Runner")), Game.format_time(float(level.replay.get("time", 0.0)))]
+		var rr := Rect2(12, r.end.y + 6, _text_w(rl, 14, _bold) + 50, 26)
+		_slab(ci, rr, 8.0, Color(0.02, 0.015, 0.06, 0.6), Color(1, 0.3, 0.4, 0.5))
+		ci.draw_circle(rr.position + Vector2(20, 13), 6, Color(1, 0.25, 0.3, 0.6 + 0.4 * sin(t * 4.0)))
+		_text(ci, rr.position + Vector2(34, 18), rl, 14, Color(1, 0.9, 0.92), HORIZONTAL_ALIGNMENT_LEFT, -1, _bold, 0)
+	elif rec and level.mode == "solo":
 		var rm := str(rec.medal)
 		var line := "BEST  " + Game.format_time(float(rec.time))
 		var lr := Rect2(12, r.end.y + 6, _text_w(line, 14, _bold) + 50, 26)
@@ -636,7 +650,11 @@ func _draw_flow(ci: Control, vs: Vector2) -> void:
 func _draw_hints(ci: Control, vs: Vector2) -> void:
 	var pad: bool = runner.inp.is_pad_aim()
 	var hints: Array
-	if level.mode == "solo":
+	if Game.render_mode:
+		return
+	if level.mode == "replay":
+		hints = [[Bindings.label("restart"), "watch again"], [Bindings.label("pause"), "replay menu"]]
+	elif level.mode == "solo":
 		hints = [[Bindings.label("restart", pad), "restart"], [Bindings.label("recall", pad), "recall +3s"], [Bindings.label("pause", pad), "pause"]]
 		if not pad:
 			hints.append([Bindings.label("pin"), "pin"])
@@ -653,6 +671,83 @@ func _draw_hints(ci: Control, vs: Vector2) -> void:
 		_text(ci, kr.position + Vector2(0, 14), h[0], 11, Color(1, 1, 1, 0.85), HORIZONTAL_ALIGNMENT_CENTER, kw, _bold, 0)
 		_text(ci, Vector2(kr.end.x + 6, y), h[1], 12, Color(0.8, 0.85, 0.95, 0.6), HORIZONTAL_ALIGNMENT_LEFT, -1, null, 2)
 		x = kr.end.x + 12.0 + _text_w(h[1], 12) + 16.0
+
+
+## Replay keystroke overlay: the runner's keys as caps that light up while
+## held (with a short afterglow), labelled with the keys they actually used.
+const KEY_ROWS := [
+	[["move_up", 1.0, 1]],
+	[["move_left", 1.0, 0], ["move_down", 1.0, 0], ["move_right", 1.0, 0]],
+	[["jump", 3.0, 0]],
+]
+const ACT_ROWS := [
+	[["dash", "DASH"], ["pivot", "PIVOT"]],
+	[["grapple", "SWING"], ["zip", "ZIP"]],
+	[["throw", "THROW"], ["snap", "SNAP"]],
+]
+
+
+func _key_held(a: String) -> bool:
+	var inp = runner.inp
+	match a:
+		"move_left": return inp.move.x < -0.3
+		"move_right": return inp.move.x > 0.3
+		"move_up": return inp.move.y < -0.3
+		"move_down": return inp.move.y > 0.3 or inp.held("move_down")
+	return inp.held(a)
+
+
+func _draw_keys(ci: Control, vs: Vector2) -> void:
+	var dt := get_process_delta_time()
+	var pad: bool = runner.inp.is_pad_aim()
+	var labels: Dictionary = level.replay.get("labels", {}).get("pad" if pad else "kbm", {})
+	var acc: Color = _ldr(runner.player.color)
+	var cap := Vector2(58, 46)
+	var gap := 6.0
+	var panel := Rect2(vs.x - 412, vs.y - 236, 396, 214)
+	_slab(ci, panel, 10.0, Color(0.02, 0.015, 0.06, 0.72), Color(acc, 0.35))
+	_text(ci, panel.position + Vector2(18, 24), "KEYS", 12, Color(1, 1, 1, 0.55), HORIZONTAL_ALIGNMENT_LEFT, -1, _bold, 0)
+	# movement cluster
+	var ox := panel.position.x + 18.0
+	var oy := panel.position.y + 34.0
+	for ri in KEY_ROWS.size():
+		var x := ox
+		for k in KEY_ROWS[ri]:
+			x += k[2] * (cap.x + gap)
+			var w: float = cap.x * k[1] + gap * (k[1] - 1.0)
+			_keycap(ci, Rect2(x, oy + ri * (cap.y + gap), w, cap.y), k[0], str(labels.get(k[0], "")), "", acc, dt)
+			x += w + gap
+	# action cluster
+	var ax := ox + 3.0 * (cap.x + gap) + 14.0
+	for ri in ACT_ROWS.size():
+		for c2 in ACT_ROWS[ri].size():
+			var k2: Array = ACT_ROWS[ri][c2]
+			_keycap(ci, Rect2(ax + c2 * (cap.x + 12 + gap), oy + ri * (cap.y + gap), cap.x + 12, cap.y), k2[0], str(labels.get(k2[0], "")), k2[1], acc, dt)
+
+
+func _keycap(ci: Control, r: Rect2, action: String, key: String, caption: String, acc: Color, dt: float) -> void:
+	var held := _key_held(action)
+	var g: float = key_glow.get(action, 0.0)
+	g = 1.0 if held else maxf(0.0, g - dt * 6.0)
+	key_glow[action] = g
+	var base := Color(0.08, 0.08, 0.14, 0.9)
+	var fill := base.lerp(Color(acc.r * 0.55, acc.g * 0.55, acc.b * 0.55, 0.95), g)
+	var off := Vector2(0, 3.0 * g)   # pressed caps sink a little
+	var rr := Rect2(r.position + off, r.size - Vector2(0, 3))
+	ci.draw_rect(Rect2(r.position + Vector2(0, 3), r.size - Vector2(0, 3)), Color(0, 0, 0, 0.5))
+	ci.draw_rect(rr, fill)
+	ci.draw_rect(rr, Color(acc, 0.25 + 0.75 * g), false, 2.0)
+	if g > 0.0:
+		ci.draw_rect(rr.grow(3.0), Color(acc, 0.25 * g), false, 3.0)
+	var label := key if key != "" else "—"
+	var size := 15
+	while size > 8 and _text_w(label, size, _bold) > rr.size.x - 8.0:
+		size -= 1
+	var tc := Color(1, 1, 1, 0.55 + 0.45 * g)
+	var ky := rr.position.y + (rr.size.y * 0.5 + 5.0 if caption == "" else 22.0)
+	_text(ci, Vector2(rr.position.x, ky), label, size, tc, HORIZONTAL_ALIGNMENT_CENTER, rr.size.x, _bold, 0)
+	if caption != "":
+		_text(ci, Vector2(rr.position.x, rr.position.y + 37.0), caption, 9, Color(1, 1, 1, 0.4 + 0.4 * g), HORIZONTAL_ALIGNMENT_CENTER, rr.size.x, null, 0)
 
 
 func _draw_offscreen(ci: Control, vs: Vector2, p) -> void:
@@ -856,7 +951,11 @@ func show_results(tm: float, medal: String, is_pb: bool) -> void:
 	panel.custom_minimum_size = Vector2(720, 0)
 	var v := UI.vbox(10)
 	panel.add_child(v)
-	v.add_child(UI.label("CHAINS!", 30, Color(1, 0.85, 0.35), HORIZONTAL_ALIGNMENT_CENTER))
+	var replaying: bool = level.mode == "replay"
+	var head := "CHAINS!"
+	if replaying:
+		head = "REPLAY  ·  %s" % str(level.replay.get("player", "Runner"))
+	v.add_child(UI.label(head, 30, Color(1, 0.85, 0.35), HORIZONTAL_ALIGNMENT_CENTER))
 	var badge := MedalBadge.new()
 	badge.medal = medal
 	badge.colors = MEDAL_LDR
@@ -893,12 +992,25 @@ func show_results(tm: float, medal: String, is_pb: bool) -> void:
 			break
 	var h := UI.hbox(14)
 	h.alignment = BoxContainer.ALIGNMENT_CENTER
-	h.add_child(UI.button("RETRY  [R]", func(): level.restart()))
-	h.add_child(UI.button("NEXT  [N]", _next))
-	if not Game.is_pinned(level.level_id):
-		h.add_child(UI.button("PIN  [P]", func(): level.pin_current()))
-	h.add_child(UI.button("MENU", func(): Game.goto_menu()))
+	if replaying:
+		if not Game.render_mode:
+			h.add_child(UI.button("WATCH AGAIN  [R]", func(): level.restart()))
+			h.add_child(UI.button("EXPORT MP4", func(): Game.export_replay_mp4(level.level_id)))
+			h.add_child(UI.button("REPLAYS", func(): Game.goto_menu("replays")))
+	else:
+		h.add_child(UI.button("RETRY  [R]", func(): level.restart()))
+		h.add_child(UI.button("NEXT  [N]", _next))
+		if not Game.is_pinned(level.level_id):
+			h.add_child(UI.button("PIN  [P]", func(): level.pin_current()))
+		if Game.has_replay(level.level_id):
+			h.add_child(UI.button("REPLAY", func(): Game.play_replay(level.level_id)))
+		h.add_child(UI.button("MENU", func(): Game.goto_menu()))
 	v.add_child(h)
+	if replaying and not Game.render_mode:
+		var st := UI.label("", 16, UI.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+		st.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		v.add_child(st)
+		Game.export_status.connect(func(tx, _d): if is_instance_valid(st): st.text = tx)
 	# A full-screen CenterContainer does the centring, whatever height the
 	# panel ends up. The pop-in animates the holder: containers reset their
 	# children's scale whenever they re-sort.
@@ -937,9 +1049,13 @@ func toggle_pause() -> void:
 		pause_menu.position = Vector2(root.size.x * 0.5 - 210, root.size.y * 0.5 - 220)
 		var v := UI.vbox(12)
 		pause_menu.add_child(v)
-		v.add_child(UI.label("RACE MENU" if level.mode == "multi" else "PAUSED", 40, UI.NEON, HORIZONTAL_ALIGNMENT_CENTER))
+		v.add_child(UI.label("RACE MENU" if level.mode == "multi" else ("REPLAY" if level.mode == "replay" else "PAUSED"), 40, UI.NEON, HORIZONTAL_ALIGNMENT_CENTER))
 		v.add_child(UI.button("RESUME", toggle_pause))
-		if level.mode == "solo":
+		if level.mode == "replay":
+			v.add_child(UI.button("WATCH AGAIN", func(): toggle_pause(); level.restart()))
+			v.add_child(UI.button("EXPORT MP4", func(): Game.export_replay_mp4(level.level_id)))
+			v.add_child(UI.button("REPLAYS", func(): Game.goto_menu("replays")))
+		elif level.mode == "solo":
 			v.add_child(UI.button("RESTART", func(): toggle_pause(); level.restart()))
 			if not Game.is_pinned(level.level_id):
 				v.add_child(UI.button("PIN COURSE", func(): level.pin_current()))

@@ -12,6 +12,7 @@ const Background = preload("res://src/fx/background.gd")
 const Player = preload("res://src/player/player.gd")
 const Disc = preload("res://src/disc/disc.gd")
 const Ghost = preload("res://src/player/ghost.gd")
+const Bindings = preload("res://src/core/bindings.gd")
 const Overlay = preload("res://src/level/overlay.gd")
 const SpeedTrail = preload("res://src/fx/speed_trail.gd")
 const Hud = preload("res://src/ui/hud.gd")
@@ -56,6 +57,13 @@ var rec_tick := 0
 var shake_amt := 0.0
 var cam_zoom := 0.85
 var input_locked := false
+# replays: the seed this run's randomness came from, what the player had
+# selected when it started, and where the player was each tick (sync check)
+var run_seed := 0
+var start_throw := 0
+var start_nose := 0.0
+var track := PackedVector2Array()
+var replay_fix_max := 0.0
 
 
 func personal_layer() -> int:
@@ -171,6 +179,22 @@ func th() -> Dictionary:
 # ================================================================== flow
 
 func restart() -> void:
+	if level.mode == "replay":
+		var rp: Dictionary = level.replay
+		run_seed = int(rp.seed)
+		player.throw_type = int(rp.throw_type)
+		player.nose = float(rp.nose)
+		inp.rewind()
+	else:
+		run_seed = randi()
+	player.reset_run_state(run_seed)
+	disc.seed_rng(run_seed ^ 0x5bd1e995)
+	start_throw = player.throw_type
+	start_nose = player.nose
+	track = PackedVector2Array()
+	replay_fix_max = 0.0
+	if level.mode == "solo":
+		inp.start_recording()
 	time = 0.0
 	penalty = 0.0
 	running = false
@@ -194,7 +218,7 @@ func restart() -> void:
 		hud.on_restart()
 	if level.mode == "solo":
 		_setup_pb_ghost()
-	if level.mode != "solo" and level.race_live:
+	if not level.is_timetrial() and level.race_live:
 		running = true
 
 
@@ -220,7 +244,18 @@ func lock_input(locked: bool) -> void:
 
 
 func _physics_process(dt: float) -> void:
-	if not running and not done and not input_locked and level.mode == "solo" and _any_input():
+	if level.is_timetrial() and not done:
+		# Player and disc state at the start of every tick. Playback re-simulates
+		# from the recorded inputs but pins these each tick: Godot's contact
+		# ordering can differ between sessions by a hair, and a run must not
+		# drift. replay_fix_max tracks how far the pins actually had to move.
+		if level.mode == "replay":
+			_pin_to_recording(track.size() / 4)
+		track.append(player.global_position)
+		track.append(player.velocity)
+		track.append(disc.global_position)
+		track.append(disc.velocity)
+	if not running and not done and not input_locked and level.is_timetrial() and _any_input():
 		running = true
 		if pb_ghost.visible:
 			pb_ghost.start()
@@ -235,13 +270,29 @@ func _physics_process(dt: float) -> void:
 			_do_respawn()
 	_update_lie()
 	_update_camera(dt)
-	if not input_locked and inp.just_pressed("restart"):
+	if level.mode == "replay":
+		# the recorded run never contains a restart; R / START re-watch it
+		if Input.is_action_just_pressed("restart") and not get_tree().paused:
+			level.restart()
+	elif not input_locked and inp.just_pressed("restart"):
 		if level.mode == "solo":
 			level.restart()
 		else:
 			_reset_to_lie()
 	elif done and level.mode == "solo" and Input.is_action_just_pressed("restart"):
 		level.restart()
+
+
+func _pin_to_recording(k: int) -> void:
+	var rt: PackedVector2Array = level.replay.get("track", PackedVector2Array())
+	if (k + 1) * 4 > rt.size():
+		return
+	replay_fix_max = maxf(replay_fix_max, player.global_position.distance_to(rt[k * 4]))
+	replay_fix_max = maxf(replay_fix_max, disc.global_position.distance_to(rt[k * 4 + 2]))
+	player.global_position = rt[k * 4]
+	player.velocity = rt[k * 4 + 1]
+	disc.global_position = rt[k * 4 + 2]
+	disc.velocity = rt[k * 4 + 3]
 
 
 func _any_input() -> bool:
@@ -355,15 +406,45 @@ func _on_scored() -> void:
 	shake(12.0)
 	pb_ghost.stop()
 	if level.mode == "solo":
+		inp.stop_recording()
 		var medal: String = level.medal_for(finish_time)
 		var is_pb := Game.submit_record(level.level_id, finish_time, player.throws, medal)
 		if is_pb:
 			_record(true)
 			Game.save_ghost(level.level_id, rec_frames)
+			Game.save_replay(_make_replay(medal))
 		hud.show_results(finish_time, medal, is_pb)
+	elif level.mode == "replay":
+		hud.show_results(finish_time, level.medal_for(finish_time), false)
 	else:
 		hud.popup("CHAINS!  " + Game.format_time(finish_time), th.get("basket", Color(2, 2, 0.3)))
 	level.on_runner_finished(self)
+
+
+func _make_replay(medal: String) -> Dictionary:
+	var data: Dictionary = level.level_data.duplicate(true)
+	data.erase("_builtin")
+	return {
+		"v": 1,
+		"level_id": level.level_id,
+		"level": data,
+		"name": str(data.get("name", "Course")),
+		"theme": str(data.get("theme", "")),
+		"time": finish_time,
+		"medal": medal,
+		"throws": player.throws,
+		"deaths": deaths,
+		"penalty": penalty,
+		"player": pname,
+		"color": color,
+		"seed": run_seed,
+		"throw_type": start_throw,
+		"nose": start_nose,
+		"labels": Bindings.snapshot_labels(),
+		"date": int(Time.get_unix_time_from_system()),
+		"input": inp.rec,
+		"track": track,
+	}
 
 
 func _on_disc_impact(kind: String, strength: float) -> void:

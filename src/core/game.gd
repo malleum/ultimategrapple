@@ -10,9 +10,16 @@ const SAVE_PATH := "user://save.json"
 const SETTINGS_PATH := "user://settings.json"
 const PINNED_USER_DIR := "user://pinned"
 const GHOST_DIR := "user://ghosts"
+const REPLAY_DIR := "user://replays"
+const REPLAY_INDEX := "user://replays/index.json"
+const RECENT_PATH := "user://recent.json"
+const RECENT_MAX := 40
+const ReplayInput = preload("res://src/core/replay_input.gd")
 const GENERATOR_VERSION := 1
 
 signal settings_changed
+## MP4 export progress for the replays menu / replay HUD.
+signal export_status(text: String, done: bool)
 
 var main: Node = null
 var current_scene: Node = null
@@ -36,6 +43,7 @@ var settings := {
 var records := {}
 
 var server_mode := false  # headless dedicated server
+var render_mode := false  # rendering a replay to video (no menus, no saving)
 
 ## What "NEXT" does after a finish: {"kind": "random", ...} or {"kind": "pinned", "index": i}
 var session := {}
@@ -48,6 +56,7 @@ func _ready() -> void:
 	_load_records()
 	DirAccess.make_dir_recursive_absolute(PINNED_USER_DIR)
 	DirAccess.make_dir_recursive_absolute(GHOST_DIR)
+	DirAccess.make_dir_recursive_absolute(REPLAY_DIR)
 	var args := OS.get_cmdline_user_args()
 	server_mode = args.has("--server")
 	apply_settings()
@@ -222,13 +231,193 @@ func goto_menu(page: String = "title") -> void:
 
 
 ## mode: "solo" | "multi"
-func play_level(data: Dictionary, mode: String = "solo", local_players: Array = []) -> Node:
+func play_level(data: Dictionary, mode: String = "solo", local_players: Array = [], replay: Dictionary = {}) -> Node:
 	var lvl := LevelScript.new()
 	lvl.level_data = data
 	lvl.mode = mode
 	lvl.local_players = local_players
+	lvl.replay = replay
+	if mode == "solo":
+		_note_recent(str(data.get("id", "")))
 	change_scene(lvl)
 	return lvl
+
+
+# ---------------------------------------------------------------- replays
+# The personal-best run of each course is kept as a replay: the course, the
+# run's random seed and every tick of input, so playback re-simulates it and
+# looks exactly like the run did (HUD, particles, sound), plus a keystroke
+# overlay. Stored zstd-compressed with store_var (bit-exact floats).
+
+func _replay_path(level_id: String) -> String:
+	return REPLAY_DIR + "/" + level_id.validate_filename() + ".rep"
+
+
+func save_replay(rep: Dictionary) -> void:
+	var id: String = rep.level_id
+	var f := FileAccess.open_compressed(_replay_path(id), FileAccess.WRITE, FileAccess.COMPRESSION_ZSTD)
+	if f == null:
+		push_warning("could not save replay for %s" % id)
+		return
+	f.store_var(rep)
+	f.close()
+	var idx = _load_json(REPLAY_INDEX, {})
+	if not idx is Dictionary:
+		idx = {}
+	idx[id] = {"name": rep.name, "theme": rep.theme, "time": rep.time, "medal": rep.medal, "date": rep.date}
+	_save_json(REPLAY_INDEX, idx)
+
+
+func load_replay(level_id: String) -> Dictionary:
+	var path := _replay_path(level_id)
+	if not FileAccess.file_exists(path):
+		return {}
+	var f := FileAccess.open_compressed(path, FileAccess.READ, FileAccess.COMPRESSION_ZSTD)
+	if f == null:
+		return {}
+	var v = f.get_var()
+	return v if v is Dictionary and v.has("input") else {}
+
+
+func has_replay(level_id: String) -> bool:
+	return FileAccess.file_exists(_replay_path(level_id))
+
+
+## Saved replays, most recently played course first:
+## [{id, name, theme, time, medal, date}]
+func list_replays() -> Array:
+	var idx = _load_json(REPLAY_INDEX, {})
+	if not idx is Dictionary:
+		return []
+	var recent = _load_json(RECENT_PATH, [])
+	if not recent is Array:
+		recent = []
+	var out := []
+	for id in recent:
+		if idx.has(id) and has_replay(id):
+			var e: Dictionary = idx[id].duplicate()
+			e["id"] = id
+			out.append(e)
+	var rest := []
+	for id in idx:
+		if not recent.has(id) and has_replay(id):
+			var e2: Dictionary = idx[id].duplicate()
+			e2["id"] = id
+			rest.append(e2)
+	rest.sort_custom(func(a, b): return int(a.get("date", 0)) > int(b.get("date", 0)))
+	out.append_array(rest)
+	return out
+
+
+func delete_replay(level_id: String) -> void:
+	DirAccess.remove_absolute(_replay_path(level_id))
+	var idx = _load_json(REPLAY_INDEX, {})
+	if idx is Dictionary and idx.has(level_id):
+		idx.erase(level_id)
+		_save_json(REPLAY_INDEX, idx)
+
+
+func _note_recent(level_id: String) -> void:
+	if level_id == "":
+		return
+	var recent = _load_json(RECENT_PATH, [])
+	if not recent is Array:
+		recent = []
+	recent.erase(level_id)
+	recent.push_front(level_id)
+	while recent.size() > RECENT_MAX:
+		recent.pop_back()
+	_save_json(RECENT_PATH, recent)
+
+
+func play_replay(level_id: String) -> bool:
+	var rep := load_replay(level_id)
+	if rep.is_empty():
+		return false
+	var who := {"input": ReplayInput.new(rep.input), "name": str(rep.get("player", "Runner")), "color": rep.get("color", player_color())}
+	play_level(rep.level, "replay", [who], rep)
+	return true
+
+
+# ---------------------------------------------------------------- MP4 export
+# Renders the replay in a second copy of the game with Godot's movie maker
+# (--write-movie: fixed 60 fps, every frame, game audio), then converts the
+# AVI to an H.264/AAC MP4 with ffmpeg into ~/Videos/Ultimate Grapple/.
+
+var _export := {}   # {stage, pid, id, avi, mp4}
+
+
+func is_exporting() -> bool:
+	return not _export.is_empty()
+
+
+func videos_dir() -> String:
+	var d := OS.get_system_dir(OS.SYSTEM_DIR_MOVIES)
+	if d == "":
+		d = OS.get_environment("HOME").path_join("Videos")
+	return d.path_join("Ultimate Grapple")
+
+
+func export_replay_mp4(level_id: String) -> void:
+	if is_exporting():
+		export_status.emit("Already exporting a replay...", false)
+		return
+	var rep := load_replay(level_id)
+	if rep.is_empty():
+		export_status.emit("No replay saved for this course", true)
+		return
+	DirAccess.make_dir_recursive_absolute(videos_dir())
+	var render_dir := OS.get_user_data_dir().path_join("render")
+	DirAccess.make_dir_recursive_absolute(render_dir)
+	var base := "%s %s" % [str(rep.name), format_time(float(rep.time)).replace(":", "m")]
+	base = base.validate_filename().replace(" ", "_")
+	var avi := render_dir.path_join(level_id.validate_filename() + ".avi")
+	var mp4 := videos_dir().path_join(base + ".mp4")
+	# reuse how this game was launched (--main-pack for nix run, --path from source)
+	var args := PackedStringArray()
+	var cl := OS.get_cmdline_args()
+	for i in cl.size():
+		if cl[i] in ["--main-pack", "--path"] and i + 1 < cl.size():
+			args.append(cl[i])
+			args.append(cl[i + 1])
+	if args.is_empty() and not OS.has_feature("template"):
+		args.append_array(["--path", ProjectSettings.globalize_path("res://")])
+	args.append_array(["--write-movie", avi, "--fixed-fps", "60", "--resolution", "1920x1080", "--", "--render-replay=" + level_id])
+	var pid := OS.create_process(OS.get_executable_path(), args)
+	if pid <= 0:
+		export_status.emit("Could not start the renderer", true)
+		return
+	_export = {"stage": "render", "pid": pid, "id": level_id, "avi": avi, "mp4": mp4}
+	export_status.emit("Rendering replay (a window opens and closes by itself)...", false)
+
+
+func _poll_export() -> void:
+	if _export.is_empty() or OS.is_process_running(int(_export.pid)):
+		return
+	match str(_export.stage):
+		"render":
+			if not FileAccess.file_exists(_export.avi):
+				export_status.emit("Rendering failed (no video written)", true)
+				_export = {}
+				return
+			var ff := PackedStringArray(["-y", "-loglevel", "error", "-i", _export.avi,
+				"-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p",
+				"-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", _export.mp4])
+			var pid := OS.create_process("ffmpeg", ff)
+			if pid <= 0:
+				export_status.emit("ffmpeg not found. The raw video is at %s" % _export.avi, true)
+				_export = {}
+				return
+			_export.stage = "encode"
+			_export.pid = pid
+			export_status.emit("Encoding MP4...", false)
+		"encode":
+			if FileAccess.file_exists(_export.mp4):
+				DirAccess.remove_absolute(_export.avi)
+				export_status.emit("Saved %s" % _export.mp4, true)
+			else:
+				export_status.emit("Encoding failed. The raw video is at %s" % _export.avi, true)
+			_export = {}
 
 
 func start_random(seed_value: int, theme: String, difficulty: float, length: int) -> void:
@@ -341,6 +530,7 @@ func end_couch() -> void:
 
 
 func _process(_dt: float) -> void:
+	_poll_export()
 	if couch.is_empty() or float(couch.get("next_at", -1.0)) < 0.0:
 		return
 	if Time.get_ticks_msec() / 1000.0 >= float(couch.next_at):

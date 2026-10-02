@@ -240,6 +240,20 @@ static func label(action: String, use_pad := false) -> String:
 	return code_label(k[0]) if not k.is_empty() else ""
 
 
+## Keycap labels for the replay keystroke overlay, frozen at record time
+## so friends see the keys you actually used.
+static func snapshot_labels() -> Dictionary:
+	var out := {"kbm": {}, "pad": {}}
+	for a in ["move_left", "move_right", "move_up", "move_down", "jump", "dash", "grapple", "zip", "throw", "snap", "pivot", "recall"]:
+		out.kbm[a] = label(a)
+		out.pad[a] = label(a, true)
+	out.pad["move_left"] = "LS ←"
+	out.pad["move_right"] = "LS →"
+	out.pad["move_up"] = "LS ↑"
+	out.pad["move_down"] = "LS ↓"
+	return out
+
+
 ## All bindings of an action joined for help text, e.g. "F / MOUSE 4".
 static func labels(action: String, use_pad := false) -> String:
 	var arr: Array = (pad if use_pad else kbm).get(action, [])

@@ -81,6 +81,10 @@ func _init() -> void:
 	visible = false
 
 
+func seed_rng(seed_value: int) -> void:
+	_rng.seed = seed_value
+
+
 func set_color(c: Color) -> void:
 	color = c
 	if trail:

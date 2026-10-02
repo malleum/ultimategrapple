@@ -26,6 +26,7 @@ func _init() -> void:
 	visual.alpha = 0.45
 	add_child(visual)
 	z_index = -1
+	visible = false   # until it has something to show
 
 
 func setup_replay(p_frames: Array, color: Color) -> void:
@@ -37,6 +38,7 @@ func setup_replay(p_frames: Array, color: Color) -> void:
 
 func setup_remote(p_name: String, color: Color) -> void:
 	remote = true
+	visible = true
 	visual.color = color
 	visual.alpha = 0.6
 	visual.name_tag = p_name

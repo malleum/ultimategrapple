@@ -98,6 +98,7 @@ func show_page(p: String) -> void:
 		"random": _page_random()
 		"multi": _page_multi()
 		"controls": _page_controls()
+		"replays": _page_replays()
 		"bindings": _page_bindings()
 		"settings": _page_settings()
 		_: _page_title()
@@ -126,6 +127,7 @@ func _page_title() -> void:
 	col.add_child(UI.button("COURSES", func(): show_page("courses"), 30))
 	col.add_child(UI.button("RANDOM COURSE", func(): show_page("random"), 30))
 	col.add_child(UI.button("QUICK RANDOM", func(): Game.start_random(randi() % 1000000, "", 0.5, 12), 30))
+	col.add_child(UI.button("REPLAYS", func(): show_page("replays"), 30))
 	col.add_child(UI.button("COUCH VERSUS", func(): show_page("couch"), 30))
 	col.add_child(UI.button("ONLINE / LAN", func(): show_page("multi"), 30))
 	col.add_child(UI.button("CONTROLS", func(): show_page("controls"), 24))
@@ -544,6 +546,67 @@ func _ctrl_row(k: String, d: String) -> Control:
 	var dl := UI.label(d, 18, Color(0.9, 0.95, 1))
 	h.add_child(dl)
 	return h
+
+
+# ------------------------------------------------------------------ replays
+
+var replay_status: Label
+
+
+func _page_replays() -> void:
+	var c := _clear()
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(1180, 0)
+	c.add_child(panel)
+	var v := UI.vbox(10)
+	panel.add_child(v)
+	v.add_child(UI.label("REPLAYS", 48, UI.NEON))
+	v.add_child(UI.label("Your personal-best run on each course, most recently played first. Watch it with the keystroke overlay, or export an MP4 to send to friends.", 18, UI.DIM))
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(1120, 560)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	v.add_child(scroll)
+	var rows := UI.vbox(6)
+	rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(rows)
+	var list := Game.list_replays()
+	if list.is_empty():
+		rows.add_child(UI.label("No replays yet. Finish a course and every new personal best is saved here.", 20, UI.DIM))
+	for e in list:
+		var id: String = e.id
+		var h := UI.hbox(14)
+		var dot := UI.label("●", 22, UI.medal_color(str(e.get("medal", ""))))
+		h.add_child(dot)
+		var nm := UI.label(str(e.get("name", id)), 22)
+		nm.custom_minimum_size = Vector2(360, 0)
+		nm.clip_text = true
+		h.add_child(nm)
+		var th: Dictionary = Themes.get_theme(str(e.get("theme", "")))
+		var tl := UI.label(str(th.get("name", "")), 18, UI.DIM)
+		tl.custom_minimum_size = Vector2(190, 0)
+		h.add_child(tl)
+		var tm := UI.label(Game.format_time(float(e.get("time", 0.0))), 22, UI.GOLD)
+		tm.custom_minimum_size = Vector2(150, 0)
+		h.add_child(tm)
+		h.add_child(UI.button("WATCH", func(): Game.play_replay(id), 20))
+		h.add_child(UI.button("EXPORT MP4", func(): Game.export_replay_mp4(id), 20))
+		rows.add_child(h)
+	replay_status = UI.label("", 18, UI.PINK)
+	replay_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(replay_status)
+	var b := UI.hbox(16)
+	b.add_child(UI.button("OPEN VIDEOS FOLDER", func():
+		DirAccess.make_dir_recursive_absolute(Game.videos_dir())
+		OS.shell_open(Game.videos_dir()), 20))
+	b.add_child(_back_button())
+	v.add_child(b)
+	if not Game.export_status.is_connected(_on_export_status):
+		Game.export_status.connect(_on_export_status)
+
+
+func _on_export_status(tx: String, _done: bool) -> void:
+	if replay_status and is_instance_valid(replay_status):
+		replay_status.text = tx
 
 
 # ------------------------------------------------------------------ rebinding

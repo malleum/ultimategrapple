@@ -9,9 +9,11 @@
   - `godot4 --headless --fixed-fps 120 -s tools/fuzz.gd -- 21 1500` (random-input fuzz)
   - `godot4 --headless --fixed-fps 120 -s tools/test_tunnels.gd` (slides through every spike-ceiling tunnel)
   - `godot4 --headless -s tools/test_bindings.gd` (rebinding, side mouse buttons, wheel taps, pad)
+  - `godot4 --headless --fixed-fps 120 -s tools/test_replay.gd` (replay playback is exact; PB run saves + replays to the same time)
   - `nix build .#default` (pck export + wrapper)
 - Avoid `:=` on Variant values (Dictionary/Array element access) — Godot treats failed inference as a parse error.
 - Course fairness checks live in `src/level/validator.gd` (used by test_gen on generated + `levels/*.json`). Changing generator geometry: bump `Gen.VERSION` and add a `Validator.repair()` step so old pinned saves get fixed on load.
 - Disc tuning tools: `tools/range_table.gd` (max range per throw), `tools/snap_table.gd` (range vs snap timing), `tools/flight_path.gd -- out.png` (steep throws/comebacks, plots). Re-run them after touching `disc.gd` / `throw_types.gd`.
+- Replays re-simulate recorded input (`PlayerInput` recording, `src/core/replay_input.gd`). Gameplay must stay reproducible: read time via `inp.now_us()` (never `Time.*` in gameplay), use the seeded `_rng`s, step world objects in `_physics_process`, and reset any new per-run player state in `Player.reset_run_state()`.
 - Controls are rebindable (`src/core/bindings.gd`, saved in settings.json). Never hard-code key names in UI; use `Bindings.label()/labels()`.
 - Per-player state (gates, glass, grapple points) lives in `src/level/runner.gd` on per-runner physics/visibility layer bits; shared world in `src/level/level.gd`.

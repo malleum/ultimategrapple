@@ -190,7 +190,7 @@ func _draw_reticle() -> void:
 	var gcol: Color = _soft(th.get("grapple", Color(2, 2, 0.4)))
 	var dcol: Color = _soft(runner.disc.color)
 	var has_target: bool = not p.target.is_empty()
-	var m: Vector2 = p.mouse_world()
+	var m: Vector2 = p.mouse_world_draw()
 	# halo strokes are pure black: the shader turns them white over bright skies
 	var halo := Color(0, 0, 0, 0.6)
 	var rc := Color(1.0, 1.0, 1.0, 0.95) if not has_target else Color(gcol.lightened(0.25), 0.95)

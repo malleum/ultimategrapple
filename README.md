@@ -92,6 +92,22 @@ reticle reads the screen behind it and switches to dark ink over bright skies.
 - **Movement tech.** Bunny-hop speed conservation, slide boost, slide-jumps, dash-jumps,
   downhill slide acceleration, ice floors and speed boosters.
 
+## Replays
+
+Every new personal best saves a replay of that run. **REPLAYS** on the title screen lists
+them, most recently played course first.
+- **WATCH** plays the run back looking exactly as it did live (HUD, particles, sound),
+  with a keystroke overlay of the keys the runner actually had bound.
+- **EXPORT MP4** renders the replay at 60 fps with game audio and saves it to
+  `~/Videos/Ultimate Grapple/`, ready to send. It uses Godot's movie maker in a second
+  window, then ffmpeg, which the nix package bundles.
+
+A replay stores the course, the run's random seed and every tick of input, and is
+re-simulated on playback. It also stores the player and disc state per tick and pins
+playback to it, so tiny physics differences between sessions can never make a replay
+drift. `tools/test_replay.gd` checks that playback is exact, and that a real finish
+saves a replay which, when watched, finishes in the same time.
+
 ## Course generator (`src/level/generator.gd`)
 
 A seeded, deterministic walker places segments from a weighted grammar. There are 27 segment
