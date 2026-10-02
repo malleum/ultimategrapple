@@ -475,6 +475,7 @@ func round_update(p: Dictionary, winner: int, results: Dictionary, s_winner: int
 		var who: String = "YOU" if winner == my_id() else str(players[winner].name)
 		lvl.hud.popup("%s SANK IT FIRST!" % who, Color(2.2, 1.8, 0.3), 2.5)
 		Sfx.play("fanfare" if winner == my_id() else "chains")
+		lvl.show_net_winner_cam(winner, str(players[winner].name))
 	lobby_changed.emit()
 
 

@@ -500,6 +500,7 @@ func couch_runner_finished(index: int, t: float) -> void:
 		couch.next_at = Time.get_ticks_msec() / 1000.0 + 6.0
 		if lvl and lvl.has_method("couch_popup"):
 			lvl.couch_popup("%s SANK IT FIRST!" % p.name, player_palette(int(p.color)) * 1.6)
+			lvl.show_couch_winner_cam(index)
 		Sfx.play("fanfare")
 	if couch.results.size() >= couch.players.size():
 		couch.next_at = minf(couch.next_at, Time.get_ticks_msec() / 1000.0 + 3.0)

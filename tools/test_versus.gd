@@ -11,13 +11,14 @@ extends SceneTree
 ##   hit_arm   couch: a disc to the arm makes them drop theirs
 ##   hit_leg   couch: a disc to the legs trips them into a slide
 ##   hit_slow  couch: a slow disc just bounces off
+##   couchcam  couch: the round winner's disc cam shows in the corner
 ## godot --headless --fixed-fps 120 -s tools/test_versus.gd
 
 const PI_ = preload("res://src/core/player_input.gd")
 const Disc = preload("res://src/disc/disc.gd")
 
 var lvl
-var tests := ["freeze", "oob", "tackle", "clash", "netclash", "hit_head", "hit_arm", "hit_leg", "hit_slow", "solo"]
+var tests := ["freeze", "oob", "tackle", "clash", "netclash", "hit_head", "hit_arm", "hit_leg", "hit_slow", "couchcam", "solo"]
 var ti := -1
 var f := 0
 var fails := 0
@@ -156,6 +157,27 @@ func _physics_process(_dt: float) -> bool:
 						_check("hit_leg", float(d.stumble) > 0.7 and d.slid and float(d.down) == 0.0, "stumble %.2fs, slid=%s" % [d.stumble, d.slid])
 					"hit_slow":
 						_check("hit_slow", float(d.stun) == 0.0 and b3.player.has_disc and dvx < 150.0, "stun %.2f, still holding=%s, disc vx %.0f" % [d.stun, b3.player.has_disc, dvx])
+				_next()
+		"couchcam":
+			var b4 = lvl.runners[1]
+			if f == 5:
+				a.player.respawn(Vector2(-300, -2))
+				Input.action_press("move_right")
+			if f == 200:
+				Input.action_release("move_right")
+				a._on_scored()   # A sinks it
+				if _game().couch.is_empty():   # no couch set running in this test
+					lvl.show_couch_winner_cam(0)
+			if f == 200 + 160:
+				var rc = lvl.round_cam
+				var cam = rc.get_child(0) if rc and is_instance_valid(rc) else null
+				var ok: bool = cam != null and cam.frames.size() > 150 and a.player.visibility_layer & 1 == 0 \
+					and b4.player.visibility_layer & 1 == 0
+				_check("couchcam", ok, "winner cam up: %s, %d frames, live bodies hidden from it" % [cam != null, cam.frames.size() if cam else 0])
+				if rc:
+					rc.queue_free()
+			if f == 200 + 165:
+				_check("couchcam", a.player.visibility_layer == 1 and b4.player.visibility_layer == 1, "layers back after the cam closes (A %d, B %d)" % [a.player.visibility_layer, b4.player.visibility_layer])
 				_next()
 		"netclash":
 			if f == 5:

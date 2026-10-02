@@ -111,6 +111,9 @@ point of view: carried in your hand, thrown, and into the chains (with a slow-mo
 it hits). With **LOCK TO DISC** on (the default, remembered, also in Settings) the disc
 stays level in the middle and the world turns around it, so a hammer that flips over shows
 the world upside down. Turn it off to keep the world upright and watch the disc tilt.
+In couch and online versus, the round winner's disc cam pops up in the corner for everyone
+(online it is rebuilt from the frames their client already streams), and if someone else
+won, you get your own once you sink it.
 
 Every new personal best saves a replay of that run. **REPLAYS** on the title screen lists
 them, most recently played course first.

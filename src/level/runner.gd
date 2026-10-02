@@ -269,15 +269,19 @@ func _physics_process(dt: float) -> void:
 		running = true
 		if pb_ghost.visible:
 			pb_ghost.start()
-	if level.is_timetrial() and (running or (done and pov_after < POV_AFTER)):
+	# disc cam clip; online, keep sending a moment after the chains too so the
+	# others' disc cam sees it go in
+	var post := done and pov_after < POV_AFTER
+	if running or post:
 		if done:
 			pov_after += 1
 		_record_pov()
 	if running and not done:
 		time += dt
 		_record()
-		if level.mode == "multi":
-			Net.send_state(_frame())
+	if level.mode == "multi" and ((running and not done) or post):
+		Net.send_state(_frame())
+		if not done:
 			_remote_contacts()
 	if respawn_t >= 0.0:
 		respawn_t -= dt
@@ -667,7 +671,9 @@ func _frame() -> Array:
 	if disc.state == Disc.FLIGHT:
 		f[5] = int(f[5]) | 64    # disc airborne: others can clash with it
 	var dvis := 0 if (disc.state == Disc.HELD) else 1
-	f.append_array([snappedf(disc.global_position.x, 0.1), snappedf(disc.global_position.y, 0.1), dvis])
+	var pz: Vector2 = disc.pose()
+	f.append_array([snappedf(disc.global_position.x, 0.1), snappedf(disc.global_position.y, 0.1), dvis,
+		snappedf(pz.x, 0.01), snappedf(pz.y, 0.01)])
 	return f
 
 
@@ -687,14 +693,6 @@ func _record_pov() -> void:
 func pov_frames() -> Dictionary:
 	var n := mini(pov_clip.size(), POV_TICKS + pov_after)
 	return {"frames": pov_clip.slice(-n), "score_at": n - pov_after}
-
-
-## Disc cam: move this runner's own drawables (body, disc, ghost, aim
-## overlay, trails) to `bits`, so a second view of the world can leave them out.
-func set_body_layer(bits: int) -> void:
-	for n in [player, disc, pb_ghost, overlay, speed_trail]:
-		if is_instance_valid(n):
-			_set_vis_recursive(n, bits)
 
 
 func _record(force := false) -> void:

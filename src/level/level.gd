@@ -19,6 +19,7 @@ const PlayerInput = preload("res://src/core/player_input.gd")
 const Validator = preload("res://src/level/validator.gd")
 const Disc = preload("res://src/disc/disc.gd")
 const Player = preload("res://src/player/player.gd")
+const DiscCam = preload("res://src/ui/disc_cam.gd")
 
 const SPLIT_UI_BIT := 19
 
@@ -199,7 +200,7 @@ func _build_runners() -> void:
 		sv.use_hdr_2d = true
 		sv.physics_object_picking = false
 		sv.handle_input_locally = false
-		sv.canvas_cull_mask = 1 | (1 << (Runner.FIRST_PERSONAL_BIT + i))
+		sv.canvas_cull_mask = 1 | (1 << (Runner.FIRST_PERSONAL_BIT + i)) | (1 << DiscCam.RUNNER_BIT)
 		sv.audio_listener_enable_2d = false
 		cont.add_child(sv)
 		var r := Runner.new()
@@ -292,9 +293,92 @@ func par_time() -> float:
 func on_runner_finished(r: Node) -> void:
 	runner_finished.emit(r)
 	if mode == "multi":
+		# someone else already won the round: show us our own throw instead
+		if Net.round_winner != -1 and Net.round_winner != Net.my_id():
+			show_round_cam(r.pov_frames, r.player.visual.color, r.disc.color, "YOUR THROW")
 		Net.report_finish(r.finish_time, r.player.throws)
 	elif mode == "couch":
 		Game.couch_runner_finished(r.index, r.finish_time)
+
+
+# ================================================================== disc cam (versus)
+
+var round_cam: Control = null
+var _cam_layer: CanvasLayer = null
+
+
+## Show a disc cam in the corner once the clip has its moment after the
+## chains. `clip_fn` is called then and returns a DiscCam clip.
+func show_round_cam(clip_fn: Callable, color: Color, disc_color: Color, title: String) -> void:
+	await get_tree().create_timer(1.0).timeout
+	if not is_inside_tree():
+		return
+	var clip: Dictionary = clip_fn.call()
+	if clip.frames.size() < 60:
+		return
+	if round_cam and is_instance_valid(round_cam):
+		round_cam.queue_free()
+	if _cam_layer == null:
+		_cam_layer = CanvasLayer.new()
+		_cam_layer.layer = 40
+		add_child(_cam_layer)
+	var panel := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.02, 0.015, 0.06, 0.88)
+	sb.border_color = Color(1.0, 0.8, 0.3)
+	sb.set_border_width_all(2)
+	sb.set_corner_radius_all(6)
+	sb.set_content_margin_all(10)
+	panel.add_theme_stylebox_override("panel", sb)
+	var cam := DiscCam.new()
+	panel.add_child(cam)
+	cam.setup(self, clip, color, disc_color, title, true)
+	_cam_layer.add_child(panel)
+	# bottom right, above the control hints; never takes the mouse
+	panel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT, Control.PRESET_MODE_MINSIZE, 24)
+	panel.position.y -= 70.0
+	_ui_only(panel)
+	round_cam = panel
+	var tw := create_tween().bind_node(panel)
+	panel.modulate.a = 0.0
+	tw.tween_property(panel, "modulate:a", 1.0, 0.25)
+
+
+## The corner cam: drawn by every game view (couch views only draw some
+## layers) and transparent to the mouse. Stops at the cam's own viewport.
+func _ui_only(n: Node) -> void:
+	if n is SubViewport:
+		return
+	if n is Control:
+		(n as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
+		if split_layer:
+			(n as Control).visibility_layer = 1 | (1 << SPLIT_UI_BIT)
+	for c in n.get_children():
+		_ui_only(c)
+
+
+## Couch: the round winner's throw, for everyone.
+func show_couch_winner_cam(index: int) -> void:
+	var r = runners[index]
+	show_round_cam(r.pov_frames, r.player.visual.color, r.disc.color, "%s SANK IT" % r.pname.to_upper())
+
+
+## Online: the round winner's throw. Ours if we won, else rebuilt from the
+## frames their client sent us.
+func show_net_winner_cam(id: int, pname: String) -> void:
+	if id == Net.my_id():
+		var r = runners[0]
+		show_round_cam(r.pov_frames, r.player.visual.color, r.disc.color, "YOUR THROW")
+		return
+	var g = remote_ghosts.get(id)
+	if g == null:
+		return
+	var score_t := Time.get_ticks_msec() / 1000.0
+	var clip_fn := func() -> Dictionary:
+		if not is_instance_valid(g):
+			return {"frames": [], "score_at": 0}
+		return g.pov_clip(score_t, Time.get_ticks_msec() / 1000.0)
+	show_round_cam(clip_fn, g.visual.color, g.disc_color, "%s SANK IT" % pname.to_upper())
 
 
 ## Race modes: freeze everyone, count down, then release together.

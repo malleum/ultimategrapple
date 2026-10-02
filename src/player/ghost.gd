@@ -1,6 +1,7 @@
 extends Node2D
 ## Non-colliding ghost runner: plays back a recorded run or mirrors a remote player.
-## Frame format: [x, y, vx, vy, facing, flags, ax, ay, disc_x, disc_y, disc_vis]
+## Frame format: [x, y, vx, vy, facing, flags, ax, ay, disc_x, disc_y, disc_vis, disc_ang, disc_squash]
+## (older saved ghosts stop at disc_vis)
 
 const PlayerVisual = preload("res://src/player/player_visual.gd")
 
@@ -21,6 +22,8 @@ var disc_vel := Vector2.ZERO
 var _prev_disc := Vector2.ZERO
 var _prev_disc_ok := false
 var cur: Array = []
+var history: Array = []     # remote: [[time, frame], ...] for the last HISTORY_S (disc cam)
+const HISTORY_S := 12.0
 
 
 func _init() -> void:
@@ -71,9 +74,60 @@ func rewind() -> void:
 
 
 func push_state(frame: Array) -> void:
-	buffer.append([Time.get_ticks_msec() / 1000.0, frame])
+	if frame.size() < 11:
+		return
+	var now := Time.get_ticks_msec() / 1000.0
+	buffer.append([now, frame])
 	while buffer.size() > 40:
 		buffer.pop_front()
+	history.append([now, frame])
+	if float(history[0][0]) < now - HISTORY_S - 2.0:
+		var keep := 0
+		while keep < history.size() and float(history[keep][0]) < now - HISTORY_S:
+			keep += 1
+		history = history.slice(keep)
+
+
+## Disc cam clip (see DiscCam) rebuilt at the physics rate from the frames
+## received: the last 10 s before `score_t` up to `end_t` (local seconds).
+func pov_clip(score_t: float, end_t: float) -> Dictionary:
+	var out: Array = []
+	var score_at := 0
+	if history.size() < 2:
+		return {"frames": out, "score_at": 0}
+	var step := 1.0 / Engine.physics_ticks_per_second
+	var tt := maxf(float(history[0][0]), score_t - 10.0)
+	var i := 0
+	while tt <= end_t:
+		while i < history.size() - 2 and float(history[i + 1][0]) < tt:
+			i += 1
+		var ta: float = history[i][0]
+		var tb: float = history[i + 1][0]
+		var fa: Array = history[i][1]
+		var fb: Array = history[i + 1][1]
+		var k := clampf((tt - ta) / maxf(tb - ta, 0.001), 0.0, 1.0)
+		var pa := Vector2(fa[0], fa[1])
+		var pb := Vector2(fb[0], fb[1])
+		if pa.distance_to(pb) > 200.0:   # respawn: no streak
+			k = 0.0
+		var p := pa.lerp(pb, k)
+		var f: Array = fa.duplicate()
+		f[0] = p.x
+		f[1] = p.y
+		f[5] = int(fa[5]) & ~8
+		var dp: Vector2
+		var pz := Vector2(0.0, 0.3)
+		if int(fa[10]) == 0:
+			dp = p + Vector2(0, -(22.0 if int(fa[5]) & 2 else 44.0) * 0.72)
+		else:
+			dp = Vector2(fa[8], fa[9]).lerp(Vector2(fb[8], fb[9]), k if int(fb[10]) != 0 else 0.0)
+			if fa.size() >= 13:
+				pz = Vector2(lerp_angle(float(fa[11]), float(fb[11]) if fb.size() >= 13 else float(fa[11]), k), float(fa[12]))
+		out.append([f, dp, pz])
+		if tt <= score_t:
+			score_at = out.size() - 1
+		tt += step
+	return {"frames": out, "score_at": score_at}
 
 
 func _process(dt: float) -> void:

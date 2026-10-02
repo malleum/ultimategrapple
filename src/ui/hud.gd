@@ -1034,7 +1034,7 @@ func show_results(tm: float, medal: String, is_pb: bool) -> void:
 		cam_panel.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		var cam := DiscCam.new()
 		cam_panel.add_child(cam)
-		cam.setup(runner)
+		cam.setup(level, runner.pov_frames(), runner.player.visual.color, runner.disc.color)
 		row.add_child(cam_panel)
 		results.add_child(row)
 	else:

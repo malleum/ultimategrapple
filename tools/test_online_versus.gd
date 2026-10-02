@@ -2,7 +2,8 @@ extends SceneTree
 ## Online versus contacts through a real dedicated server: A slide-tackles B
 ## (B must get stunned on its own client), then both throw at each other and
 ## the discs must clash (each client's own disc gets knocked), then A hits B
-## in the head with a throw (B must get knocked down on its own client).
+## in the head with a throw (B must get knocked down on its own client), then
+## A sinks it and both clients show A's disc cam.
 ##   godot4 --headless --path . -- --server --port=24699 &
 ##   godot4 --headless -s tools/test_online_versus.gd -- localhost:24699 A &
 ##   godot4 --headless -s tools/test_online_versus.gd -- localhost:24699 B
@@ -89,16 +90,32 @@ func _physics_process(dt: float) -> bool:
 		res["shot"] = true
 		p.respawn(spawn + Vector2(-400, 0))
 		r.disc.launch(spawn + Vector2(-150, -42), Vector2(1000, 0), 0, 1.0, 0.0, 0.0)
-	if race_t > 6.5:
+	# ---- A sinks it: both clients show A's disc cam (B's rebuilt from A's frames)
+	if name_ == "A" and race_t > 6.5 and not res.has("scored"):
+		res["scored"] = true
+		r._on_scored()
+	if race_t > 8.5 and not res.has("cam"):
+		var rc = lvl.round_cam
+		var cam = rc.get_child(0) if rc and is_instance_valid(rc) else null
+		res["cam"] = cam.frames.size() if cam else 0
+		var tilted := 0
+		if cam:
+			for fr in cam.frames:
+				if absf((fr[2] as Vector2).x) > 0.05:
+					tilted += 1
+		res["tilted"] = tilted
+	if race_t > 9.0:
 		var ok: bool
 		var detail: String
+		var cam_ok: bool = int(res.get("cam", 0)) > 300 and int(res.get("tilted", 0)) > 20
+		var cam_txt := "; winner cam %d frames (%d with the disc tilted)" % [int(res.get("cam", 0)), int(res.get("tilted", 0))]
 		if name_ == "A":
-			ok = res.has("tackle") and res.has("hit")
+			ok = res.has("tackle") and res.has("hit") and cam_ok
 			detail = "tackle landed at %ss, disc clash at %ss" % [res.get("tackle", "-"), res.get("hit", "-")]
 		else:
-			ok = float(res.stun) > 0.3 and res.has("hit") and float(res.down) > 0.5
+			ok = float(res.stun) > 0.3 and res.has("hit") and float(res.down) > 0.5 and cam_ok
 			detail = "stunned %.2fs by the tackle, disc clash at %ss, knocked down %.2fs by the headshot" % [res.stun, res.get("hit", "-"), res.down]
-		print("%s %s: %s" % [name_, "OK" if ok else "FAIL", detail])
+		print("%s %s: %s%s" % [name_, "OK" if ok else "FAIL", detail, cam_txt])
 		quit(0 if ok else 1)
 		return true
 	return false

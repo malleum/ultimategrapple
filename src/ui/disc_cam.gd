@@ -6,10 +6,16 @@ extends VBoxContainer
 ## world upside down, a tilt tilts it. With lock off the world stays upright
 ## and the disc tilts.
 ##
-## A SubViewport shares the level's World2D. The runner's live body, disc,
-## ghost and overlays are moved to RUNNER_BIT for as long as the cam exists
-## (the cam leaves that bit out); the puppet runner and disc drawn here live
-## on CAM_BIT, which the main view leaves out.
+## A SubViewport shares the level's World2D. Every live runner body, disc,
+## ghost and overlay that is drawn on the world bit is moved from bit 0 to
+## RUNNER_BIT for as long as the cam exists (game views include that bit, the
+## cam doesn't); the puppet runner and disc drawn here live on CAM_BIT, which
+## the game views leave out.
+##
+## A clip is {"frames": [[frame, disc_pos, disc_pose], ...] at 120 Hz,
+## "score_at": tick it went in}; frame as in Runner._frame(). Solo and couch
+## clips come from Runner.pov_frames(), online ones from a remote ghost's
+## received frames (Ghost.pov_clip()).
 
 const PlayerVisual = preload("res://src/player/player_visual.gd")
 const Background = preload("res://src/fx/background.gd")
@@ -18,13 +24,15 @@ const UI = preload("res://src/ui/ui.gd")
 const CAM_BIT := 17
 const RUNNER_BIT := 18
 const VIEW := Vector2i(640, 360)
+const VIEW_SMALL := Vector2i(448, 252)   # multiplayer corner window
 const HOLD := 1.2           # seconds on the last frame before looping
 const SLOWMO := 0.35        # playback speed around the moment it hits the chains
 const SLOWMO_TICKS := 45    # ... for this many ticks either side
 const ZOOM_NEAR := 1.3      # disc in hand / slow
 const ZOOM_FAR := 0.8       # disc at full speed
 
-var runner: Node
+var level: Node
+var view := VIEW
 var frames: Array = []
 var score_at := 0
 var sv: SubViewport
@@ -41,6 +49,7 @@ var flip := 1.0            # smoothed y mirror: -1 = disc upside down
 var zoom := ZOOM_NEAR
 var _main_vp: Viewport
 var _main_mask := 0
+var _hidden := {}           # CanvasItem -> its visibility_layer before the cam
 
 
 ## The disc as seen in the cam (world space, on CAM_BIT) plus a short trail.
@@ -70,23 +79,24 @@ class DiscDraw:
 		draw_line(-Vector2(11, 0).rotated(ang) + top * 0.5, Vector2(11, 0).rotated(ang) + top * 0.5, Color(2.2, 2.2, 2.2), 1.6, true)
 
 
-func setup(p_runner: Node) -> void:
-	runner = p_runner
-	var clip: Dictionary = runner.pov_frames()
+## small: multiplayer corner window (no clickable toggle: the game is still on).
+func setup(p_level: Node, clip: Dictionary, color: Color, disc_color: Color, title_text := "DISC CAM", small := false) -> void:
+	level = p_level
+	view = VIEW_SMALL if small else VIEW
 	frames = clip.frames
 	score_at = int(clip.score_at)
-	add_theme_constant_override("separation", 8)
+	add_theme_constant_override("separation", 6 if small else 8)
 
-	var title := UI.label("DISC CAM", 18, Color(1, 0.85, 0.35), HORIZONTAL_ALIGNMENT_CENTER)
+	var title := UI.label(title_text, 16 if small else 18, Color(1, 0.85, 0.35), HORIZONTAL_ALIGNMENT_CENTER)
 	add_child(title)
 	var cont := SubViewportContainer.new()
 	cont.stretch = true
-	cont.custom_minimum_size = Vector2(VIEW)
+	cont.custom_minimum_size = Vector2(view)
 	cont.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(cont)
 	sv = SubViewport.new()
-	sv.size = VIEW
-	sv.world_2d = runner.player.get_world_2d()
+	sv.size = view
+	sv.world_2d = level.get_world_2d()
 	sv.use_hdr_2d = true
 	sv.physics_object_picking = false
 	sv.handle_input_locally = false
@@ -96,16 +106,16 @@ func setup(p_runner: Node) -> void:
 
 	bg = Background.new()
 	sv.add_child(bg)
-	bg.setup(runner.level.th, null, false)
+	bg.setup(level.th, null, false)
 
 	puppet = PlayerVisual.new()
-	puppet.color = runner.player.visual.color
+	puppet.color = color
 	puppet.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	puppet.visibility_layer = 1 << CAM_BIT
-	puppet.z_index = runner.player.z_index
+	puppet.z_index = 5
 	sv.add_child(puppet)
 	disc_draw = DiscDraw.new()
-	disc_draw.color = runner.disc.color
+	disc_draw.color = disc_color
 	disc_draw.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	disc_draw.visibility_layer = 1 << CAM_BIT
 	disc_draw.z_index = 20
@@ -118,22 +128,44 @@ func setup(p_runner: Node) -> void:
 	bar.step = 0.0
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bar)
-	lock_btn = UI.button("", _toggle_lock)
-	lock_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	add_child(lock_btn)
-	_update_lock_text()
+	if small:
+		var hint := UI.label("lock to disc: %s  (Settings)" % ("on" if lock_on() else "off"), 13, UI.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+		add_child(hint)
+	else:
+		lock_btn = UI.button("", _toggle_lock)
+		lock_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		add_child(lock_btn)
+		_update_lock_text()
 
-	# hide the live runner from the cam, the cam's puppet from the main view
-	runner.set_body_layer(1 << RUNNER_BIT)
-	_main_vp = runner.player.get_viewport()
+	# hide the live runners from the cam, the cam's puppet from the game view
+	var live: Array = []
+	for r in level.runners:
+		live.append_array([r.player, r.disc, r.pb_ghost, r.overlay, r.speed_trail])
+	live.append_array(level.remote_ghosts.values())
+	for n in live:
+		if is_instance_valid(n):
+			_hide_from_cam(n)
+	_main_vp = level.get_viewport()
 	_main_mask = _main_vp.canvas_cull_mask
 	_main_vp.canvas_cull_mask = _main_mask & ~(1 << CAM_BIT)
 	_restart()
 
 
+func _hide_from_cam(n: Node) -> void:
+	if n is CanvasItem:
+		var ci := n as CanvasItem
+		if ci.visibility_layer & 1:
+			_hidden[ci] = ci.visibility_layer
+			ci.visibility_layer = (ci.visibility_layer & ~1) | (1 << RUNNER_BIT)
+	for c in n.get_children():
+		_hide_from_cam(c)
+
+
 func _exit_tree() -> void:
-	if is_instance_valid(runner):
-		runner.set_body_layer(1)
+	for ci in _hidden:
+		if is_instance_valid(ci):
+			ci.visibility_layer = _hidden[ci]
+	_hidden.clear()
 	if is_instance_valid(_main_vp):
 		_main_vp.canvas_cull_mask = _main_mask
 
@@ -173,7 +205,7 @@ func _sample(k: float) -> Array:
 
 
 func _process(dt: float) -> void:
-	if frames.size() < 2 or not is_instance_valid(runner):
+	if frames.size() < 2 or not is_instance_valid(level):
 		return
 	var last := float(frames.size() - 1)
 	if t >= last:
