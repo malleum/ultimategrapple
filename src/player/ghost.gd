@@ -111,6 +111,10 @@ func _apply(f: Array, dt: float) -> void:
 	queue_redraw()
 
 
+func is_low() -> bool:
+	return not cur.is_empty() and int(cur[5]) & 2 != 0
+
+
 func is_stunned() -> bool:
 	return not cur.is_empty() and (int(cur[5]) & (128 | 256)) != 0
 

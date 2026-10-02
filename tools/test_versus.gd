@@ -7,13 +7,17 @@ extends SceneTree
 ##   tackle    couch: sliding into the other runner knocks them away + stuns
 ##   clash     couch: two discs meeting mid-air bounce apart and lose spin
 ##   netclash  online handler: a reported hit knocks our disc
+##   hit_head  couch: a fast disc to the head knocks the runner down
+##   hit_arm   couch: a disc to the arm makes them drop theirs
+##   hit_leg   couch: a disc to the legs trips them into a slide
+##   hit_slow  couch: a slow disc just bounces off
 ## godot --headless --fixed-fps 120 -s tools/test_versus.gd
 
 const PI_ = preload("res://src/core/player_input.gd")
 const Disc = preload("res://src/disc/disc.gd")
 
 var lvl
-var tests := ["freeze", "oob", "tackle", "clash", "netclash", "solo"]
+var tests := ["freeze", "oob", "tackle", "clash", "netclash", "hit_head", "hit_arm", "hit_leg", "hit_slow", "solo"]
 var ti := -1
 var f := 0
 var fails := 0
@@ -125,6 +129,33 @@ func _physics_process(_dt: float) -> bool:
 			if f == 60:
 				_check("clash", a.disc.velocity.x < 0.0 and b2.disc.velocity.x > 0.0 and a.disc.spin < float(d.spin) * 0.7,
 					"after meeting: A disc vx %.0f (was +900), B disc vx %.0f (was -900), A spin %.2f -> %.2f" % [a.disc.velocity.x, b2.disc.velocity.x, d.spin, a.disc.spin])
+				_next()
+		"hit_head", "hit_arm", "hit_leg", "hit_slow":
+			var b3 = lvl.runners[1]
+			var up: float = {"hit_head": 42.0, "hit_arm": 24.0, "hit_leg": 14.0, "hit_slow": 24.0}[tests[ti]]
+			var slow: bool = tests[ti] == "hit_slow"
+			if f == 3:
+				a.player.respawn(Vector2(-400, -2))
+				b3.player.respawn(Vector2(0, -2))
+			if f == 5:
+				a.player.has_disc = false
+				a.disc.launch(Vector2(-40.0 if slow else -130.0, -2.0 - up), Vector2(220.0 if slow else 1000.0, 0.0), 0, 1.0, 0.0, 0.0)
+			d["down"] = maxf(d.get("down", 0.0), b3.player.down_t)
+			d["stumble"] = maxf(d.get("stumble", 0.0), b3.player.stumble_t)
+			d["slid"] = d.get("slid", false) or b3.player.sliding
+			d["stun"] = maxf(d.get("stun", 0.0), b3.player.stun_t)
+			if f == 50:
+				var dvx: float = a.disc.velocity.x
+				match tests[ti]:
+					"hit_head":
+						_check("hit_head", float(d.down) > 0.9 and dvx < 500.0, "down %.2fs, disc vx after %.0f" % [d.down, dvx])
+					"hit_arm":
+						_check("hit_arm", not b3.player.has_disc and b3.disc.state == Disc.FLIGHT and float(d.down) == 0.0,
+							"B has disc=%s, B disc state %d, down %.2f" % [b3.player.has_disc, b3.disc.state, d.down])
+					"hit_leg":
+						_check("hit_leg", float(d.stumble) > 0.7 and d.slid and float(d.down) == 0.0, "stumble %.2fs, slid=%s" % [d.stumble, d.slid])
+					"hit_slow":
+						_check("hit_slow", float(d.stun) == 0.0 and b3.player.has_disc and dvx < 150.0, "stun %.2f, still holding=%s, disc vx %.0f" % [d.stun, b3.player.has_disc, dvx])
 				_next()
 		"netclash":
 			if f == 5:

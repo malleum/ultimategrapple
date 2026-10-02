@@ -54,6 +54,7 @@ var trail: Line2D
 var chain_timer := 0.0
 var grounded_frames := 0
 var clash_cd := 0.0
+var hit_cd := 0.0          # versus: after hitting a runner (or being fumbled), no more runner hits
 
 var _rng := RandomNumberGenerator.new()
 
@@ -127,6 +128,7 @@ func launch(from: Vector2, vel: Vector2, p_type: int, p_spin: float, nose: float
 	motion_mode = CharacterBody2D.MOTION_MODE_FLOATING
 	visible = true
 	trail.clear_points()
+	hit_cd = 0.0
 	_set_state(FLIGHT)
 
 
@@ -179,6 +181,28 @@ func clash_hit(n: Vector2, ov: Vector2) -> bool:
 	return true
 
 
+## Versus: this disc in flight (or a roller along the ground) can hit another
+## runner (not right after release).
+func can_hit_runner() -> bool:
+	return (state == FLIGHT or state == ROLL) and hit_cd <= 0.0 and age > 0.08
+
+
+## Versus: hit a runner whose body centre is at `body`: bounce off it,
+## losing most of the speed and some spin.
+func bounce_off_runner(body: Vector2) -> void:
+	var spd := velocity.length()
+	var n := global_position - body
+	n = n.normalized() if n.length() > 0.001 else -velocity.normalized()
+	var vn := velocity.dot(n)
+	if vn < 0.0:
+		velocity -= n * vn * 1.35
+	velocity *= 0.45
+	spin *= 0.7
+	wobble += 0.4
+	hit_cd = 0.6
+	impact.emit("runner", spd)
+
+
 func _set_state(s: int) -> void:
 	if s == state:
 		return
@@ -207,6 +231,7 @@ func _physics_process(dt: float) -> void:
 	age += dt
 	noise_t += dt
 	clash_cd -= dt
+	hit_cd -= dt
 	spin_angle += dt * (8.0 + spin * 30.0) * spin_dir
 	match state:
 		FLIGHT:

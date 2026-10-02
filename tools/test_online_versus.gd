@@ -1,7 +1,8 @@
 extends SceneTree
 ## Online versus contacts through a real dedicated server: A slide-tackles B
 ## (B must get stunned on its own client), then both throw at each other and
-## the discs must clash (each client's own disc gets knocked).
+## the discs must clash (each client's own disc gets knocked), then A hits B
+## in the head with a throw (B must get knocked down on its own client).
 ##   godot4 --headless --path . -- --server --port=24699 &
 ##   godot4 --headless -s tools/test_online_versus.gd -- localhost:24699 A &
 ##   godot4 --headless -s tools/test_online_versus.gd -- localhost:24699 B
@@ -65,7 +66,8 @@ func _physics_process(dt: float) -> bool:
 		if not res.has("placed"):
 			res["placed"] = true
 			p.respawn(spawn)
-		res["stun"] = maxf(float(res.get("stun", 0.0)), p.stun_t)
+		if race_t < 3.0:
+			res["stun"] = maxf(float(res.get("stun", 0.0)), p.stun_t)
 	# ---- clash: discs meet above the spawn
 	var side := -1.0 if name_ == "A" else 1.0
 	if race_t > 3.0 and not res.has("thrown"):
@@ -77,15 +79,25 @@ func _physics_process(dt: float) -> bool:
 	# head-on; what must hold is that both discs got hit (spin knocked off)
 	if res.has("thrown") and not res.has("hit") and r.disc.spin < float(res.spin) * 0.7:
 		res["hit"] = race_t
-	if race_t > 5.0:
+	# ---- disc to the head: B back on the spawn, A throws at head height
+	if name_ == "B" and race_t > 5.0 and not res.has("back"):
+		res["back"] = true
+		p.respawn(spawn)
+	if name_ == "B":
+		res["down"] = maxf(float(res.get("down", 0.0)), p.down_t)
+	if name_ == "A" and race_t > 5.6 and not res.has("shot"):
+		res["shot"] = true
+		p.respawn(spawn + Vector2(-400, 0))
+		r.disc.launch(spawn + Vector2(-150, -42), Vector2(1000, 0), 0, 1.0, 0.0, 0.0)
+	if race_t > 6.5:
 		var ok: bool
 		var detail: String
 		if name_ == "A":
 			ok = res.has("tackle") and res.has("hit")
-			detail = "tackle landed at %ss, disc hit at %ss" % [res.get("tackle", "-"), res.get("hit", "-")]
+			detail = "tackle landed at %ss, disc clash at %ss" % [res.get("tackle", "-"), res.get("hit", "-")]
 		else:
-			ok = float(res.stun) > 0.3 and res.has("hit")
-			detail = "stunned %.2fs by the tackle, disc hit at %ss" % [res.stun, res.get("hit", "-")]
+			ok = float(res.stun) > 0.3 and res.has("hit") and float(res.down) > 0.5
+			detail = "stunned %.2fs by the tackle, disc clash at %ss, knocked down %.2fs by the headshot" % [res.stun, res.get("hit", "-"), res.down]
 		print("%s %s: %s" % [name_, "OK" if ok else "FAIL", detail])
 		quit(0 if ok else 1)
 		return true

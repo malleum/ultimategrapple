@@ -30,6 +30,8 @@ var _flutter_t := 0.0
 var name_tag := ""
 var stunned := false      # versus: tackled (dizzy stars)
 var frozen := 0.0         # versus: penalty freeze seconds left (ice shell + countdown)
+var knocked := false      # versus: knocked down by a disc to the head (lying flat)
+var knock_side := 1.0
 var charge := 0.0
 
 
@@ -48,6 +50,7 @@ func update_from_player(p) -> void:
 	dead = p.state == 4
 	stunned = p.stun_t > 0.0
 	frozen = maxf(p.frozen_t, 0.0)
+	_set_knocked(p.down_t > 0.0)
 	facing = p.facing
 	aim_dir = p.aim_dir
 	charge = p.charge_power() if p.charging else 0.0
@@ -71,6 +74,7 @@ func update_from_snapshot(s: Array, pos: Vector2, dt: float) -> void:
 	dead = flags & 32 != 0
 	stunned = flags & 128 != 0
 	frozen = 1.0 if flags & 256 != 0 else 0.0
+	_set_knocked(flags & 512 != 0)
 	anchor_local = Vector2(s[6], s[7]) - pos
 	aim_dir = Vector2(facing, -0.3).normalized()
 	_step(dt)
@@ -130,6 +134,12 @@ func _step_scarf(dt: float) -> void:
 		scarf[i] = (_sw[i] as Vector2) - origin
 
 
+func _set_knocked(k: bool) -> void:
+	if k and not knocked:
+		knock_side = signf(vel.x) if absf(vel.x) > 10.0 else -facing
+	knocked = k
+
+
 func _draw() -> void:
 	if dead:
 		return
@@ -138,6 +148,11 @@ func _draw() -> void:
 	var accent := Color(2.2, 0.5, 1.4, alpha) if color.g > 0.8 else Color(0.4, 2.0, 2.2, alpha)
 	var w := 3.6
 	var lean := clampf(vel.x / 1400.0, -0.45, 0.45)
+	if knocked:
+		# flat on the back, head away from the hit
+		draw_set_transform(Vector2(-knock_side * 22.0, -3.0), knock_side * PI * 0.5)
+		lean = 0.0
+	var lo := low and not knocked
 
 	# scarf
 	var sp := PackedVector2Array()
@@ -149,7 +164,7 @@ func _draw() -> void:
 	var hip: Vector2
 	var neck: Vector2
 	var head: Vector2
-	if low:
+	if lo:
 		hip = Vector2(-facing * 6, -8)
 		neck = Vector2(facing * 12, -16)
 		head = neck + Vector2(facing * 7, -4)
@@ -163,7 +178,7 @@ func _draw() -> void:
 	var l2: Vector2
 	var k1: Vector2
 	var k2: Vector2
-	if low:
+	if lo:
 		l1 = Vector2(-facing * 20, -2)
 		l2 = Vector2(-facing * 14, 0)
 		k1 = (hip + l1) * 0.5 + Vector2(0, -3)
@@ -225,6 +240,7 @@ func _draw() -> void:
 			var a := TAU * i / 12.0
 			pts.append(dp + Vector2(cos(a) * 9.0, sin(a) * 3.0))
 		draw_colored_polygon(pts, Color(disc_color, alpha))
+	draw_set_transform(Vector2.ZERO)
 	if stunned:
 		# dizzy stars circling the head
 		var hc := Vector2(0, -56)

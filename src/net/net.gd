@@ -408,6 +408,25 @@ func net_clash(seen: Vector2, pos: Vector2, vel: Vector2) -> void:
 	d.clash_hit(n, vel.limit_length(3000.0))
 
 
+## Our disc hit their runner (as we saw them).
+func send_disc_hit(to_id: int, zone: String, vel: Vector2, at: Vector2) -> void:
+	if peer:
+		rpc_id(to_id, "net_disc_hit", zone, vel, at)
+
+
+@rpc("any_peer", "reliable")
+func net_disc_hit(zone: String, vel: Vector2, at: Vector2) -> void:
+	var lvl = _level()
+	if lvl == null or lvl.runners.is_empty() or not zone in ["head", "arm", "leg"]:
+		return
+	var r = lvl.runners[0]
+	# their view of us lags a little: the disc only has to be near us
+	if at.distance_to(r.player.center()) > 220.0:
+		return
+	var from := multiplayer.get_remote_sender_id()
+	r.on_disc_hit_by(str(players.get(from, {}).get("name", "")), zone, vel.limit_length(3000.0))
+
+
 func report_finish(t: float, throws: int) -> void:
 	if is_server():
 		finish(t, throws)

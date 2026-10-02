@@ -18,6 +18,7 @@ const Runner = preload("res://src/level/runner.gd")
 const PlayerInput = preload("res://src/core/player_input.gd")
 const Validator = preload("res://src/level/validator.gd")
 const Disc = preload("res://src/disc/disc.gd")
+const Player = preload("res://src/player/player.gd")
 
 const SPLIT_UI_BIT := 19
 
@@ -249,6 +250,7 @@ func _local_contacts() -> void:
 				if b.player.stun_t <= 0.0:
 					a.on_tackle_landed(b.pname)
 					b.on_tackled_by(a.pname, dir)
+			_local_disc_hit(a, b)
 			if j > i:
 				var da = a.disc
 				var db = b.disc
@@ -260,6 +262,20 @@ func _local_contacts() -> void:
 					if pa.distance_to(pb) < Disc.CLASH_RADIUS:
 						da.clash(pb, vb)
 						db.clash(pa, va)
+
+
+## Couch versus: runner a's disc in flight hitting runner b.
+func _local_disc_hit(a, b) -> void:
+	var d = a.disc
+	if not d.can_hit_runner() or b.player.state == Player.DEAD:
+		return
+	var zone := Player.disc_hit_zone(b.player.global_position, b.player.sliding or b.player.crouched, d.global_position)
+	if zone == "":
+		return
+	var v: Vector2 = d.velocity
+	d.bounce_off_runner(b.player.center())
+	if b.on_disc_hit_by(a.pname, zone, v):
+		a.on_disc_hit_landed(b.pname, zone)
 
 
 func medal_for(t: float) -> String:

@@ -35,6 +35,8 @@ const CORNER_NUDGE := 12.0
 const TACKLE_KNOCK := Vector2(620.0, 460.0)   # versus: a slide into another runner
 const TACKLE_STUN := 0.7
 const TACKLE_REACH := Vector2(26.0, 40.0)    # |dx|, |dy| between feet that counts as contact       # head clips a ceiling corner by up to this: slide past it
+const DISC_HIT_MIN := 260.0      # versus: a disc slower than this just bounces off a runner
+const DISC_HIT_FULL := 1100.0    # ... and this fast gives the full effect
 const COYOTE := 0.12
 const JUMP_BUFFER := 0.15
 const WALL_SLIDE_MAX := 260.0
@@ -98,6 +100,8 @@ var wall_lock_t := 0.0
 var frozen_t := 0.0        # versus: penalty freeze (recall / out of bounds), held in place
 var stun_t := 0.0          # versus: tackled, no control while the knockback plays out
 var tackle_cd := 0.0
+var down_t := 0.0          # versus: knocked down by a disc to the head (lying, no control)
+var stumble_t := 0.0       # versus: disc to the legs, forced into a slide
 var mantle_t := 0.0         # climbing onto a ledge (no wall jump / jump cut meanwhile)
 var has_air_jump := true    # double jump: refreshed by ground, grapple, pads, sky catch
 var sliding := false
@@ -250,6 +254,8 @@ func _physics_process(dt: float) -> void:
 	prev_pos = cur_pos
 	anim_t += dt
 	tackle_cd -= dt
+	down_t -= dt
+	stumble_t -= dt
 	if frozen_t > 0.0:
 		# penalty freeze: held in place, timer still running
 		frozen_t -= dt
@@ -350,7 +356,7 @@ func carry_mult() -> float:
 func _normal(dt: float) -> void:
 	var max_speed := RUN_SPEED * carry_mult()
 	var jump_mult := CARRY_JUMP_MULT if has_disc else 1.0
-	var down := inp.pressed("move_down") and input_enabled
+	var down := (inp.pressed("move_down") and input_enabled) or stumble_t > 0.0 or down_t > 0.0
 
 	if on_floor:
 		coyote_t = COYOTE
@@ -1208,6 +1214,78 @@ func tackled(dir: float) -> bool:
 	return true
 
 
+## Which part of a runner standing at `feet` a disc at `p` touches:
+## "head", "arm" (torso + arms), "leg", or "" for a miss.
+static func disc_hit_zone(feet: Vector2, low: bool, p: Vector2) -> String:
+	var h := LOW.y if low else STAND.y
+	var dx := absf(p.x - feet.x)
+	var up := feet.y - p.y   # height above the feet
+	var r := Disc.RADIUS
+	if dx > STAND.x * 0.5 + r or up < -r * 0.5 or up > h + r:
+		return ""
+	var k := up / h
+	if k > 0.74:
+		return "head"
+	if k > 0.45:
+		return "arm"
+	return "leg"
+
+
+## 0..1 effect strength for a disc hitting at `speed`; < 0 means no effect.
+static func disc_hit_power(speed: float) -> float:
+	if speed < DISC_HIT_MIN:
+		return -1.0
+	return clampf((speed - DISC_HIT_MIN) / (DISC_HIT_FULL - DISC_HIT_MIN), 0.0, 1.0)
+
+
+## Hit by another runner's disc. Head: knocked down. Arm: drops the disc (or
+## staggers if empty-handed). Leg: stumbles into a slide. Everything scales
+## with the disc's speed. Returns false when it has no effect.
+func disc_hit(zone: String, dir: Vector2, speed: float) -> bool:
+	var pw := disc_hit_power(speed)
+	if pw < 0.0 or state == DEAD or frozen_t > 0.0 or zone == "":
+		return false
+	var sx := signf(dir.x) if absf(dir.x) > 0.01 else facing
+	if state == SWING or state == ZIP or state == PIVOT:
+		if state == PIVOT:
+			velocity = pivot_stored
+		if state != PIVOT:
+			_detach(false)
+		state = NORMAL
+	match zone:
+		"head":
+			if down_t > 0.0:
+				return false
+			charging = false
+			sliding = false
+			crouched = true
+			_set_low(true)
+			down_t = 0.5 + 0.9 * pw
+			stun_t = maxf(stun_t, down_t)
+			velocity = Vector2(sx * (160.0 + 340.0 * pw), -(140.0 + 220.0 * pw))
+			on_floor = false
+		"arm":
+			charging = false
+			if has_disc and disc:
+				has_disc = false
+				pending_late_snap = false
+				var fling := Vector2(sx * (120.0 + 380.0 * pw), -(180.0 + 260.0 * pw)) + velocity * 0.5
+				disc.launch(hand(), fling, throw_type, 0.15, 0.0, 0.8, 0.3)
+				disc.hit_cd = 1.0   # a fumbled disc doesn't hit anyone
+			else:
+				stun_t = maxf(stun_t, 0.12 + 0.2 * pw)
+				velocity.x += sx * (80.0 + 160.0 * pw)
+		_:
+			stumble_t = 0.35 + 0.65 * pw
+			stun_t = maxf(stun_t, stumble_t)
+			charging = false
+			velocity.x = sx * maxf(absf(velocity.x) * 0.6 + 260.0 * pw, SLIDE_MIN_SPEED * 1.5)
+			if not on_floor:
+				velocity.y = minf(velocity.y, -120.0 * pw)
+	fx.emit("disc_hit", center(), {"zone": zone, "power": pw})
+	return true
+
+
 func respawn(pos: Vector2) -> void:
 	global_position = pos
 	reset_physics_interpolation()
@@ -1229,6 +1307,8 @@ func respawn(pos: Vector2) -> void:
 	on_floor = false
 	frozen_t = 0.0
 	stun_t = 0.0
+	down_t = 0.0
+	stumble_t = 0.0
 
 
 ## Compact state for network ghosts / replays.
@@ -1242,6 +1322,7 @@ func snapshot() -> Array:
 	if state == DEAD: flags |= 32
 	if stun_t > 0.0: flags |= 128
 	if frozen_t > 0.0: flags |= 256
+	if down_t > 0.0: flags |= 512
 	var anchor := Vector2.ZERO
 	if not anchors.is_empty():
 		anchor = anchors[-1]

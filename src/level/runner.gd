@@ -317,6 +317,15 @@ func _remote_contacts() -> void:
 			var seen: Vector2 = g.disc_pos
 			if disc.clash(seen, g.disc_vel):
 				Net.send_clash(id, seen, my_pos, my_vel)
+		if disc.can_hit_runner():
+			var zone := Player.disc_hit_zone(g.position, g.is_low(), disc.global_position)
+			if zone != "":
+				var v: Vector2 = disc.velocity
+				var at: Vector2 = disc.global_position
+				disc.bounce_off_runner(g.position + Vector2(0, -22))
+				if Player.disc_hit_power(v.length()) >= 0.0 and int(g.cur[5]) & (32 | 256) == 0:
+					Net.send_disc_hit(id, zone, v, at)
+					on_disc_hit_landed(g.visual.name_tag, zone)
 
 
 func on_tackle_landed(victim: String) -> void:
@@ -328,6 +337,25 @@ func on_tackled_by(attacker: String, dir: float) -> void:
 	if player.tackled(dir):
 		hud.popup("TACKLED" if attacker == "" else "TACKLED BY %s" % attacker.to_upper(), Color(2.2, 0.5, 0.4), 1.4)
 		shake(10.0)
+
+
+const DISC_HIT_TEXT := {"head": ["HEADSHOT", "KNOCKED DOWN"], "arm": ["DISARMED", "DROPPED IT"], "leg": ["TRIPPED", "TRIPPED"]}
+
+
+func on_disc_hit_landed(victim: String, zone: String) -> void:
+	var t: String = DISC_HIT_TEXT.get(zone, ["HIT", "HIT"])[0]
+	hud.popup("%s!" % t if victim == "" else "%s %s!" % [t, victim.to_upper()], Color(2.2, 1.6, 0.3), 1.2)
+	shake(4.0)
+
+
+## Returns whether the hit had an effect.
+func on_disc_hit_by(attacker: String, zone: String, vel: Vector2) -> bool:
+	if not player.disc_hit(zone, vel, vel.length()):
+		return false
+	var t: String = DISC_HIT_TEXT.get(zone, ["HIT", "HIT"])[1]
+	hud.popup(t if attacker == "" else "%s BY %s" % [t, attacker.to_upper()], Color(2.2, 0.5, 0.4), 1.4)
+	shake(12.0 if zone == "head" else 7.0)
+	return true
 
 
 func _any_input() -> bool:
@@ -520,6 +548,8 @@ func _on_disc_impact(kind: String, strength: float) -> void:
 			play_sfx("disc_land", p, clampf(strength / 1200.0, 0.3, 1.0))
 		"pad":
 			play_sfx("pad", p)
+		"runner":
+			play_sfx("disc_hit", p, clampf(strength / 1100.0, 0.3, 1.0), 1.15)
 		"clash":
 			play_sfx("pole", p, 1.0, 1.4)
 			spawn_burst(p, Color(2.2, 2.0, 2.2), 16)
@@ -544,6 +574,9 @@ func _on_player_fx(kind: String, pos: Vector2, data) -> void:
 		"tackled":
 			play_sfx("land", pos, 1.0, 0.8)
 			spawn_burst(pos, Color(2.2, 1.6, 0.4), 22)
+		"disc_hit":
+			play_sfx("disc_hit", pos, 0.6 + 0.4 * float(data.power), 0.8 if data.zone == "head" else 1.0)
+			spawn_burst(pos + Vector2(0, -14 if data.zone == "head" else (0 if data.zone == "arm" else 14)), Color(2.2, 1.2, 0.4), int(10 + 14 * float(data.power)))
 		"mantle":
 			play_sfx("land", pos, 0.45, 1.25)
 			level.spawn_dust(pos, 4)

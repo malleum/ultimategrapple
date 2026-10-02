@@ -174,7 +174,10 @@ courses. `levels/` ships with seven starter courses (regenerate them with
 - **Versus contact** (couch and online). Penalties freeze you instead of adding time.
   Discs collide in the air: hit another player's disc with yours and both bounce off and
   lose spin, which ruins the throw. Slide into another runner to tackle them: they get
-  knocked away and are dizzy for a moment. Online, each client decides contacts against
+  knocked away and are dizzy for a moment. Throw your disc at another runner (rollers along
+  the ground count too): a head hit knocks them down, an arm hit makes them drop their
+  disc, and a leg hit trips them into a slide. A faster disc hits harder; a slow one just
+  bounces off. Online, each client decides contacts against
   what it sees and tells the other one (`tools/test_online_versus.gd`).
 - **LAN.** ENet host/join with LAN discovery. Everyone races the same course at the
   same time as non-colliding ghosts. First to sink the disc wins the round, and the first
