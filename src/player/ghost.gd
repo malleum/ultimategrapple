@@ -16,6 +16,10 @@ var delay := 0.1
 var disc_pos := Vector2.ZERO
 var disc_vis := false
 var disc_color := Color(1, 1, 1)
+var disc_flying := false
+var disc_vel := Vector2.ZERO
+var _prev_disc := Vector2.ZERO
+var _prev_disc_ok := false
 var cur: Array = []
 
 
@@ -94,9 +98,21 @@ func _apply(f: Array, dt: float) -> void:
 	position = Vector2(f[0], f[1])
 	visual.update_from_snapshot(f, position, dt)
 	disc_vis = f.size() > 10 and f[10] > 0.5
+	disc_flying = disc_vis and (int(f[5]) & 64) != 0
 	if disc_vis:
 		disc_pos = Vector2(f[8], f[9])
+		if _prev_disc_ok and dt > 0.0:
+			disc_vel = disc_vel.lerp((disc_pos - _prev_disc) / dt, 0.5)
+		_prev_disc = disc_pos
+		_prev_disc_ok = true
+	else:
+		_prev_disc_ok = false
+		disc_vel = Vector2.ZERO
 	queue_redraw()
+
+
+func is_stunned() -> bool:
+	return not cur.is_empty() and (int(cur[5]) & (128 | 256)) != 0
 
 
 func _remote_frame() -> Array:

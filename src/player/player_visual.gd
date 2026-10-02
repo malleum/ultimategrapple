@@ -28,6 +28,8 @@ var _sw: Array = []              # world positions
 var _sw_prev: Array = []
 var _flutter_t := 0.0
 var name_tag := ""
+var stunned := false      # versus: tackled (dizzy stars)
+var frozen := 0.0         # versus: penalty freeze seconds left (ice shell + countdown)
 var charge := 0.0
 
 
@@ -44,6 +46,8 @@ func update_from_player(p) -> void:
 	has_disc = p.has_disc
 	charging = p.charging
 	dead = p.state == 4
+	stunned = p.stun_t > 0.0
+	frozen = maxf(p.frozen_t, 0.0)
 	facing = p.facing
 	aim_dir = p.aim_dir
 	charge = p.charge_power() if p.charging else 0.0
@@ -65,6 +69,8 @@ func update_from_snapshot(s: Array, pos: Vector2, dt: float) -> void:
 	has_disc = flags & 8 != 0
 	charging = flags & 16 != 0
 	dead = flags & 32 != 0
+	stunned = flags & 128 != 0
+	frozen = 1.0 if flags & 256 != 0 else 0.0
 	anchor_local = Vector2(s[6], s[7]) - pos
 	aim_dir = Vector2(facing, -0.3).normalized()
 	_step(dt)
@@ -219,5 +225,18 @@ func _draw() -> void:
 			var a := TAU * i / 12.0
 			pts.append(dp + Vector2(cos(a) * 9.0, sin(a) * 3.0))
 		draw_colored_polygon(pts, Color(disc_color, alpha))
+	if stunned:
+		# dizzy stars circling the head
+		var hc := Vector2(0, -56)
+		for k in 3:
+			var sa := Time.get_ticks_msec() * 0.008 + k * TAU / 3.0
+			draw_circle(hc + Vector2(cos(sa) * 14.0, sin(sa) * 4.0), 3.0, Color(2.2, 1.9, 0.5, alpha))
+	if frozen > 0.0:
+		# penalty freeze: an ice shell with the seconds left
+		var box := Rect2(-17, -54, 34, 58)
+		draw_rect(box, Color(0.55, 0.85, 1.0, 0.28 * alpha))
+		draw_rect(box, Color(0.8, 1.5, 2.2, 0.85 * alpha), false, 2.0)
+		draw_line(box.position + Vector2(5, 8), box.position + Vector2(12, 1), Color(1.8, 2.0, 2.2, 0.7 * alpha), 2.0)
+		draw_string(ThemeDB.fallback_font, Vector2(-30, -62), "%.1f" % frozen, HORIZONTAL_ALIGNMENT_CENTER, 60, 16, Color(0.8, 1.6, 2.2, alpha))
 	if name_tag != "":
 		draw_string(ThemeDB.fallback_font, Vector2(-40, -62), name_tag, HORIZONTAL_ALIGNMENT_CENTER, 80, 14, Color(c, 0.8 * alpha))

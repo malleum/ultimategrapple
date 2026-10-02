@@ -266,6 +266,7 @@ func _physics_process(dt: float) -> void:
 		_record()
 		if level.mode == "multi":
 			Net.send_state(_frame())
+			_remote_contacts()
 	if respawn_t >= 0.0:
 		respawn_t -= dt
 		if respawn_t < 0.0:
@@ -295,6 +296,38 @@ func _pin_to_recording(k: int) -> void:
 	player.velocity = rt[k * 4 + 1]
 	disc.global_position = rt[k * 4 + 2]
 	disc.velocity = rt[k * 4 + 3]
+
+
+## Online versus: tackles and disc clashes against the other racers' ghosts.
+## Each client handles its own runner and disc, then tells the other player
+## (they apply theirs on their side, see Net.net_tackle / net_clash).
+func _remote_contacts() -> void:
+	for id in level.remote_ghosts:
+		var g = level.remote_ghosts[id]
+		if not is_instance_valid(g) or g.cur.is_empty():
+			continue
+		if player.can_tackle() and player.tackle_reaches(g.position) and not g.is_stunned():
+			var dir := signf(player.velocity.x)
+			player.tackle_cd = 0.6
+			Net.send_tackle(id, dir)
+			on_tackle_landed(g.visual.name_tag)
+		if disc.state == Disc.FLIGHT and g.disc_flying:
+			var my_pos: Vector2 = disc.global_position
+			var my_vel: Vector2 = disc.velocity
+			var seen: Vector2 = g.disc_pos
+			if disc.clash(seen, g.disc_vel):
+				Net.send_clash(id, seen, my_pos, my_vel)
+
+
+func on_tackle_landed(victim: String) -> void:
+	hud.popup("TACKLE!" if victim == "" else "TACKLED %s!" % victim.to_upper(), Color(2.2, 1.6, 0.3), 1.2)
+	shake(6.0)
+
+
+func on_tackled_by(attacker: String, dir: float) -> void:
+	if player.tackled(dir):
+		hud.popup("TACKLED" if attacker == "" else "TACKLED BY %s" % attacker.to_upper(), Color(2.2, 0.5, 0.4), 1.4)
+		shake(10.0)
 
 
 func _any_input() -> bool:
@@ -374,18 +407,27 @@ func _reset_to_lie() -> void:
 		disc.hold()
 
 
+## Solo: penalties add to your time. Versus: you stand frozen for that long
+## instead, so every runner's clock stays honest against the others.
+func _penalize(seconds: float, what: String, c: Color) -> void:
+	if level.is_timetrial():
+		penalty += seconds
+		hud.popup("%s  +%.0fs" % [what, seconds], c)
+	else:
+		player.freeze(seconds)
+		hud.popup("%s  FROZEN %.0fs" % [what, seconds], c)
+
+
 func _on_recalled() -> void:
-	penalty += RECALL_PENALTY
-	hud.popup("RECALL  +%.0fs" % RECALL_PENALTY, Color(2, 0.6, 0.3))
+	_penalize(RECALL_PENALTY, "RECALL", Color(2, 0.6, 0.3))
 
 
 func _on_disc_oob() -> void:
 	if player.has_disc:
 		return
-	penalty += OOB_PENALTY
 	player.has_disc = true
 	disc.hold()
-	hud.popup("OUT OF BOUNDS  +%.0fs" % OOB_PENALTY, Color(2, 0.4, 0.3))
+	_penalize(OOB_PENALTY, "OUT OF BOUNDS", Color(2, 0.4, 0.3))
 	play_sfx("recall", player.center())
 
 
@@ -478,6 +520,10 @@ func _on_disc_impact(kind: String, strength: float) -> void:
 			play_sfx("disc_land", p, clampf(strength / 1200.0, 0.3, 1.0))
 		"pad":
 			play_sfx("pad", p)
+		"clash":
+			play_sfx("pole", p, 1.0, 1.4)
+			spawn_burst(p, Color(2.2, 2.0, 2.2), 16)
+			hud.popup("CLASH!", Color(2.0, 1.8, 2.2), 0.8)
 
 
 func _on_player_fx(kind: String, pos: Vector2, data) -> void:
@@ -492,6 +538,12 @@ func _on_player_fx(kind: String, pos: Vector2, data) -> void:
 		"land":
 			play_sfx("land", pos, clampf(float(data) / 1400.0, 0.2, 1.0))
 			level.spawn_dust(pos, int(clampf(float(data) / 150.0, 3, 12)))
+		"frozen":
+			play_sfx("recall", pos, 0.8, 0.7)
+			spawn_burst(pos, Color(0.6, 1.4, 2.2), 18)
+		"tackled":
+			play_sfx("land", pos, 1.0, 0.8)
+			spawn_burst(pos, Color(2.2, 1.6, 0.4), 22)
 		"mantle":
 			play_sfx("land", pos, 0.45, 1.25)
 			level.spawn_dust(pos, 4)
@@ -567,6 +619,8 @@ func spawn_burst(pos: Vector2, c: Color, amount: int, area := Vector2.ZERO) -> v
 
 func _frame() -> Array:
 	var f: Array = player.snapshot()
+	if disc.state == Disc.FLIGHT:
+		f[5] = int(f[5]) | 64    # disc airborne: others can clash with it
 	var dvis := 0 if (disc.state == Disc.HELD) else 1
 	f.append_array([snappedf(disc.global_position.x, 0.1), snappedf(disc.global_position.y, 0.1), dvis])
 	return f

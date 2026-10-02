@@ -31,7 +31,10 @@ const APEX_GRAVITY := 0.55       # gravity x near the top of a held jump (a litt
 const APEX_BAND := 130.0         # |vy| below this counts as "near the top"
 const TURN_ACCEL_MULT := 1.8     # extra grip when reversing direction on the ground
 const MANTLE_UP := 48.0          # walls whose top is within this above your feet get climbed
-const CORNER_NUDGE := 12.0       # head clips a ceiling corner by up to this: slide past it
+const CORNER_NUDGE := 12.0
+const TACKLE_KNOCK := Vector2(620.0, 460.0)   # versus: a slide into another runner
+const TACKLE_STUN := 0.7
+const TACKLE_REACH := Vector2(26.0, 40.0)    # |dx|, |dy| between feet that counts as contact       # head clips a ceiling corner by up to this: slide past it
 const COYOTE := 0.12
 const JUMP_BUFFER := 0.15
 const WALL_SLIDE_MAX := 260.0
@@ -92,6 +95,9 @@ var buffer_t := 0.0
 var jump_held_cut := false
 var wall_dir := 0
 var wall_lock_t := 0.0
+var frozen_t := 0.0        # versus: penalty freeze (recall / out of bounds), held in place
+var stun_t := 0.0          # versus: tackled, no control while the knockback plays out
+var tackle_cd := 0.0
 var mantle_t := 0.0         # climbing onto a ledge (no wall jump / jump cut meanwhile)
 var has_air_jump := true    # double jump: refreshed by ground, grapple, pads, sky catch
 var sliding := false
@@ -243,7 +249,19 @@ func interp_pos() -> Vector2:
 func _physics_process(dt: float) -> void:
 	prev_pos = cur_pos
 	anim_t += dt
-	if input_enabled:
+	tackle_cd -= dt
+	if frozen_t > 0.0:
+		# penalty freeze: held in place, timer still running
+		frozen_t -= dt
+		inp.clear()
+		velocity = Vector2.ZERO
+		cur_pos = global_position
+		visual.update_from_player(self)
+		return
+	if stun_t > 0.0:
+		stun_t -= dt
+		inp.clear()
+	elif input_enabled:
 		inp.poll()
 	else:
 		inp.clear()
@@ -1149,6 +1167,47 @@ func die(reason: String) -> void:
 	died.emit()
 
 
+## Versus penalty: stand frozen for `seconds` instead of adding time, so
+## everyone's race clock stays comparable.
+func freeze(seconds: float) -> void:
+	if state == SWING or state == ZIP:
+		_detach(false)
+	if state == PIVOT:
+		state = NORMAL
+	frozen_t = maxf(frozen_t, seconds)
+	velocity = Vector2.ZERO
+	charging = false
+	sliding = false
+	fx.emit("frozen", center(), seconds)
+
+
+func can_tackle() -> bool:
+	return state == NORMAL and sliding and absf(velocity.x) > SLIDE_MIN_SPEED and stun_t <= 0.0 and frozen_t <= 0.0 and tackle_cd <= 0.0
+
+
+func tackle_reaches(other_feet: Vector2) -> bool:
+	var d := other_feet - global_position
+	return absf(d.x) < TACKLE_REACH.x and absf(d.y) < TACKLE_REACH.y
+
+
+## Hit by another runner's slide: knocked away and briefly out of control.
+func tackled(dir: float) -> bool:
+	if state == DEAD or stun_t > 0.0 or frozen_t > 0.0:
+		return false
+	if state == SWING or state == ZIP:
+		_detach(false)
+	state = NORMAL
+	charging = false
+	sliding = false
+	crouched = false
+	_set_low(false)
+	velocity = Vector2(signf(dir) * TACKLE_KNOCK.x, -TACKLE_KNOCK.y)
+	on_floor = false
+	stun_t = TACKLE_STUN
+	fx.emit("tackled", center(), dir)
+	return true
+
+
 func respawn(pos: Vector2) -> void:
 	global_position = pos
 	reset_physics_interpolation()
@@ -1168,6 +1227,8 @@ func respawn(pos: Vector2) -> void:
 	air_pivot_ready = true
 	charging = false
 	on_floor = false
+	frozen_t = 0.0
+	stun_t = 0.0
 
 
 ## Compact state for network ghosts / replays.
@@ -1179,6 +1240,8 @@ func snapshot() -> Array:
 	if has_disc: flags |= 8
 	if charging: flags |= 16
 	if state == DEAD: flags |= 32
+	if stun_t > 0.0: flags |= 128
+	if frozen_t > 0.0: flags |= 256
 	var anchor := Vector2.ZERO
 	if not anchors.is_empty():
 		anchor = anchors[-1]

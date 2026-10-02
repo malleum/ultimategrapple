@@ -23,6 +23,8 @@ const MAX_ALPHA := 0.75
 const STALL_ALPHA := 0.42
 const FLUTTER_LIFT := 0.8    # lift multiplier at zero snap quality
 const FLUTTER_DRAG := 1.3    # drag multiplier at zero snap quality
+const CLASH_RADIUS := 30.0   # versus: two discs this close in flight collide
+const CLASH_E := 0.8         # restitution of a disc-disc hit
 const GYRO_FADE_HOLD := 0.9  # share of fade a full-spin gyro throw resists
 const GYRO_VANE := 1.4       # weathervane rate (1/s) of an unspun gyro throw
 const GYRO_CN := 8.0         # flat-plate normal force coefficient past the stall (KL units)
@@ -51,6 +53,7 @@ var spin_angle := 0.0
 var trail: Line2D
 var chain_timer := 0.0
 var grounded_frames := 0
+var clash_cd := 0.0
 
 var _rng := RandomNumberGenerator.new()
 
@@ -140,6 +143,42 @@ func apply_late_snap(p_spin: float, add_vel: Vector2, p_wobble: float, p_quality
 	move_and_collide(add_vel * age)
 
 
+## Versus: this disc (in flight) hits another disc at `op` moving at `ov`.
+## Equal-mass bounce along the line between them, and the hit knocks spin
+## and stability out of it, so a clean hit ruins the throw. Each disc applies
+## its own half, from the other's pre-hit state.
+func clash(op: Vector2, ov: Vector2) -> bool:
+	if state != FLIGHT or clash_cd > 0.0:
+		return false
+	var n := global_position - op
+	var dist := n.length()
+	if dist > CLASH_RADIUS:
+		return false
+	n = n / dist if dist > 0.001 else Vector2.UP
+	global_position += n * (CLASH_RADIUS - dist) * 0.5
+	return clash_hit(n, ov)
+
+
+## Apply a hit along `n` (pointing from the other disc to this one) from a
+## disc moving at `ov`. Used directly for hits another client saw: by the time
+## the report arrives our disc has moved on, so their contact normal is used.
+func clash_hit(n: Vector2, ov: Vector2) -> bool:
+	if state != FLIGHT or clash_cd > 0.0:
+		return false
+	var vn := (velocity - ov).dot(n)
+	if vn < 0.0:
+		velocity -= n * vn * (1.0 + CLASH_E) * 0.5
+	else:
+		velocity += n * 120.0   # already separating: still a knock
+	spin *= 0.55
+	quality = minf(quality, 0.5)
+	wobble += 0.6
+	phi += _rng.randf_range(-0.35, 0.35)
+	clash_cd = 0.3
+	impact.emit("clash", absf(vn))
+	return true
+
+
 func _set_state(s: int) -> void:
 	if s == state:
 		return
@@ -167,6 +206,7 @@ func _physics_process(dt: float) -> void:
 		return
 	age += dt
 	noise_t += dt
+	clash_cd -= dt
 	spin_angle += dt * (8.0 + spin * 30.0) * spin_dir
 	match state:
 		FLIGHT:

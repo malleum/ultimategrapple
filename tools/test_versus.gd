@@ -1,0 +1,162 @@
+extends SceneTree
+## Versus rules on a hand-built course:
+##   freeze    couch: recalling the disc freezes you 3 s (no time penalty);
+##             holding right during it doesn't move you; the clock keeps going
+##   oob       couch: disc out of bounds freezes you 2 s
+##   solo      solo: recall still adds +3 s and doesn't freeze
+##   tackle    couch: sliding into the other runner knocks them away + stuns
+##   clash     couch: two discs meeting mid-air bounce apart and lose spin
+##   netclash  online handler: a reported hit knocks our disc
+## godot --headless --fixed-fps 120 -s tools/test_versus.gd
+
+const PI_ = preload("res://src/core/player_input.gd")
+const Disc = preload("res://src/disc/disc.gd")
+
+var lvl
+var tests := ["freeze", "oob", "tackle", "clash", "netclash", "solo"]
+var ti := -1
+var f := 0
+var fails := 0
+var d := {}
+var started := false
+
+
+func _level() -> Dictionary:
+	return {"version": 2, "id": "test_versus", "name": "V", "theme": "field", "spawn": [0, 0], "basket": [9000, 0],
+		"kill_y": 6000, "bounds": [-4000, -3000, 16000, 9000],
+		"solids": [{"r": [-4000, 0, 16000, 400], "k": "ground"}],
+		"polys": [], "route": [], "medals": {"par": 9}, "entities": []}
+
+
+func _check(name: String, ok: bool, detail: String) -> void:
+	if not ok:
+		fails += 1
+	print("%s %-9s %s" % ["OK  " if ok else "FAIL", name, detail])
+
+
+func _game():
+	return root.get_node("Game")
+
+
+func _start(mode: String) -> void:
+	var G = _game()
+	G.main = root
+	if mode == "couch":
+		var locals := [{"input": PI_.new(PI_.KBM), "name": "A", "color": Color(0, 1, 1)},
+			{"input": PI_.new(7), "name": "B", "color": Color(1, 0, 1)}]
+		lvl = G.play_level(_level(), "couch", locals)
+		lvl.start_countdown(0.02)
+	else:
+		lvl = G.play_level(_level(), mode)
+
+
+func _physics_process(_dt: float) -> bool:
+	if not started:
+		started = true
+		_next()
+		return false
+	f += 1
+	var a = lvl.runners[0]
+	match tests[ti]:
+		"freeze":
+			if f == 10:
+				a.player.has_disc = false
+				a.disc.launch(Vector2(300, -200), Vector2(400, -200), 0, 1.0, 0.0, 0.0)
+			if f == 20:
+				d["x0"] = a.player.global_position.x
+				d["t0"] = a.total_time()
+				Input.action_press("move_right")
+				Input.action_press("recall")
+			if f == 22:
+				Input.action_release("recall")
+			if f == 20 + 350:   # 2.9 s later: still frozen
+				d["x1"] = a.player.global_position.x
+			if f == 20 + 420:   # 3.5 s later: free and running
+				var still: bool = absf(float(d.x1) - float(d.x0)) < 0.5
+				var moved: bool = a.player.global_position.x > float(d.x0) + 50.0
+				var clock: float = a.total_time() - float(d.t0)
+				_check("freeze", still and moved and a.penalty == 0.0 and clock > 3.4,
+					"held right through it: moved %.1f px while frozen, %.0f px after; clock +%.2fs, penalty %.1f" % [float(d.x1) - float(d.x0), a.player.global_position.x - float(d.x0), clock, a.penalty])
+				_next()
+		"oob":
+			if f == 10:
+				a.player.has_disc = false
+				a.disc.launch(Vector2(300, -200), Vector2(400, -200), 0, 1.0, 0.0, 0.0)
+			if f == 20:
+				a._on_disc_oob()
+				d["frozen"] = a.player.frozen_t
+			if f == 30:
+				_check("oob", absf(float(d.frozen) - 2.0) < 0.01 and a.player.has_disc and a.penalty == 0.0,
+					"frozen %.2fs, disc back in hand=%s, penalty %.1f" % [d.frozen, a.player.has_disc, a.penalty])
+				_next()
+		"solo":
+			if f == 10:
+				a.player.has_disc = false
+				a.disc.launch(Vector2(300, -200), Vector2(400, -200), 0, 1.0, 0.0, 0.0)
+			if f == 20:
+				Input.action_press("recall")
+			if f == 22:
+				Input.action_release("recall")
+			if f == 30:
+				_check("solo", a.penalty == 3.0 and a.player.frozen_t <= 0.0, "penalty +%.1fs, frozen=%s" % [a.penalty, a.player.frozen_t > 0.0])
+				_next()
+		"tackle":
+			var b = lvl.runners[1]
+			if f == 5:
+				a.player.respawn(Vector2(-260, -2))
+				b.player.respawn(Vector2(0, -2))
+				Input.action_press("move_right")
+			if f == 25:
+				Input.action_press("move_down")   # slide into B
+			d["bvx"] = maxf(d.get("bvx", 0.0), b.player.velocity.x)
+			d["bstun"] = maxf(d.get("bstun", 0.0), b.player.stun_t)
+			if f == 120:
+				_check("tackle", float(d.bvx) > 400.0 and float(d.bstun) > 0.5,
+					"B knocked to %.0f px/s, stunned %.2fs (A slid at %.0f)" % [d.bvx, d.bstun, a.player.velocity.x])
+				_next()
+		"clash":
+			var b2 = lvl.runners[1]
+			if f == 5:
+				for r in [a, b2]:
+					r.player.has_disc = false
+				a.disc.launch(Vector2(-300, -300), Vector2(900, 0), 0, 1.0, 0.0, 0.0)
+				b2.disc.launch(Vector2(300, -300), Vector2(-900, 0), 0, 1.0, 0.0, 0.0)
+				d["spin"] = a.disc.spin
+			if f == 60:
+				_check("clash", a.disc.velocity.x < 0.0 and b2.disc.velocity.x > 0.0 and a.disc.spin < float(d.spin) * 0.7,
+					"after meeting: A disc vx %.0f (was +900), B disc vx %.0f (was -900), A spin %.2f -> %.2f" % [a.disc.velocity.x, b2.disc.velocity.x, d.spin, a.disc.spin])
+				_next()
+		"netclash":
+			if f == 5:
+				a.player.has_disc = false
+				a.disc.launch(Vector2(0, -300), Vector2(800, 0), 0, 1.0, 0.0, 0.0)
+			if f == 6:
+				# the other player's client reports their disc hit ours. Their view
+				# lags: they saw ours 60 px back, theirs 25 px ahead of that
+				var seen: Vector2 = a.disc.global_position - Vector2(60, 0)
+				_game().get_node("/root/Net").net_clash(seen, seen + Vector2(25, 0), Vector2(-800, 0))
+				d["vx"] = a.disc.velocity.x
+			if f == 8:
+				_check("netclash", float(d.vx) < 0.0, "our disc vx after the reported hit: %.0f (was +800)" % d.vx)
+				_next()
+	return false
+
+
+func _next() -> void:
+	for act in ["move_right", "move_left", "move_down", "recall", "jump"]:
+		Input.action_release(act)
+	ti += 1
+	if ti >= tests.size():
+		print("versus: %d failures" % fails)
+		quit(0 if fails == 0 else 1)
+		return
+	f = 0
+	d = {}
+	match tests[ti]:
+		"solo":
+			_start("solo")
+		"netclash":
+			_start("multi")
+			lvl.start_countdown(0.02)
+		_:
+			_start("couch")

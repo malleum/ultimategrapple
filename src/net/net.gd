@@ -365,6 +365,49 @@ func state(frame: Array) -> void:
 		lvl.remote_state(multiplayer.get_remote_sender_id(), frame)
 
 
+## Versus contacts. The attacker's client spots the contact against its view
+## of the victim's ghost; the victim's client checks the attacker really is
+## near in its own view (lag allowance) before applying it.
+func send_tackle(to_id: int, dir: float) -> void:
+	if peer:
+		rpc_id(to_id, "net_tackle", dir)
+
+
+@rpc("any_peer", "reliable")
+func net_tackle(dir: float) -> void:
+	var lvl = _level()
+	if lvl == null or lvl.runners.is_empty():
+		return
+	var from := multiplayer.get_remote_sender_id()
+	var g = lvl.remote_ghosts.get(from)
+	var r = lvl.runners[0]
+	if g == null or g.position.distance_to(r.player.global_position) > 180.0:
+		return
+	r.on_tackled_by(str(players.get(from, {}).get("name", "")), signf(dir))
+
+
+## Our disc hit theirs (as we saw it): `seen` is where their disc was in our
+## view, `pos`/`vel` our disc at the hit.
+func send_clash(to_id: int, seen: Vector2, pos: Vector2, vel: Vector2) -> void:
+	if peer:
+		rpc_id(to_id, "net_clash", seen, pos, vel)
+
+
+@rpc("any_peer", "reliable")
+func net_clash(seen: Vector2, pos: Vector2, vel: Vector2) -> void:
+	var lvl = _level()
+	if lvl == null or lvl.runners.is_empty():
+		return
+	var d = lvl.runners[0].disc
+	# their view lags ours: our disc only has to be near where they saw it
+	if d.global_position.distance_to(seen) > 400.0 or seen.distance_to(pos) > 120.0:
+		return
+	var n := seen - pos
+	n = n.normalized() if n.length() > 0.001 else Vector2.UP
+	# their disc hit ours: apply our half (unless we already saw the same hit)
+	d.clash_hit(n, vel.limit_length(3000.0))
+
+
 func report_finish(t: float, throws: int) -> void:
 	if is_server():
 		finish(t, throws)

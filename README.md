@@ -35,7 +35,8 @@ Carry the disc, throw it, chase it, catch it, and chain your movement until it h
   making one final throw wins. The generator builds both kinds of section and signposts them.
 - **Throwing while moving** adds aim sway, random spray and lost range.
 - **Instant restart** with `R`. Recall the disc with `T` for a +3s penalty. Out of bounds
-  costs +2s.
+  costs +2s. In multiplayer these freeze you for that long instead, so everyone's clock
+  stays comparable.
 - **Medals** are based on a par time (ACE, GOLD = par, SILVER, BRONZE). Personal-best
   ghosts replay against you.
 
@@ -170,6 +171,11 @@ courses. `levels/` ships with seven starter courses (regenerate them with
   `imports = [ ultimate-grapple.nixosModules.server ]; services.ultimate-grapple-server = {
   enable = true; openFirewall = true; };` (cloud firewalls need UDP 24680 too).
   `tools/test_online.gd` is a two-client smoke test against a running server.
+- **Versus contact** (couch and online). Penalties freeze you instead of adding time.
+  Discs collide in the air: hit another player's disc with yours and both bounce off and
+  lose spin, which ruins the throw. Slide into another runner to tackle them: they get
+  knocked away and are dizzy for a moment. Online, each client decides contacts against
+  what it sees and tells the other one (`tools/test_online_versus.gd`).
 - **LAN.** ENet host/join with LAN discovery. Everyone races the same course at the
   same time as non-colliding ghosts. First to sink the disc wins the round, and the first
   player to reach X round wins takes the set. You can use a listen server or a dedicated

@@ -17,6 +17,7 @@ const Ghost = preload("res://src/player/ghost.gd")
 const Runner = preload("res://src/level/runner.gd")
 const PlayerInput = preload("res://src/core/player_input.gd")
 const Validator = preload("res://src/level/validator.gd")
+const Disc = preload("res://src/disc/disc.gd")
 
 const SPLIT_UI_BIT := 19
 
@@ -229,6 +230,36 @@ func _physics_process(dt: float) -> void:
 		countdown -= dt
 		if countdown <= 0.0:
 			_begin_race()
+	if mode == "couch" and runners.size() > 1:
+		_local_contacts()
+
+
+## Couch versus: slide tackles between runners, and discs colliding in the
+## air (each applies its half from the other's pre-hit state).
+func _local_contacts() -> void:
+	for i in runners.size():
+		for j in runners.size():
+			if i == j:
+				continue
+			var a = runners[i]
+			var b = runners[j]
+			if a.player.can_tackle() and a.player.tackle_reaches(b.player.global_position):
+				var dir := signf(a.player.velocity.x)
+				a.player.tackle_cd = 0.6
+				if b.player.stun_t <= 0.0:
+					a.on_tackle_landed(b.pname)
+					b.on_tackled_by(a.pname, dir)
+			if j > i:
+				var da = a.disc
+				var db = b.disc
+				if da.state == Disc.FLIGHT and db.state == Disc.FLIGHT:
+					var pa: Vector2 = da.global_position
+					var va: Vector2 = da.velocity
+					var pb: Vector2 = db.global_position
+					var vb: Vector2 = db.velocity
+					if pa.distance_to(pb) < Disc.CLASH_RADIUS:
+						da.clash(pb, vb)
+						db.clash(pa, va)
 
 
 func medal_for(t: float) -> String:
