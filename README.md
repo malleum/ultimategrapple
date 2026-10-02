@@ -30,7 +30,7 @@ decorations, window decorations come from libdecor (bundled in the nixpkgs Godot
 
 Carry the disc, throw it, chase it, catch it, and chain your movement until it hits the chains.
 
-- **Carrying is about 25% slower** (520 vs 395 px/s). On open *fairways*, throwing the disc ahead and sprinting
+- **Carrying is about 25% slower** (780 vs 593 px/s). On open *fairways*, throwing the disc ahead and sprinting
   after it wins. In tight *tunnels*, throws just bounce off the walls, so carrying it and
   making one final throw wins. The generator builds both kinds of section and signposts them.
 - **Throwing while moving** adds aim sway, random spray and lost range.
@@ -44,11 +44,10 @@ Carry the disc, throw it, chase it, catch it, and chain your movement until it h
 | Action | Keyboard + mouse | Controller |
 |---|---|---|
 | Run / aim | A D / mouse | left stick / right stick |
-| Jump / wall-jump | Space | A |
+| Jump / double jump / wall-jump | Space | A |
 | Slide / crouch / fast-fall | S | stick down |
-| Dash (8-way) | Shift | X |
 | Grapple swing (hold) · reel | RMB · W/S | LT · stick up/down |
-| Zip to point (hold) | E | LB |
+| Zip to point (hold, or tap while swinging) | E | LB |
 | Charge + throw | hold / release LMB | hold / release RT |
 | **Snap** (spin) | F right as you release | RB right as you release |
 | **Pivot** (hold) | Ctrl | B |
@@ -86,10 +85,17 @@ reticle reads the screen behind it and switches to dark ink over bright skies.
 - **Six throws.** Backhand (glider), forehand (fast, dips late), hammer (flips, drops over
   walls), roller (rolls along floors and up ramps), scoober (short, half the moving penalty)
   and thumber (fast, cuts down hard).
-- **Sky catch.** Catching the disc midair refreshes your dash and your air pivot.
+- **Double jump.** One extra jump in the air, refreshed by landing, grappling, launch
+  pads and sky catches. There is no dash.
+- **Sky catch.** Catching the disc midair refreshes your double jump and your air pivot.
+- **Grapple.** 680 px range. Points behind a platform can still be grabbed: the rope starts
+  wrapped around the platform corner. A point is chosen by aim direction (±40°) or by
+  having the cursor near it. Clicks are buffered for 0.15 s. Zip follows the rope around
+  corners and only lets go when it's truly stuck. Fragile (red) points hold for 1.1 s and
+  flash before they break.
 - **Rope physics.** Inelastic rope, pumping, reeling that conserves angular momentum,
   wrapping around corners, fragile, moving and boost anchors, and grapple-anywhere ceilings.
-- **Movement tech.** Bunny-hop speed conservation, slide boost, slide-jumps, dash-jumps,
+- **Movement tech.** Bunny-hop speed conservation, slide boost, slide-jumps, double jumps,
   downhill slide acceleration, ice floors and speed boosters.
 
 ## Replays

@@ -506,9 +506,8 @@ func _page_controls() -> void:
 	var K := func(a): return Bindings.labels(a)
 	var lines_l := [
 		[K.call("move_left") + " · " + K.call("move_right"), "run  (carrying the disc is ~25% slower)"],
-		[K.call("jump"), "jump · wall-jump · jump off rope"],
+		[K.call("jump"), "jump · double jump in the air · wall-jump · jump off rope"],
 		[K.call("move_down"), "slide at speed (boost) · crouch · fast-fall"],
-		[K.call("dash"), "dash (8-way). 1 air dash, refreshed by ground, grapple, sky catch"],
 		[K.call("grapple"), "grapple swing (hold) · up/down reel · run keys pump"],
 		[K.call("zip"), "zip (hold): reel yourself to the grapple point"],
 		[K.call("restart"), "instant restart"],
@@ -522,9 +521,9 @@ func _page_controls() -> void:
 		[K.call("nose_up") + " · " + K.call("nose_down"), "nose angle: up = float/stall, down = punch"],
 		[K.call("pivot"), "PIVOT (hold): plant & freeze, momentum stored. Throw,\nthen let go within 0.3s for a PIVOT LAUNCH"],
 		["moving throws", "sway + spray + less range. Scoober halves it"],
-		["catching", "grab the disc midair: refreshes dash + air pivot"],
-		["controller", "LS move · RS aim · %s jump · %s dash · %s swing · %s zip\n%s throw · %s snap · %s pivot · %s recall" % [
-			Bindings.label("jump", true), Bindings.label("dash", true), Bindings.label("grapple", true), Bindings.label("zip", true),
+		["catching", "grab the disc midair: refreshes double jump + air pivot"],
+		["controller", "LS move · RS aim · %s jump · %s swing · %s zip\n%s throw · %s snap · %s pivot · %s recall" % [
+			Bindings.label("jump", true), Bindings.label("grapple", true), Bindings.label("zip", true),
 			Bindings.label("throw", true), Bindings.label("snap", true), Bindings.label("pivot", true), Bindings.label("recall", true)]],
 	]
 	for l in lines_l:

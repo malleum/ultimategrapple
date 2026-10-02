@@ -16,6 +16,7 @@ var break_t := -1.0
 var respawn_t := -1.0
 var sky := false
 var level: Node = null
+const FRAGILE_HOLD := 1.1     # seconds a fragile point holds once grabbed
 
 
 func setup(data: Dictionary, th: Dictionary) -> void:
@@ -60,7 +61,7 @@ func reset() -> void:
 func on_attach(_p) -> void:
 	attached = true
 	if kind == "fragile":
-		break_t = 0.55
+		break_t = FRAGILE_HOLD
 
 
 func on_release(_p) -> void:
@@ -102,7 +103,9 @@ func _draw() -> void:
 			draw_line(Vector2(-6, -8), Vector2(2, 0), cr, 1.5)
 			draw_line(Vector2(2, 0), Vector2(-2, 9), cr, 1.5)
 			if break_t >= 0.0:
-				draw_arc(Vector2.ZERO, r + 4.0, 0, TAU * (break_t / 0.55), 24, Color(2, 2, 2), 2.0)
+				# countdown ring, flashing red in the last 0.35s so the break isn't a surprise
+				var warn := break_t < 0.35 and fmod(t, 0.1) < 0.05
+				draw_arc(Vector2.ZERO, r + 4.0, 0, TAU * (break_t / FRAGILE_HOLD), 24, Color(2.2, 0.3, 0.3) if warn else Color(2, 2, 2), 2.5)
 		"boost":
 			for i in 4:
 				var ang := t * 3.0 + i * TAU / 4.0

@@ -16,11 +16,11 @@ signal recalled
 enum { NORMAL, SWING, ZIP, PIVOT, DEAD }
 
 # --- movement tuning (px, px/s, px/s^2)
-const RUN_SPEED := 520.0         # empty-handed
-const GROUND_ACCEL := 4400.0
-const GROUND_DECEL := 5200.0
+const RUN_SPEED := 780.0         # empty-handed
+const GROUND_ACCEL := 6600.0
+const GROUND_DECEL := 7200.0
 const OVERSPEED_FRICTION := 650.0
-const AIR_ACCEL := 2600.0
+const AIR_ACCEL := 3600.0
 const GRAVITY := 2300.0
 const FALL_GRAVITY := 2750.0
 const MAX_FALL := 1400.0
@@ -33,27 +33,28 @@ const WALL_SLIDE_MAX := 260.0
 const WALL_JUMP_X := 540.0
 const WALL_JUMP_Y := 790.0
 const WALL_LOCK := 0.13
-const DASH_SPEED := 920.0
-const DASH_TIME := 0.13
-const DASH_COOLDOWN := 0.28
+const AIR_JUMP_V := 760.0          # double jump
 const SLIDE_MIN_SPEED := 190.0
 const SLIDE_BOOST := 150.0
 const SLIDE_FRICTION := 300.0
 const CROUCH_SPEED := 170.0
-const CARRY_SPEED_MULT := 0.76    # carrying the disc: ~395, a quarter slower
+const CARRY_SPEED_MULT := 0.76    # carrying the disc: ~593, a quarter slower
 const CARRY_JUMP_MULT := 0.97
 const MAX_SPEED := 2600.0
-const THROW_MOVE_REF := 440.0     # speed that counts as "full run" for moving-throw sway
+const THROW_MOVE_REF := 660.0     # speed that counts as "full run" for moving-throw sway
 
 # --- grapple
-const GRAPPLE_RANGE := 520.0
+const GRAPPLE_RANGE := 680.0
 const ROPE_MIN := 36.0
-const ROPE_MAX := 660.0
+const ROPE_MAX := 860.0
 const REEL_SPEED := 540.0
 const SWING_PUMP := 900.0
 const ZIP_ACCEL := 4800.0
 const ZIP_MAX := 1250.0
-const TARGET_CONE := 0.42
+const TARGET_CONE := 0.7          # aim cone (rad) for picking a grapple point
+const CURSOR_SNAP := 160.0        # a point this close to the cursor is picked regardless of cone
+const GRAPPLE_BUFFER := 0.15      # a grapple/zip press waits this long for a target / cooldown
+const ZIP_STUCK_T := 0.4          # zip gives up after this long without getting closer
 
 # --- disc
 const CATCH_RADIUS := 46.0
@@ -86,10 +87,7 @@ var buffer_t := 0.0
 var jump_held_cut := false
 var wall_dir := 0
 var wall_lock_t := 0.0
-var dash_t := 0.0
-var dash_cd := 0.0
-var dash_dir := Vector2.ZERO
-var has_air_dash := true
+var has_air_jump := true    # double jump: refreshed by ground, grapple, pads, sky catch
 var sliding := false
 var crouched := false
 var slide_boost_cd := 0.0
@@ -106,6 +104,10 @@ var rope_len := 0.0
 var grapple_node: Node = null  # grapple point node (null for grip surfaces)
 var target: Dictionary = {}    # current aim target {pos, node}
 var grapple_cd := 0.0
+var grapple_buf := 0.0
+var zip_buf := 0.0
+var zip_best := INF
+var zip_stuck_t := 0.0
 
 # throw state
 var has_disc := true
@@ -177,9 +179,6 @@ func reset_run_state(seed_value: int) -> void:
 	jump_held_cut = false
 	wall_dir = 0
 	wall_lock_t = 0.0
-	dash_t = 0.0
-	dash_cd = 0.0
-	dash_dir = Vector2.ZERO
 	slide_boost_cd = 0.0
 	pad_lock_t = 0.0
 	floor_ice = false
@@ -187,6 +186,8 @@ func reset_run_state(seed_value: int) -> void:
 	rope_len = 0.0
 	target = {}
 	grapple_cd = 0.0
+	grapple_buf = 0.0
+	zip_buf = 0.0
 	charge_t = 0.0
 	sway_t = 0.0
 	last_snap_us = -100000000
@@ -266,10 +267,11 @@ func _timers(dt: float) -> void:
 	coyote_t -= dt
 	buffer_t -= dt
 	wall_lock_t -= dt
-	dash_cd -= dt
 	slide_boost_cd -= dt
 	pad_lock_t -= dt
 	grapple_cd -= dt
+	grapple_buf -= dt
+	zip_buf -= dt
 	if pivot_threw_t >= 0.0:
 		pivot_threw_t += dt
 
@@ -326,38 +328,11 @@ func _normal(dt: float) -> void:
 
 	if on_floor:
 		coyote_t = COYOTE
-		has_air_dash = true
+		has_air_jump = true
 		air_pivot_ready = true
 		air_time = 0.0
 	else:
 		air_time += dt
-
-	# ---- dash
-	if input_enabled and inp.just_pressed("dash") and dash_cd <= 0.0 and (on_floor or has_air_dash):
-		var dv := Vector2(input_x, inp.move.y)
-		if dv.length() < 0.1:
-			dv = Vector2(facing, 0)
-		dash_dir = dv.normalized()
-		dash_t = DASH_TIME
-		dash_cd = DASH_COOLDOWN
-		if not on_floor:
-			has_air_dash = false
-		velocity = dash_dir * maxf(DASH_SPEED, velocity.dot(dash_dir))
-		_set_low(false)
-		sliding = false
-		fx.emit("dash", center(), dash_dir)
-
-	if dash_t > 0.0:
-		dash_t -= dt
-		velocity = dash_dir * maxf(DASH_SPEED, velocity.dot(dash_dir))
-		if dash_t <= 0.0:
-			var spd := velocity.length()
-			if dash_dir.y < -0.3:
-				velocity *= 0.55
-			elif spd > RUN_SPEED:
-				velocity = velocity.normalized() * maxf(RUN_SPEED * 1.05, spd * 0.72)
-		_move(dt)
-		return
 
 	# ---- jump (before friction so bunny hops keep speed)
 	var jumped := false
@@ -386,6 +361,20 @@ func _normal(dt: float) -> void:
 			buffer_t = 0.0
 			jump_held_cut = false
 			fx.emit("walljump", global_position, wall_dir)
+		elif has_air_jump and inp.just_pressed("jump") and not _floor_close():
+			# double jump: a fresh press in the air. Pressed just before landing
+			# it stays buffered as a normal jump instead of burning this.
+			has_air_jump = false
+			# falling: a full jump; still rising: adds on top, capped at 1.15x
+			var up := AIR_JUMP_V * jump_mult
+			if velocity.y > -up:
+				velocity.y = maxf(minf(velocity.y, 0.0) - up, -up * 1.15)
+			if input_x != 0.0 and signf(input_x) != signf(velocity.x):
+				velocity.x = input_x * maxf(absf(velocity.x) * 0.5, RUN_SPEED * carry_mult() * 0.6)
+			buffer_t = 0.0
+			jumped = true
+			jump_held_cut = false
+			fx.emit("airjump", center(), null)
 	if not jump_held_cut and velocity.y < 0.0 and not inp.pressed("jump") and pad_lock_t <= 0.0:
 		velocity.y *= JUMP_CUT
 		jump_held_cut = true
@@ -460,6 +449,13 @@ func _normal(dt: float) -> void:
 	_move(dt)
 
 
+## Ground just below while falling: a jump press now should wait for landing.
+func _floor_close() -> bool:
+	if velocity.y <= 0.0:
+		return false
+	return test_move(global_transform, Vector2(0, clampf(velocity.y * JUMP_BUFFER, 6.0, 70.0)))
+
+
 func _move(_dt: float) -> void:
 	if velocity.length() > MAX_SPEED:
 		velocity = velocity.limit_length(MAX_SPEED)
@@ -468,7 +464,7 @@ func _move(_dt: float) -> void:
 	for i in get_slide_collision_count():
 		var c := get_slide_collision(i)
 		var o := c.get_collider()
-		if o and o.has_meta("glass") and (dash_t > 0.0 or pre_vel.length() > 700.0):
+		if o and o.has_meta("glass") and pre_vel.length() > 700.0:
 			o.get_parent().shatter(pre_vel)
 			velocity = pre_vel * 0.9
 	var was_floor := on_floor
@@ -530,23 +526,29 @@ func _handle_grapple_input() -> void:
 	target = _find_target() if state != SWING and state != ZIP else {}
 	if not input_enabled:
 		return
+	# presses are buffered briefly: a click during the release cooldown or a
+	# frame before a point comes into range still grabs
+	if inp.just_pressed("grapple"):
+		grapple_buf = GRAPPLE_BUFFER
+	if inp.just_pressed("zip"):
+		zip_buf = GRAPPLE_BUFFER
 	if state == NORMAL or state == PIVOT:
 		if grapple_cd <= 0.0 and not target.is_empty():
-			if inp.just_pressed("grapple"):
-				_attach(target, SWING)
-			elif inp.just_pressed("zip"):
+			if zip_buf > 0.0 and inp.pressed("zip"):
 				_attach(target, ZIP)
+			elif grapple_buf > 0.0 and inp.pressed("grapple"):
+				_attach(target, SWING)
 	elif state == SWING:
-		if not inp.pressed("grapple"):
+		if inp.just_pressed("zip"):
+			# swinging + tap zip: reel straight in along the rope
+			_begin_zip()
+		elif not inp.pressed("grapple"):
 			_detach(false)
 		elif inp.just_pressed("jump"):
 			buffer_t = 0.0
 			_detach(true)
-		elif inp.just_pressed("dash") and has_air_dash:
-			_detach(false)
-			_normal(0.0)
 	elif state == ZIP:
-		if not inp.pressed("zip"):
+		if not inp.pressed("zip") and not inp.pressed("grapple"):
 			_detach(false)
 		elif inp.just_pressed("jump"):
 			buffer_t = 0.0
@@ -557,13 +559,15 @@ func _find_target() -> Dictionary:
 	if level == null:
 		return {}
 	var c := center()
-	var aim := mouse_world() - c
+	var m := mouse_world()
+	var aim := m - c
 	if aim.length() < 1.0:
 		aim = Vector2(facing, -1)
+	var pad := inp.is_pad_aim()
+	var cone := TARGET_CONE * (1.3 if pad else 1.0)
 	var best := {}
 	var best_score := INF
 	var space := get_world_2d().direct_space_state
-	var cone := TARGET_CONE * (1.5 if inp.is_pad_aim() else 1.0)
 	for gp in runner.grapple_points:
 		if not gp.active:
 			continue
@@ -573,15 +577,23 @@ func _find_target() -> Dictionary:
 		if dist > GRAPPLE_RANGE or dist < 20.0:
 			continue
 		var ang := absf(aim.angle_to(d))
-		if ang > cone:
+		var cursor_d := m.distance_to(p)
+		var near_cursor := not pad and cursor_d < CURSOR_SNAP
+		if ang > cone and not near_cursor:
 			continue
-		var score := ang + dist / GRAPPLE_RANGE * 0.35
+		var score := ang + dist / GRAPPLE_RANGE * 0.25
+		if near_cursor:
+			# the point you're pointing at wins
+			score = minf(score, cursor_d / CURSOR_SNAP * 0.3)
 		if score >= best_score:
 			continue
+		# a platform in the way doesn't rule a point out (the rope wraps around
+		# it), it just loses to a clear one
 		var q := PhysicsRayQueryParameters2D.create(c, p, collision_mask, [get_rid()])
-		var hit := space.intersect_ray(q)
-		if not hit.is_empty():
-			continue
+		if not space.intersect_ray(q).is_empty():
+			score += 0.3
+			if score >= best_score:
+				continue
 		best_score = score
 		best = {"pos": p, "node": gp}
 	if not best.is_empty():
@@ -598,10 +610,26 @@ func _attach(t: Dictionary, mode: int) -> void:
 	anchors = [t.pos]
 	wrap_signs = []
 	grapple_node = t.node
-	rope_len = clampf(center().distance_to(t.pos), ROPE_MIN, ROPE_MAX)
+	grapple_buf = 0.0
+	zip_buf = 0.0
+	# grabbed through a platform: start the rope already wrapped around it
+	var c := center()
+	var space := get_world_2d().direct_space_state
+	for i in 4:
+		var a: Vector2 = anchors[-1]
+		var hit := space.intersect_ray(PhysicsRayQueryParameters2D.create(c, a, collision_mask, [get_rid()]))
+		if hit.is_empty() or hit.position.distance_to(a) < 4.0:
+			break
+		var corner = _find_corner(hit.collider, c, a)
+		if corner == null or corner.distance_to(a) < 4.0:
+			break
+		anchors.append(corner)
+		wrap_signs.append(signf((corner - a).cross(c - corner)))
+	rope_len = clampf(c.distance_to(anchors[-1]), ROPE_MIN, ROPE_MAX)
 	state = mode
-	has_air_dash = true
-	dash_t = 0.0
+	if mode == ZIP:
+		_begin_zip()
+	has_air_jump = true
 	sliding = false
 	if grapple_node:
 		grapple_node.on_attach(self)
@@ -625,6 +653,12 @@ func _detach(jump: bool) -> void:
 	grapple_node = null
 	grapple_cd = 0.08
 	fx.emit("grapple_release", center(), jump)
+
+
+func _begin_zip() -> void:
+	state = ZIP
+	zip_best = INF
+	zip_stuck_t = 0.0
 
 
 ## Called by fragile grapple points when they shatter.
@@ -694,14 +728,21 @@ func _zip(dt: float) -> void:
 			_detach(false)
 			return
 		anchors[0] = grapple_node.global_position
-	var a: Vector2 = anchors[0]
+	# reel toward the nearest rope corner first, then on to the point itself
+	var a: Vector2 = anchors[-1]
 	var c := center()
 	var to := a - c
 	var dist := to.length()
-	if dist < 42.0:
+	if anchors.size() > 1 and dist < 30.0:
+		anchors.pop_back()
+		wrap_signs.pop_back()
+		a = anchors[-1]
+		to = a - c
+		dist = to.length()
+	if anchors.size() == 1 and dist < 42.0:
 		_detach(false)
 		return
-	var dir := to / dist
+	var dir := to / maxf(dist, 0.001)
 	velocity += dir * ZIP_ACCEL * dt
 	velocity.y += GRAVITY * 0.2 * dt
 	# kill sideways drift so the zip is snappy
@@ -709,9 +750,25 @@ func _zip(dt: float) -> void:
 	var side := velocity - dir * along
 	velocity = dir * minf(along, ZIP_MAX) + side * pow(0.02, dt)
 	_move(dt)
-	var q := PhysicsRayQueryParameters2D.create(center(), a, collision_mask, [get_rid()])
-	if not get_world_2d().direct_space_state.intersect_ray(q).is_empty():
-		_detach(false)
+	# a platform crossing the line: bend around it instead of letting go
+	c = center()
+	var hit := get_world_2d().direct_space_state.intersect_ray(PhysicsRayQueryParameters2D.create(c, a, collision_mask, [get_rid()]))
+	if not hit.is_empty() and hit.position.distance_to(a) >= 4.0 and anchors.size() < 8:
+		var corner = _find_corner(hit.collider, c, a)
+		if corner != null and corner.distance_to(a) >= 4.0:
+			anchors.append(corner)
+			wrap_signs.append(signf((corner - a).cross(c - corner)))
+	# only give up when it really is stuck (pinned against something)
+	var remaining := c.distance_to(anchors[-1])
+	for i in range(anchors.size() - 1, 0, -1):
+		remaining += (anchors[i] as Vector2).distance_to(anchors[i - 1])
+	if remaining < zip_best - 2.0:
+		zip_best = remaining
+		zip_stuck_t = 0.0
+	else:
+		zip_stuck_t += dt
+		if zip_stuck_t > ZIP_STUCK_T:
+			_detach(false)
 
 
 func _update_wraps() -> void:
@@ -955,9 +1012,8 @@ func _take_disc(midair: bool) -> void:
 	disc.hold()
 	pending_late_snap = false
 	if midair:
-		has_air_dash = true
+		has_air_jump = true
 		air_pivot_ready = true
-		dash_cd = 0.0
 	caught.emit(midair)
 	fx.emit("catch", center(), midair)
 
@@ -993,10 +1049,9 @@ func trigger_enter(kind: String, node: Node) -> void:
 			velocity = node.dir * node.power
 			pad_lock_t = 0.18
 			jump_held_cut = true
-			has_air_dash = true
+			has_air_jump = true
 			air_pivot_ready = true
 			on_floor = false
-			dash_t = 0.0
 			fx.emit("pad", global_position, node.dir)
 
 
@@ -1035,9 +1090,8 @@ func respawn(pos: Vector2) -> void:
 	sliding = false
 	crouched = false
 	_set_low(false)
-	has_air_dash = true
+	has_air_jump = true
 	air_pivot_ready = true
-	dash_t = 0.0
 	charging = false
 	on_floor = false
 

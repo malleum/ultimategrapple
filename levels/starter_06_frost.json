@@ -685,11 +685,11 @@
 	"kill_y": 1024.0,
 	"length": 13,
 	"medals": {
-		"ace": 27.03,
-		"bronze": 62.39,
-		"gold": 34.66,
-		"par": 34.66,
-		"silver": 45.06
+		"ace": 23.59,
+		"bronze": 54.43,
+		"gold": 30.24,
+		"par": 30.24,
+		"silver": 39.31
 	},
 	"name": "Frost Peak",
 	"pinned": true,

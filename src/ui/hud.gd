@@ -173,7 +173,7 @@ func _process(dt: float) -> void:
 	speed_smooth = lerpf(speed_smooth, p.velocity.length(), 1.0 - exp(-10.0 * dt))
 	time_shown = runner.total_time()
 	# badge refresh pops
-	var avail := [p.has_air_dash or p.on_floor, p.has_disc and (p.on_floor or p.air_pivot_ready), p.has_disc]
+	var avail := [p.has_air_jump or p.on_floor, p.has_disc and (p.on_floor or p.air_pivot_ready), p.has_disc]
 	for i in 3:
 		if avail[i] and not badge_prev[i]:
 			badge_pop[i] = 1.0
@@ -539,9 +539,9 @@ func _draw_badges(ci: Control, vs: Vector2, p) -> void:
 	var n := ThrowTypes.count()
 	var x := vs.x * 0.5 + (n * 84.0) * 0.5 + 40.0
 	var y := vs.y - 74.0
-	var avail := [p.has_air_dash or p.on_floor, p.has_disc and (p.on_floor or p.air_pivot_ready), p.has_disc]
+	var avail := [p.has_air_jump or p.on_floor, p.has_disc and (p.on_floor or p.air_pivot_ready), p.has_disc]
 	var cols := [Color(0.35, 0.95, 1.0), Color(1.0, 0.4, 0.85), _ldr(runner.disc.color)]
-	var names := ["DASH", "PIVOT", "DISC"]
+	var names := ["2× JUMP", "PIVOT", "DISC"]
 	for i in 3:
 		var c := Vector2(x + i * 54.0, y)
 		var on: bool = avail[i]
@@ -554,10 +554,10 @@ func _draw_badges(ci: Control, vs: Vector2, p) -> void:
 		ci.draw_arc(c, rad, 0, TAU, 24, Color(col, 1.0 if on else 0.25), 2.0, true)
 		var ic := Color(col.lightened(0.3), 1.0) if on else Color(0.5, 0.5, 0.6, 0.5)
 		match i:
-			0:  # double chevron
+			0:  # double up-chevron (double jump)
 				for k in 2:
-					var o := Vector2(-6 + k * 8, 0)
-					ci.draw_polyline(PackedVector2Array([c + o + Vector2(-4, -7), c + o + Vector2(3, 0), c + o + Vector2(-4, 7)]), ic, 2.5, true)
+					var o := Vector2(0, 4 - k * 8)
+					ci.draw_polyline(PackedVector2Array([c + o + Vector2(-7, 4), c + o + Vector2(0, -3), c + o + Vector2(7, 4)]), ic, 2.5, true)
 			1:  # planted foot: circle + ground line
 				ci.draw_arc(c + Vector2(0, -3), 6.0, 0, TAU, 14, ic, 2.5, true)
 				ci.draw_line(c + Vector2(-9, 8), c + Vector2(9, 8), ic, 2.5)
@@ -681,7 +681,7 @@ const KEY_ROWS := [
 	[["jump", 3.0, 0]],
 ]
 const ACT_ROWS := [
-	[["dash", "DASH"], ["pivot", "PIVOT"]],
+	[["recall", "RECALL"], ["pivot", "PIVOT"]],
 	[["grapple", "SWING"], ["zip", "ZIP"]],
 	[["throw", "THROW"], ["snap", "SNAP"]],
 ]
@@ -966,12 +966,14 @@ func show_results(tm: float, medal: String, is_pb: bool) -> void:
 	var tl := UI.label(Game.format_time(0.0), 68, Color(1, 1, 1), HORIZONTAL_ALIGNMENT_CENTER)
 	tl.add_theme_font_override("font", _mono)
 	v.add_child(tl)
-	var tw := create_tween()
+	var tw := create_tween().bind_node(tl)
 	tw.tween_method(func(x): tl.text = Game.format_time(x), 0.0, tm, 0.7).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
 	if is_pb:
 		var pb := UI.label("★  NEW PERSONAL BEST  ★", 22, Color(1.0, 0.85, 0.35), HORIZONTAL_ALIGNMENT_CENTER)
 		v.add_child(pb)
-		var tw2 := create_tween().set_loops()
+		# bound to the label: dies with the results card (a HUD-bound endless
+		# tween outlives it and errors every frame -> the lag spike on later runs)
+		var tw2 := create_tween().bind_node(pb).set_loops()
 		tw2.tween_property(pb, "modulate:a", 0.45, 0.5)
 		tw2.tween_property(pb, "modulate:a", 1.0, 0.5)
 	var chips := UI.hbox(26)
@@ -1022,7 +1024,7 @@ func show_results(tm: float, medal: String, is_pb: bool) -> void:
 	results.pivot_offset = root.size * 0.5
 	results.scale = Vector2(0.9, 0.9)
 	results.modulate.a = 0.0
-	var tw3 := create_tween().set_parallel(true)
+	var tw3 := create_tween().bind_node(results).set_parallel(true)
 	tw3.tween_property(results, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tw3.tween_property(results, "modulate:a", 1.0, 0.2)
 

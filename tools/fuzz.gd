@@ -2,7 +2,7 @@ extends SceneTree
 ## Random-input fuzzer: mashes actions with random aim across many courses.
 ## godot --headless --fixed-fps 120 -s tools/fuzz.gd -- [levels] [frames]
 
-const ACTIONS := ["move_left", "move_right", "jump", "dash", "grapple", "zip", "throw", "snap", "pivot", "move_down", "move_up", "throw_next", "recall"]
+const ACTIONS := ["move_left", "move_right", "jump", "grapple", "zip", "throw", "snap", "pivot", "move_down", "move_up", "throw_next", "recall"]
 var rng := RandomNumberGenerator.new()
 var lvl
 var frame := 0

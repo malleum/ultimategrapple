@@ -91,9 +91,9 @@ func _physics_process(_dt: float) -> bool:
 		140:
 			_release("move_down")
 		150:
-			_press("dash")
+			_press("jump")  # double jump
 		152:
-			_release("dash")
+			_release("jump")
 		170:
 			# grapple toward the nearest point ahead if any
 			var best = null
@@ -124,6 +124,11 @@ func _physics_process(_dt: float) -> bool:
 		430:
 			# teleport disc into the basket region to verify scoring
 			var d2 = lvl.disc
+			# the blind scripted run may have died: clear that so a pending
+			# respawn doesn't snatch the disc back before it scores
+			lvl.runners[0].respawn_t = -1.0
+			if p.state == 4:
+				p.respawn(lvl.spawn)
 			p.recall()
 			p.aim_override = lvl.basket_pos + Vector2(0, -80)
 			p.has_disc = false

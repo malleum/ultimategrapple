@@ -11,7 +11,7 @@ extends RefCounted
 const KBM_ACTIONS := [
 	["move_left", "Run left"], ["move_right", "Run right"],
 	["move_up", "Up · reel in"], ["move_down", "Slide · crouch · reel out"],
-	["jump", "Jump"], ["dash", "Dash"], ["grapple", "Grapple swing (hold)"], ["zip", "Zip (hold)"],
+	["jump", "Jump · double jump"], ["grapple", "Grapple swing (hold)"], ["zip", "Zip (hold)"],
 	["throw", "Charge + throw"], ["snap", "Snap"], ["pivot", "Pivot (hold)"],
 	["throw_next", "Next throw"], ["throw_prev", "Previous throw"],
 	["throw_1", "Backhand"], ["throw_2", "Forehand"], ["throw_3", "Hammer"],
@@ -20,7 +20,7 @@ const KBM_ACTIONS := [
 	["recall", "Recall disc"], ["restart", "Restart"], ["pin", "Pin course"], ["next_level", "Next course"],
 ]
 const PAD_ACTIONS := [
-	["jump", "Jump"], ["dash", "Dash"], ["grapple", "Grapple swing (hold)"], ["zip", "Zip (hold)"],
+	["jump", "Jump · double jump"], ["grapple", "Grapple swing (hold)"], ["zip", "Zip (hold)"],
 	["throw", "Charge + throw"], ["snap", "Snap"], ["pivot", "Pivot (hold)"],
 	["throw_next", "Next throw"], ["throw_prev", "Previous throw"],
 	["nose_up", "Nose up"], ["nose_down", "Nose down"],
@@ -52,7 +52,6 @@ static func default_kbm() -> Dictionary:
 		"move_up": [_k(KEY_W), _k(KEY_UP)],
 		"move_down": [_k(KEY_S), _k(KEY_DOWN)],
 		"jump": [_k(KEY_SPACE)],
-		"dash": [_k(KEY_SHIFT)],
 		"grapple": [_m(MOUSE_BUTTON_RIGHT)],
 		"zip": [_k(KEY_E), _m(MOUSE_BUTTON_XBUTTON2)],
 		"throw": [_m(MOUSE_BUTTON_LEFT)],
@@ -74,7 +73,6 @@ static func default_kbm() -> Dictionary:
 static func default_pad() -> Dictionary:
 	return {
 		"jump": [_b(JOY_BUTTON_A)],
-		"dash": [_b(JOY_BUTTON_X)],
 		"grapple": [_a(JOY_AXIS_TRIGGER_LEFT)],
 		"zip": [_b(JOY_BUTTON_LEFT_SHOULDER)],
 		"throw": [_a(JOY_AXIS_TRIGGER_RIGHT)],
@@ -244,7 +242,7 @@ static func label(action: String, use_pad := false) -> String:
 ## so friends see the keys you actually used.
 static func snapshot_labels() -> Dictionary:
 	var out := {"kbm": {}, "pad": {}}
-	for a in ["move_left", "move_right", "move_up", "move_down", "jump", "dash", "grapple", "zip", "throw", "snap", "pivot", "recall"]:
+	for a in ["move_left", "move_right", "move_up", "move_down", "jump", "grapple", "zip", "throw", "snap", "pivot", "recall"]:
 		out.kbm[a] = label(a)
 		out.pad[a] = label(a, true)
 	out.pad["move_left"] = "LS ←"

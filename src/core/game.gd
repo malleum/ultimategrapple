@@ -14,6 +14,9 @@ const REPLAY_DIR := "user://replays"
 const REPLAY_INDEX := "user://replays/index.json"
 const RECENT_PATH := "user://recent.json"
 const RECENT_MAX := 40
+## Bump when movement / physics / input layout change: older replays can't
+## re-simulate faithfully any more. 2: no dash, double jump, faster running.
+const REPLAY_VERSION := 2
 const ReplayInput = preload("res://src/core/replay_input.gd")
 const GENERATOR_VERSION := 1
 
@@ -264,7 +267,7 @@ func save_replay(rep: Dictionary) -> void:
 	var idx = _load_json(REPLAY_INDEX, {})
 	if not idx is Dictionary:
 		idx = {}
-	idx[id] = {"name": rep.name, "theme": rep.theme, "time": rep.time, "medal": rep.medal, "date": rep.date}
+	idx[id] = {"name": rep.name, "theme": rep.theme, "time": rep.time, "medal": rep.medal, "date": rep.date, "v": rep.v}
 	_save_json(REPLAY_INDEX, idx)
 
 
@@ -276,7 +279,9 @@ func load_replay(level_id: String) -> Dictionary:
 	if f == null:
 		return {}
 	var v = f.get_var()
-	return v if v is Dictionary and v.has("input") else {}
+	if not (v is Dictionary and v.has("input")) or int(v.get("v", 1)) != REPLAY_VERSION:
+		return {}
+	return v
 
 
 func has_replay(level_id: String) -> bool:
@@ -294,13 +299,13 @@ func list_replays() -> Array:
 		recent = []
 	var out := []
 	for id in recent:
-		if idx.has(id) and has_replay(id):
+		if idx.has(id) and has_replay(id) and int(idx[id].get("v", 1)) == REPLAY_VERSION:
 			var e: Dictionary = idx[id].duplicate()
 			e["id"] = id
 			out.append(e)
 	var rest := []
 	for id in idx:
-		if not recent.has(id) and has_replay(id):
+		if not recent.has(id) and has_replay(id) and int(idx[id].get("v", 1)) == REPLAY_VERSION:
 			var e2: Dictionary = idx[id].duplicate()
 			e2["id"] = id
 			rest.append(e2)

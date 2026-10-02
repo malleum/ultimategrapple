@@ -13,7 +13,7 @@ extends RefCounted
 const Themes = preload("res://src/core/theme_db.gd")
 
 const T := 32                 # tile size in px
-const RUN_TILES_PER_SEC := 12.0
+const RUN_TILES_PER_SEC := 16.0
 ## 2: slide tunnels got a 48px ceiling (older saves are repaired on load)
 const VERSION := 2
 const SLIDE_CEIL := 1.5        # slide tunnel ceiling height, tiles

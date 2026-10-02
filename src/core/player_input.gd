@@ -10,7 +10,7 @@ const KBM := -1
 const ANY := -2
 const REPLAY := -3
 
-const ACTIONS := ["jump", "dash", "grapple", "zip", "throw", "snap", "pivot", "throw_next", "throw_prev",
+const ACTIONS := ["jump", "grapple", "zip", "throw", "snap", "pivot", "throw_next", "throw_prev",
 	"nose_up", "nose_down", "recall", "restart", "pause", "move_down", "move_up", "throw_1", "throw_2",
 	"throw_3", "throw_4", "throw_5", "throw_6"]
 

@@ -87,8 +87,8 @@ func _process(_dt: float) -> bool:
 	_check("wheel tap lasts one tick", not inp.pressed("recall"))
 
 	# unbind
-	Bindings.unbind("kbm", "dash", 0)
-	_check("dash unbound", Bindings.kbm.dash.is_empty() and Bindings.label("dash") == "")
+	Bindings.unbind("kbm", "pivot", 0)
+	_check("pivot unbound", Bindings.kbm.pivot.is_empty() and Bindings.label("pivot") == "")
 
 	# controller: button + trigger, snap/throw edges
 	Bindings.bind("pad", "snap", 0, "a:%d" % JOY_AXIS_TRIGGER_LEFT)

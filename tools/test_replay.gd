@@ -5,7 +5,7 @@ extends SceneTree
 ## on every tick. Any drift is a bug.
 ## godot --headless --fixed-fps 120 -s tools/test_replay.gd -- [courses] [ticks]
 
-const ACTIONS := ["move_left", "move_right", "jump", "dash", "grapple", "zip", "throw", "snap", "pivot", "move_down", "move_up", "throw_next", "recall"]
+const ACTIONS := ["move_left", "move_right", "jump", "grapple", "zip", "throw", "snap", "pivot", "move_down", "move_up", "throw_next", "recall"]
 
 var rng := RandomNumberGenerator.new()
 var n_courses := 4
@@ -108,6 +108,20 @@ const E2E_ID := "test_replay_e2e"
 var e2e_attempt := 0
 var e2e_t := 0
 var e2e_time := 0.0
+var data_lag := {}
+var err_log: ErrCount = null
+
+
+## Counts engine errors (the lag-spike regression shows up as a flood of
+## "Infinite loop detected" tween errors every frame after a restart).
+class ErrCount:
+	extends Logger
+	var n := 0
+	func _log_error(_function: String, _file: String, _line: int, code: String, rationale: String, _editor_notify: bool, _error_type: int, _script_backtraces: Array) -> void:
+		if "Infinite loop" in code or "Infinite loop" in rationale:
+			n += 1
+	func _log_message(_message: String, _error: bool) -> void:
+		pass
 
 
 func _e2e_level() -> Dictionary:
@@ -140,17 +154,34 @@ func _e2e_tick() -> bool:
 			Input.action_press("throw")
 		elif e2e_t == 6 + hold:
 			Input.action_release("throw")
-		if r.done:
+		if r.done and not data_lag.has("t"):
+			data_lag["t"] = e2e_t
 			e2e_time = r.finish_time
 			if not G.has_replay(E2E_ID):
 				print("FAIL e2e: finished but no replay saved")
 				quit(1)
 				return true
-			G.play_replay(E2E_ID)
-			lvl = G.current_scene
-			phase = "e2e_play"
-			e2e_t = 0
-		elif e2e_t > 300:
+		if data_lag.has("t"):
+			# results card (with its looping NEW PB pulse) is up: restart. No
+			# tween may keep running afterwards (that was the lag spike).
+			if not data_lag.has("restarted") and e2e_t >= int(data_lag.t) + 150:
+				data_lag["restarted"] = true
+				if err_log == null:
+					err_log = ErrCount.new()
+					OS.add_logger(err_log)
+				err_log.n = 0
+				lvl.restart()
+			elif data_lag.has("restarted") and e2e_t >= int(data_lag.t) + 210:
+				if err_log.n > 0:
+					print("FAIL e2e: %d tween infinite-loop errors after restart (lag spike regression)" % err_log.n)
+					quit(1)
+					return true
+				G.play_replay(E2E_ID)
+				lvl = G.current_scene
+				phase = "e2e_play"
+				e2e_t = 0
+			return false
+		if e2e_t > 300:
 			e2e_attempt += 1
 			if e2e_attempt > 40:
 				print("FAIL e2e: could not score a test throw")

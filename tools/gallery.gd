@@ -50,7 +50,7 @@ func _initialize() -> void:
 
 
 func _release_all() -> void:
-	for a in ["move_right", "move_left", "jump", "grapple", "zip", "throw", "snap", "dash", "pivot"]:
+	for a in ["move_right", "move_left", "jump", "grapple", "zip", "throw", "snap", "pivot"]:
 		Input.action_release(a)
 
 

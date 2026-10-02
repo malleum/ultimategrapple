@@ -298,7 +298,7 @@ func _pin_to_recording(k: int) -> void:
 func _any_input() -> bool:
 	if inp.move.length() > 0.2:
 		return true
-	for a in ["jump", "dash", "grapple", "zip", "throw", "move_down", "pivot"]:
+	for a in ["jump", "grapple", "zip", "throw", "move_down", "pivot"]:
 		if inp.pressed(a):
 			return true
 	return false
@@ -425,7 +425,7 @@ func _make_replay(medal: String) -> Dictionary:
 	var data: Dictionary = level.level_data.duplicate(true)
 	data.erase("_builtin")
 	return {
-		"v": 1,
+		"v": Game.REPLAY_VERSION,
 		"level_id": level.level_id,
 		"level": data,
 		"name": str(data.get("name", "Course")),
@@ -485,10 +485,9 @@ func _on_player_fx(kind: String, pos: Vector2, data) -> void:
 		"land":
 			play_sfx("land", pos, clampf(float(data) / 1400.0, 0.2, 1.0))
 			level.spawn_dust(pos, int(clampf(float(data) / 150.0, 3, 12)))
-		"dash":
-			play_sfx("dash", pos)
-			spawn_burst(pos, player.color * 1.6, 10)
-			shake(3.0)
+		"airjump":
+			play_sfx("jump", pos, 0.9, 1.3)
+			spawn_burst(pos + Vector2(0, 18), player.color * 1.6, 12, Vector2(26, 4))
 		"slide":
 			play_sfx("slide", pos)
 		"grapple_attach":
