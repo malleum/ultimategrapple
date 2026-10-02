@@ -4,6 +4,10 @@ extends SceneTree
 ## few frames around the peak. Needs a display (xvfb-run).
 ##   godot --fixed-fps 120 -s tools/shot_cinema.gd -- <scene> <out_prefix>
 ## scenes: swing zip pivot hammer chains skip skycatch charge
+##         toss_<throw>_<theme>  perfect-snap throw mid-flight (throw: backhand
+##                               forehand hammer roller scoober thumber)
+##         far_<theme> [--deg D] cross-screen bomb into the chains; without
+##                               --deg it searches (headless) for the angle
 
 const Disc = preload("res://src/disc/disc.gd")
 const ThrowTypes = preload("res://src/disc/throw_types.gd")
@@ -104,11 +108,21 @@ func _physics_process(_dt: float) -> bool:
 		_begin()
 		return false
 	f += 1
-	call("_tick_" + scene)
+	if scene.begins_with("toss_"):
+		_tick_toss()
+	elif scene.begins_with("far_"):
+		_tick_far()
+	else:
+		call("_tick_" + scene)
 	if follow != "" and not r.done:
 		var target: Vector2 = p.center()
-		if follow == "mid":
+		if follow == "fixed":
+			target = st.cam
+		elif follow == "mid":
 			target = (p.center() + r.disc.global_position) * 0.5 if r.disc.state != Disc.HELD else p.center()
+			if st.has("autozoom") and r.disc.state != Disc.HELD:
+				var span: Vector2 = (r.disc.global_position - p.center()).abs() + Vector2(700, 520)
+				zoom = clampf(minf(1920.0 / span.x, 1080.0 / span.y), 0.5, float(st.autozoom))
 		elif follow == "disc" and r.disc.state != Disc.HELD:
 			target = r.disc.global_position
 		r.follow_fn = func() -> Array: return [target, Vector2.ZERO]
@@ -153,6 +167,21 @@ func _release(a: String) -> void:
 # ------------------------------------------------------------------ scenes
 
 func _begin() -> void:
+	if scene.begins_with("toss_") or scene.begins_with("far_"):
+		var th: String = scene.split("_")[-1]
+		var G = root.get_node("Game")
+		# a course whose route has open sky to throw into
+		for sd in [23, 11, 37, 5, 8, 13]:
+			data = G.generate_level(sd, th, 0.6, 10)
+			if scene.begins_with("far_") and _far_spot() != Vector2.INF:
+				_setup(sd, th)
+				return
+			if scene.begins_with("toss_") and _open_spot() != Vector2.INF:
+				_setup(sd, th)
+				return
+		print("no course with room for ", scene)
+		quit(1)
+		return
 	match scene:
 		"swing":
 			var G2 = root.get_node("Game")
@@ -183,6 +212,145 @@ func _begin() -> void:
 					print("charge on ", c)
 					_setup(int(c[0]), str(c[1]))
 					break
+
+
+const TOSS_DEG := {"backhand": 24.0, "forehand": 13.0, "hammer": 55.0, "roller": 9.0, "scoober": 42.0, "thumber": 22.0}
+
+
+## A route point with open sky up and ahead (for a big arc).
+func _open_spot() -> Vector2:
+	var rt := _route()
+	for i in range(1, rt.size()):
+		var ok := _free(rt[i] + Vector2(0, -4))
+		for k in range(1, 14):
+			ok = ok and _free(rt[i] + Vector2(k * 70.0, -k * 55.0 - 60.0), Vector2(30, 30))
+		if ok:
+			return rt[i]
+	return Vector2.INF
+
+
+## Somewhere 1100-1900 px short of the basket, open sky over the whole gap.
+func _far_spot() -> Vector2:
+	var bp := Vector2(data.basket[0], data.basket[1])
+	for rp in _route():
+		var d: float = bp.x - rp.x
+		if d < 1100.0 or d > 1900.0 or absf(rp.y - bp.y) > 260.0 or not _free(rp + Vector2(0, -4)):
+			continue
+		var ok := true
+		for k in range(1, 12):
+			var q: Vector2 = rp.lerp(bp, k / 12.0) + Vector2(0, -260.0 - 240.0 * sin(PI * k / 12.0))
+			ok = ok and _free(q, Vector2(20, 20))
+		if ok:
+			return rp
+	return Vector2.INF
+
+
+func _perfect(ti: int, deg: float, from: Vector2) -> void:
+	var dir := Vector2.RIGHT.rotated(-deg_to_rad(deg))
+	var lp := ThrowTypes.launch_params(ThrowTypes.get_type(ti), 1.0, 1.0, 0.0, 0.0)
+	r.disc.launch(from, dir * float(lp.speed), ti, lp.spin, 0.0, lp.wobble, lp.quality)
+
+
+## A perfect-snap throw of one type, framed so thrower and disc both fit.
+func _tick_toss() -> void:
+	var tname: String = scene.split("_")[1]
+	var ti := 0
+	for i in ThrowTypes.count():
+		if ThrowTypes.get_type(i).id == tname:
+			ti = i
+	var deg: float = TOSS_DEG.get(tname, 25.0)
+	if f == 2:
+		_place(_open_spot() + Vector2(0, -4), Vector2.ZERO)
+		p.throw_type = ti
+		zoom = 1.3
+		follow = "mid"
+		st["autozoom"] = 1.3
+	aim = p.center() + Vector2.RIGHT.rotated(-deg_to_rad(deg)) * 500.0
+	if f == 6:
+		_press("throw")
+	if f == 66:
+		_release("throw")
+		_press("snap")
+	if f == 68:
+		_release("snap")
+	if r.disc.state == Disc.FLIGHT and not st.has("t0"):
+		st["t0"] = f
+		_perfect(ti, deg, r.disc.global_position)
+		shots = [f + 14, f + 28, f + 44, f + 62, f + 84]
+
+
+## The long bomb: thrower on the left, basket on the right, disc on its way.
+func _tick_far() -> void:
+	var bp: Vector2 = lvl.basket_pos
+	var a := OS.get_cmdline_user_args()
+	var di := a.find("--deg")
+	if f == 2:
+		var spot := _far_spot()
+		_place(spot + Vector2(0, -4), Vector2.ZERO)
+		var dist: float = bp.x - spot.x
+		st["cam"] = (spot + bp) * 0.5 + Vector2(0, -230)
+		zoom = clampf(1920.0 / (dist + 650.0), 0.4, 1.0)
+		follow = "fixed"
+		var fi := a.find("--from")
+		st["deg"] = float(a[di + 1]) if di >= 0 else (float(a[fi + 1]) if fi >= 0 else 10.0)
+		st["lo"] = 4.0
+		st["hi"] = 40.0
+		print("far: %.0f px from the basket, zoom %.2f" % [dist, zoom])
+	aim = p.center() + Vector2.RIGHT.rotated(-deg_to_rad(float(st.deg))) * 500.0
+	var t0: int = int(st.get("t0", -1))
+	if t0 < 0:
+		if f == 6:
+			_press("throw")
+		if f == 66:
+			_release("throw")
+			_press("snap")
+		if f == 68:
+			_release("snap")
+		if r.disc.state == Disc.FLIGHT:
+			st["t0"] = f
+			_perfect(0, float(st.deg), r.disc.global_position)
+			if OS.get_environment("DBG") != "" and not st.has("dbg"):
+				st["dbg"] = true
+				r.disc.impact.connect(func(kind, sp): print("  impact %s at %s speed %.0f" % [kind, r.disc.global_position.round(), sp]))
+			var ti2 := a.find("--ticks")
+			if ti2 >= 0:
+				# frames along the flight (its length came from the search run)
+				var n := int(a[ti2 + 1])
+				shots = [f + n + 4, f + n + 18]
+				for k in [0.35, 0.55, 0.72, 0.86, 0.95]:
+					shots.append(f + int(n * k))
+				shots.sort()
+		return
+	# where it comes down through chain height decides short / long (a disc
+	# that flies past can bounce back off a wall and land short)
+	if not st.has("cross") and r.disc.state == Disc.FLIGHT and r.disc.velocity.y > 0.0 and r.disc.global_position.y >= bp.y - 95.0:
+		st["cross"] = r.disc.global_position.x
+	if r.done:
+		if di < 0:
+			print("far angle %.2f scores (flight %d ticks): --deg %.2f --ticks %d" % [st.deg, f - t0, st.deg, f - t0])
+			quit(0)
+			return
+		if not st.has("in"):
+			st["in"] = f
+			r.hud.popup("CHAINS!", Color(2.2, 1.8, 0.3), 2.0)
+		return
+	if r.disc.state != Disc.FLIGHT and r.disc.state != Disc.CHAINED:
+		var miss_x: float = float(st.get("cross", r.disc.global_position.x))
+		st.erase("cross")
+		if di >= 0:
+			print("far: the given angle missed (disc at x=%.0f, basket %.0f)" % [miss_x, bp.x])
+			quit(1)
+			return
+		# scan the angles upward until one goes in
+		print("far: %.2f deg came down at x=%.0f (basket %.0f)" % [st.deg, miss_x, bp.x])
+		st.deg = float(st.deg) + 0.2
+		st.erase("t0")
+		r.disc.hold()
+		p.has_disc = true
+		f = 5
+		if float(st.deg) > 42.0:
+			print("far: no angle scores from here")
+			quit(1)
 
 
 ## Grapple swing at full tilt over the gap, disc in hand.

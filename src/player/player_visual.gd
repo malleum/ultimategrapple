@@ -15,6 +15,7 @@ var facing := 1.0
 var aim_dir := Vector2.RIGHT
 var anchor_local := Vector2.ZERO
 var disc_color := Color(2, 0.5, 1.5)
+const BODY_HDR := 1.15     # runner line brightness (glow kicks in just above 1.0)
 var run_phase := 0.0
 ## Scarf: world-space verlet chain (gravity + air drag), so it hangs down when
 ## you stand still and streams back when you move. scarf holds the points
@@ -143,9 +144,10 @@ func _set_knocked(k: bool) -> void:
 func _draw() -> void:
 	if dead:
 		return
-	var c := Color(color.r * 1.8, color.g * 1.8, color.b * 1.8, alpha)
+	# just over the glow threshold: a soft halo, not a bloomed-out blob
+	var c := Color(color.r * BODY_HDR, color.g * BODY_HDR, color.b * BODY_HDR, alpha)
 	var body_c := Color(color.r * 0.25, color.g * 0.25, color.b * 0.25, alpha)
-	var accent := Color(2.2, 0.5, 1.4, alpha) if color.g > 0.8 else Color(0.4, 2.0, 2.2, alpha)
+	var accent := Color(1.45, 0.4, 1.0, alpha) if color.g > 0.8 else Color(0.35, 1.35, 1.45, alpha)
 	var w := 3.6
 	var lean := clampf(vel.x / 1400.0, -0.45, 0.45)
 	if knocked:
