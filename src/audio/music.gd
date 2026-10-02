@@ -6,7 +6,7 @@ extends Node
 const S = preload("res://src/audio/synth.gd")
 const Themes = preload("res://src/core/theme_db.gd")
 const SR := 32000
-const CACHE_VERSION := 3
+const CACHE_VERSION := 4
 
 const SCALES := {
 	"major": [0, 2, 4, 5, 7, 9, 11],
@@ -123,7 +123,9 @@ var _note_cache := {}
 var _rng := RandomNumberGenerator.new()
 
 
-func render_song(m: Dictionary, seed_v: int) -> AudioStreamWAV:
+## only: "" renders everything, or one layer ("drums", "pad", "bass", "arp",
+## "lead") for inspecting a theme's mix.
+func render_song(m: Dictionary, seed_v: int, only := "") -> AudioStreamWAV:
 	_note_cache.clear()
 	_rng.seed = seed_v
 	var bpm: float = m.get("bpm", 128)
@@ -148,6 +150,8 @@ func render_song(m: Dictionary, seed_v: int) -> AudioStreamWAV:
 	var ohat := _hat(0.16)
 	var metal := S.metal(SR, 0.25, 700, [1.0, 1.7, 2.9, 4.3], 0.08, 1.0)
 	for s in total_steps:
+		if only != "" and only != "drums":
+			break
 		var bar := s / 16
 		var i := s % 16
 		var fill := bar % 8 == 7 and i >= 12
@@ -158,7 +162,7 @@ func render_song(m: Dictionary, seed_v: int) -> AudioStreamWAV:
 		if _hit(style.hat, i):
 			_mix(L, R, ohat if i % 4 == 2 and not style.get("hat16", false) else hat, sn.call(s), style.hat_vol, 0.3)
 		elif style.get("hat16", false):
-			_mix(L, R, hat, sn.call(s), style.hat_vol * 0.45, -0.3)
+			_mix(L, R, hat, sn.call(s), style.hat_vol * 0.3, -0.3)
 		if style.get("metal", false) and i % 3 == 1:
 			_mix(L, R, metal, sn.call(s), 0.18, _rng.randf_range(-0.6, 0.6))
 
@@ -171,17 +175,20 @@ func render_song(m: Dictionary, seed_v: int) -> AudioStreamWAV:
 		var pkey := "pad:%s:%d" % [style.pad_i, deg]
 		if not _note_cache.has(pkey):
 			_note_cache[pkey] = _pad(chord, 16 * step, style.pad_i)
-		_mix(L, R, _note_cache[pkey], bar_start, 0.18, 0.0)
+		if only == "" or only == "pad":
+			var pad: Array = _note_cache[pkey]
+			_mix(L, R, pad[0], bar_start, 0.18, -1.0)
+			_mix(L, R, pad[1], bar_start, 0.18, 1.0)
 		# bass
 		for i in 16:
-			if _hit(style.bass, i):
+			if (only == "" or only == "bass") and _hit(style.bass, i):
 				var bn: int = chord[0] - 12
 				if style.bass == "x.x.x.x.x.x.x.x." and i % 4 == 2:
 					bn += 12
 				var blen := 2.0 * step if style.bass_i != "sub" else 7.0 * step
 				_mix(L, R, _note(style.bass_i, bn, blen), bar_start + sn.call(i), 0.45, 0.0)
 		# arp
-		if style.arp_i != "":
+		if style.arp_i != "" and (only == "" or only == "arp"):
 			var rate: int = style.arp_rate
 			var pattern := [0, 1, 2, 1, 2, 3, 2, 1] if rate == 1 else [0, 1, 2, 3]
 			var k := 0
@@ -196,7 +203,7 @@ func render_song(m: Dictionary, seed_v: int) -> AudioStreamWAV:
 
 	# --- lead melody (second half, phrase repeated with variation)
 	var phrase := _phrase(scale, root)
-	for half in 2:
+	for half in (2 if only == "" or only == "lead" else 0):
 		for rep in 2:
 			var base_bar := 8 + half * 4 + rep * 2
 			for nt in phrase:
@@ -298,7 +305,7 @@ func _lead(inst: String, f: float, dur: float) -> PackedFloat32Array:
 	var kind := 2 if inst == "lead_sq" else (1 if inst == "lead_saw" else 0)
 	for i in n:
 		var t := float(i) / SR
-		var vib := 1.0 + 0.006 * sin(t * 34.0) * minf(1.0, t / 0.2)
+		var vib := 1.0 + 0.003 * sin(t * 34.0) * minf(1.0, t / 0.3)
 		ph = fmod(ph + f * vib / SR, 1.0)
 		var env := minf(1.0, t / 0.01) * (1.0 if t < dur else exp(-(t - dur) / 0.03)) * (0.8 + 0.2 * exp(-t / 0.1))
 		var v := S.osc(kind, ph)
@@ -310,23 +317,36 @@ func _lead(inst: String, f: float, dur: float) -> PackedFloat32Array:
 	return buf
 
 
-func _pad(chord: Array, dur: float, kind: String) -> PackedFloat32Array:
+## Pad as a stereo pair [left, right]: one slightly flat voice per note on
+## the left, one slightly sharp on the right. Detuned voices summed into one
+## channel beat against each other; at
+## the old +-0.6% that pulsed a few times a second and, through a per-bar
+## filter sweep, read as a siren over the hats. Split across the channels the
+## ear hears width instead.
+func _pad(chord: Array, dur: float, kind: String) -> Array:
 	var n := int(dur * SR)
-	var buf := PackedFloat32Array()
-	buf.resize(n)
-	var detunes := [-0.006, 0.0, 0.007]
+	var left := PackedFloat32Array()
+	var right := PackedFloat32Array()
+	left.resize(n)
+	right.resize(n)
 	for note in chord:
 		var f := S.midi_hz(note)
-		for dt in detunes:
+		for v_i in 2:
+			var dt: float = [-0.002, 0.002][v_i]
 			var ph := _rng.randf()
 			var ff: float = f * (1.0 + dt)
+			var gl := 0.21 if v_i == 0 else 0.0
+			var gr := 0.21 if v_i == 1 else 0.0
 			for i in n:
 				var t := float(i) / SR
 				ph = fmod(ph + ff / SR, 1.0)
 				var env := minf(1.0, t / 0.35) * minf(1.0, (dur - t) / 0.2)
-				var v: float = S.osc(1, ph) if kind == "pad_saw" else S.osc(3, ph)
-				buf[i] += v * env * 0.15
-	return S.svf(buf, SR, 1400, 1000, 0.7, 0)
+				var v: float = (S.osc(1, ph) if kind == "pad_saw" else S.osc(3, ph)) * env
+				left[i] += v * gl
+				right[i] += v * gr
+	# fixed cutoff (no per-bar sweep)
+	var fc := 1100.0 if kind == "pad_saw" else 1400.0
+	return [S.svf(left, SR, fc, fc, 0.5, 0), S.svf(right, SR, fc, fc, 0.5, 0)]
 
 
 func _kick() -> PackedFloat32Array:
