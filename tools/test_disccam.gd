@@ -22,6 +22,9 @@ var lock_was := true
 var shots_done := 0
 var max_dev := 0.0
 var flipped_seen := false
+var shot_rot := 0.0
+var shot_flip := 1.0
+var shot_chains := false
 
 
 func _check(name: String, ok: bool, detail: String) -> void:
@@ -132,13 +135,20 @@ func _physics_process(_dt: float) -> bool:
 					max_dev = maxf(max_dev, dev)
 				if cam.flip < -0.9:
 					flipped_seen = true
-			if shot != "" and shots_done < 4:
-				var at: float = [0.25, 0.6, 0.85, 0.97][shots_done]
-				if cam.t >= at * (cam.frames.size() - 1):
+			# shots: whenever the view has turned well away from the last shot
+			# (or flipped over), plus one in the chains
+			var in_flight: bool = int(cam.t) < cam.frames.size() and (cam.frames[int(cam.t)][0] as Array)[10] != 0
+			var turned: bool = absf(angle_difference(cam.cam_rot, float(shot_rot))) > 0.45 or signf(cam.flip) != signf(shot_flip)
+			var chains: bool = cam.t >= cam.score_at + 20 and not shot_chains
+			if shot != "" and shots_done < 8 and cam.hold_t == 0.0 and ((in_flight and turned) or chains):
+				shot_rot = cam.cam_rot
+				shot_flip = cam.flip
+				shot_chains = shot_chains or chains
+				if true:
 					var img := root.get_viewport().get_texture().get_image()
 					var path := "%s_%d.png" % [shot, shots_done]
 					img.save_png(path)
-					print("saved ", path)
+					print("saved %s  t=%d rot=%.2f flip=%.2f" % [path, int(cam.t), cam.cam_rot, cam.flip])
 					shots_done += 1
 			if cam.hold_t > 0.5:
 				_check("lock", max_dev < 0.06, "disc drawn within %.3f rad of level for the whole clip%s" % [max_dev, " (saw it upside down)" if flipped_seen else ""])

@@ -345,6 +345,92 @@ func play_replay(level_id: String) -> bool:
 	return true
 
 
+# ---------------------------------------------------------------- match recordings
+# Every couch / online round (see Level.build_match): course + every runner's
+# 30 Hz frames. Kept newest first, MATCH_MAX of them.
+
+const MATCH_DIR := "user://replays/matches"
+const MATCH_INDEX := "user://replays/matches.json"
+const MATCH_MAX := 40
+
+
+func save_match(rec: Dictionary) -> void:
+	if render_mode:
+		return
+	DirAccess.make_dir_recursive_absolute(MATCH_DIR)
+	var id := "m%d" % Time.get_unix_time_from_system()
+	var idx = _load_json(MATCH_INDEX, [])
+	if not idx is Array:
+		idx = []
+	while _has_match_id(idx, id):
+		id += "b"
+	rec["id"] = id
+	var f := FileAccess.open_compressed(MATCH_DIR + "/" + id + ".rep", FileAccess.WRITE, FileAccess.COMPRESSION_ZSTD)
+	if f == null:
+		push_warning("could not save match recording")
+		return
+	f.store_var(rec)
+	f.close()
+	var names: Array = []
+	for r in rec.runners:
+		names.append(str(r.name))
+	idx.push_front({"id": id, "name": rec.name, "theme": rec.theme, "mode": rec.mode, "date": rec.date,
+		"winner": rec.winner, "players": names})
+	while idx.size() > MATCH_MAX:
+		var old: Dictionary = idx.pop_back()
+		DirAccess.remove_absolute(MATCH_DIR + "/" + str(old.id) + ".rep")
+	_save_json(MATCH_INDEX, idx)
+
+
+func _has_match_id(idx: Array, id: String) -> bool:
+	for e in idx:
+		if str(e.get("id", "")) == id:
+			return true
+	return false
+
+
+## Saved match recordings, newest first: [{id, name, theme, mode, date, winner, players}]
+func list_matches() -> Array:
+	var idx = _load_json(MATCH_INDEX, [])
+	if not idx is Array:
+		return []
+	var out: Array = []
+	for e in idx:
+		if e is Dictionary and FileAccess.file_exists(MATCH_DIR + "/" + str(e.get("id", "")) + ".rep"):
+			out.append(e)
+	return out
+
+
+func load_match(id: String) -> Dictionary:
+	var path := MATCH_DIR + "/" + id.validate_filename() + ".rep"
+	if not FileAccess.file_exists(path):
+		return {}
+	var f := FileAccess.open_compressed(path, FileAccess.READ, FileAccess.COMPRESSION_ZSTD)
+	if f == null:
+		return {}
+	var v = f.get_var()
+	if not (v is Dictionary and v.get("kind", "") == "match" and v.has("runners") and v.has("level")):
+		return {}
+	return v
+
+
+func delete_match(id: String) -> void:
+	DirAccess.remove_absolute(MATCH_DIR + "/" + id.validate_filename() + ".rep")
+	var idx = _load_json(MATCH_INDEX, [])
+	if idx is Array:
+		idx = idx.filter(func(e): return str(e.get("id", "")) != id)
+		_save_json(MATCH_INDEX, idx)
+
+
+func play_match(id: String) -> bool:
+	var rec := load_match(id)
+	if rec.is_empty():
+		return false
+	Net.leave_if_solo()
+	play_level(rec.level, "match", [], rec)
+	return true
+
+
 # ---------------------------------------------------------------- MP4 export
 # Renders the replay in a second copy of the game with Godot's movie maker
 # (--write-movie: fixed 60 fps, every frame, game audio), then converts the

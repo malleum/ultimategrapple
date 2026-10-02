@@ -560,7 +560,7 @@ func _page_replays() -> void:
 	var v := UI.vbox(10)
 	panel.add_child(v)
 	v.add_child(UI.label("REPLAYS", 48, UI.NEON))
-	v.add_child(UI.label("Your personal-best run on each course, most recently played first. Watch it with the keystroke overlay, or export an MP4 to send to friends.", 18, UI.DIM))
+	v.add_child(UI.label("Your personal-best run on each course, most recently played first. Watch it with the keystroke overlay, or export an MP4 to send to friends. Couch and online rounds are below.", 18, UI.DIM))
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = Vector2(1120, 560)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -590,6 +590,31 @@ func _page_replays() -> void:
 		h.add_child(UI.button("WATCH", func(): Game.play_replay(id), 20))
 		h.add_child(UI.button("EXPORT MP4", func(): Game.export_replay_mp4(id), 20))
 		rows.add_child(h)
+	# couch + online rounds
+	var matches := Game.list_matches()
+	rows.add_child(UI.label("MATCHES", 28, UI.NEON))
+	if matches.is_empty():
+		rows.add_child(UI.label("Every couch and online round you play is recorded here (the last %d)." % Game.MATCH_MAX, 18, UI.DIM))
+	for e in matches:
+		var mid: String = str(e.get("id", ""))
+		var mh := UI.hbox(14)
+		mh.add_child(UI.label("⚑", 22, UI.GOLD))
+		var mn := UI.label(str(e.get("name", "Course")), 22)
+		mn.custom_minimum_size = Vector2(300, 0)
+		mn.clip_text = true
+		mh.add_child(mn)
+		var who: Array = e.get("players", [])
+		var pl := UI.label("%s  ·  %s" % ["COUCH" if e.get("mode", "") == "couch" else "ONLINE", ", ".join(PackedStringArray(who.map(func(x): return str(x))))], 17, UI.DIM)
+		pl.custom_minimum_size = Vector2(330, 0)
+		pl.clip_text = true
+		mh.add_child(pl)
+		var wl := UI.label(("won by " + str(e.winner)) if str(e.get("winner", "")) != "" else "no finish", 17, UI.GOLD)
+		wl.custom_minimum_size = Vector2(190, 0)
+		wl.clip_text = true
+		mh.add_child(wl)
+		mh.add_child(UI.button("WATCH", func(): Game.play_match(mid), 20))
+		mh.add_child(UI.button("DELETE", func(): Game.delete_match(mid); show_page("replays"), 20))
+		rows.add_child(mh)
 	replay_status = UI.label("", 18, UI.PINK)
 	replay_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(replay_status)

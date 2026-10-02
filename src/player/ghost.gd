@@ -24,6 +24,8 @@ var _prev_disc_ok := false
 var cur: Array = []
 var history: Array = []     # remote: [[time, frame], ...] for the last HISTORY_S (disc cam)
 const HISTORY_S := 12.0
+var full: Array = []        # remote: every [time, frame] this round (match recording)
+const FULL_MAX := 30 * 60 * 15
 
 
 func _init() -> void:
@@ -81,11 +83,48 @@ func push_state(frame: Array) -> void:
 	while buffer.size() > 40:
 		buffer.pop_front()
 	history.append([now, frame])
+	if full.size() < FULL_MAX:
+		full.append([now, frame])
 	if float(history[0][0]) < now - HISTORY_S - 2.0:
 		var keep := 0
 		while keep < history.size() and float(history[keep][0]) < now - HISTORY_S:
 			keep += 1
 		history = history.slice(keep)
+
+
+## Match recording: the received frames resampled to 30 Hz on the race clock
+## (t0 = local time the race started, in seconds).
+func match_frames(t0: float) -> Array:
+	var out: Array = []
+	if full.size() < 2:
+		return out
+	var step := 1.0 / 30.0
+	var tt := t0 + delay
+	var i := 0
+	var t_end: float = full[-1][0]
+	while tt <= t_end:
+		while i < full.size() - 2 and float(full[i + 1][0]) < tt:
+			i += 1
+		var ta: float = full[i][0]
+		var tb: float = full[i + 1][0]
+		var fa: Array = full[i][1]
+		var fb: Array = full[i + 1][1]
+		var k := clampf((tt - ta) / maxf(tb - ta, 0.001), 0.0, 1.0)
+		var pa := Vector2(fa[0], fa[1])
+		var pb := Vector2(fb[0], fb[1])
+		if pa.distance_to(pb) > 200.0:
+			k = 0.0
+		var f: Array = fa.duplicate()
+		var p := pa.lerp(pb, k)
+		f[0] = p.x
+		f[1] = p.y
+		if int(fa[10]) != 0 and int(fb[10]) != 0:
+			var d := Vector2(fa[8], fa[9]).lerp(Vector2(fb[8], fb[9]), k)
+			f[8] = d.x
+			f[9] = d.y
+		out.append(f)
+		tt += step
+	return out
 
 
 ## Disc cam clip (see DiscCam) rebuilt at the physics rate from the frames

@@ -471,6 +471,8 @@ func round_update(p: Dictionary, winner: int, results: Dictionary, s_winner: int
 	set_winner = s_winner
 	next_round_at = Time.get_ticks_msec() / 1000.0 + next_in
 	var lvl = _level()
+	if lvl:
+		lvl.net_results = results.duplicate()
 	if first and lvl and players.has(winner):
 		var who: String = "YOU" if winner == my_id() else str(players[winner].name)
 		lvl.hud.popup("%s SANK IT FIRST!" % who, Color(2.2, 1.8, 0.3), 2.5)

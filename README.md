@@ -115,6 +115,13 @@ In couch and online versus, the round winner's disc cam pops up in the corner fo
 (online it is rebuilt from the frames their client already streams), and if someone else
 won, you get your own once you sink it.
 
+**Match recordings.** Every couch and online round is recorded too (the last 40), listed
+under MATCHES on the REPLAYS page. Watching one replays the whole round with every runner
+and their disc on their real paths; left / right switch who the camera follows, and the
+end card has the finishing order. Online, the other players' paths are the ones their
+clients streamed to you (30 Hz). Recordings show runners and discs only, not each
+player's personal gates or glass. `tools/test_match.gd` covers it.
+
 Every new personal best saves a replay of that run. **REPLAYS** on the title screen lists
 them, most recently played course first.
 - **WATCH** plays the run back looking exactly as it did live (HUD, particles, sound),

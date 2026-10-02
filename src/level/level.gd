@@ -20,6 +20,7 @@ const Validator = preload("res://src/level/validator.gd")
 const Disc = preload("res://src/disc/disc.gd")
 const Player = preload("res://src/player/player.gd")
 const DiscCam = preload("res://src/ui/disc_cam.gd")
+const MatchPlayback = preload("res://src/level/match_playback.gd")
 
 const SPLIT_UI_BIT := 19
 
@@ -72,10 +73,62 @@ func _ready() -> void:
 	if not is_timetrial():
 		for r in runners:
 			r.lock_input(true)
+	if mode == "match":
+		match_playback = MatchPlayback.new()
+		match_playback.level = self
+		add_child(match_playback)
 
 
 func _exit_tree() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	if mode == "couch" or mode == "multi":
+		var rec := build_match()
+		if not rec.is_empty():
+			Game.save_match(rec)
+
+
+# ================================================================== match recordings
+# Every couch / online round is kept as a match recording: the course plus
+# every runner's 30 Hz frames on the race clock (the same frames ghosts use),
+# so it can be watched afterwards following any runner. Online, the others'
+# frames are the ones their clients streamed to us.
+
+var race_start_ms := -1
+var net_results := {}       # online: peer id -> finish time (from the server)
+var match_playback: Node = null
+
+
+func build_match() -> Dictionary:
+	if race_start_ms < 0:
+		return {}
+	var rs: Array = []
+	for r in runners:
+		var t := -1.0
+		if r.done:
+			t = r.finish_time
+		rs.append({"name": r.pname, "color": r.player.visual.color, "frames": r.rec_frames.duplicate(), "time": t, "throws": r.player.throws})
+	if mode == "multi":
+		var t0 := race_start_ms / 1000.0
+		for id in remote_ghosts:
+			var g = remote_ghosts[id]
+			if not is_instance_valid(g):
+				continue
+			rs.append({"name": g.visual.name_tag, "color": g.visual.color, "frames": g.match_frames(t0),
+				"time": float(net_results.get(id, -1.0)), "throws": 0})
+	var longest := 0
+	for e in rs:
+		longest = maxi(longest, e.frames.size())
+	if longest < 30:
+		return {}
+	var winner := ""
+	var best := INF
+	for e in rs:
+		if float(e.time) >= 0.0 and float(e.time) < best:
+			best = float(e.time)
+			winner = str(e.name)
+	return {"kind": "match", "mode": "online" if mode == "multi" else "couch", "level": level_data,
+		"name": str(level_data.get("name", "Course")), "theme": str(level_data.get("theme", "")),
+		"date": int(Time.get_unix_time_from_system()), "runners": rs, "winner": winner, "countdown": 3.0}
 
 
 func _v(a) -> Vector2:
@@ -392,11 +445,15 @@ func start_countdown(seconds: float) -> void:
 
 func _begin_race() -> void:
 	race_live = true
+	race_start_ms = Time.get_ticks_msec()
 	for r in runners:
-		r.lock_input(false)
+		if mode != "match":
+			r.lock_input(false)
 		r.running = true
 		r.time = 0.0
 	play_sfx("go", spawn)
+	if match_playback:
+		match_playback.start()
 
 
 func couch_popup(text: String, c: Color, dur := 2.5) -> void:

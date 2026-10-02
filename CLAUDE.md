@@ -14,6 +14,7 @@
   - `godot4 --headless --fixed-fps 120 -s tools/test_moves.gd` (run speeds, ledge mantle instead of wall-jump, smooth short hop, ceiling corner nudge)
   - `godot4 --headless --fixed-fps 120 -s tools/test_versus.gd` (multiplayer: penalties freeze, disc clash, slide tackle, disc hits on runners)
   - `godot4 --headless --fixed-fps 120 -s tools/test_disccam.gd` (results card disc cam: clip, lock-to-disc view, layers restored)
+  - `godot4 --headless --fixed-fps 120 -s tools/test_match.gd` (couch round saved as a match recording, plays back on the recorded paths)
   - `nix build .#default` (pck export + wrapper)
 - Avoid `:=` on Variant values (Dictionary/Array element access) — Godot treats failed inference as a parse error.
 - Course fairness checks live in `src/level/validator.gd` (used by test_gen on generated + `levels/*.json`). Changing generator geometry: bump `Gen.VERSION` and add a `Validator.repair()` step so old pinned saves get fixed on load.

@@ -43,6 +43,7 @@ var pb_ghost: Node2D
 var speed_trail: Node2D
 var pov_clip: Array = []   # per tick: [frame, disc pos, disc pose] (see _record_pov)
 var pov_after := 0
+var follow_fn := Callable()   # match playback: [pos, vel] the camera follows instead
 var background: Node2D
 
 var grapple_points: Array = []
@@ -395,6 +396,12 @@ func _update_camera(dt: float) -> void:
 	var target: Vector2
 	if done:
 		target = level.basket_pos + Vector2(0, -140)
+	elif follow_fn.is_valid():
+		# match playback: ride along with the recorded runner being watched
+		var fv: Array = follow_fn.call()
+		var raw2 := Vector2(clampf(fv[1].x * 0.28, -420, 420), clampf(fv[1].y * 0.05, -60, 140))
+		cam_look = cam_look.lerp(raw2, 1.0 - exp(-3.0 * dt))
+		target = fv[0] + Vector2(0, -22) + cam_look
 	else:
 		var c: Vector2 = player.center()
 		var v: Vector2 = player.velocity

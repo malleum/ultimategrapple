@@ -3,7 +3,8 @@ extends SceneTree
 ## (B must get stunned on its own client), then both throw at each other and
 ## the discs must clash (each client's own disc gets knocked), then A hits B
 ## in the head with a throw (B must get knocked down on its own client), then
-## A sinks it and both clients show A's disc cam.
+## A sinks it and both clients show A's disc cam; leaving the round saves it
+## as a match recording with both runners' paths.
 ##   godot4 --headless --path . -- --server --port=24699 &
 ##   godot4 --headless -s tools/test_online_versus.gd -- localhost:24699 A &
 ##   godot4 --headless -s tools/test_online_versus.gd -- localhost:24699 B
@@ -16,6 +17,7 @@ var asked := false
 var started := false
 var race_t := -1.0
 var res := {}
+var final := {}      # result line waiting on the match recording check
 
 
 func _physics_process(dt: float) -> bool:
@@ -30,6 +32,31 @@ func _physics_process(dt: float) -> bool:
 		net.join(args[0])
 		return false
 	t += dt
+	if not final.is_empty():
+		# the round was left: it must be saved as a match with both runners
+		final["n"] = int(final.n) + 1
+		if int(final.n) == (3 if name_ == "A" else 30):
+			# both test clients share one user:// folder: find ours (local runner first)
+			var rec: Dictionary = {}
+			# (and its index, which they both rewrite at once): scan the files
+			for fn in DirAccess.get_files_at(game.MATCH_DIR):
+				var r2: Dictionary = game.load_match(fn.get_basename())
+				if not r2.is_empty() and str(r2.runners[0].name) == name_:
+					rec = r2
+					break
+			var rs: Array = rec.get("runners", [])
+			var other := 0
+			for e in rs:
+				if str(e.name) != name_:
+					other = e.frames.size()
+			var m_ok: bool = rs.size() == 2 and other > 150 and str(rec.get("winner", "")) == "A"
+			if not rec.is_empty():
+				game.delete_match(str(rec.id))
+			var ok2: bool = final.ok and m_ok
+			print("%s %s: %s; match saved with %d runners (other's path %d frames), winner %s" % [name_, "OK" if ok2 else "FAIL", final.detail, rs.size(), other, rec.get("winner", "-")])
+			quit(0 if ok2 else 1)
+			return true
+		return false
 	if t > 40.0:
 		print("%s FAIL: timed out (%s)" % [name_, res])
 		quit(1)
@@ -115,7 +142,7 @@ func _physics_process(dt: float) -> bool:
 		else:
 			ok = float(res.stun) > 0.3 and res.has("hit") and float(res.down) > 0.5 and cam_ok
 			detail = "stunned %.2fs by the tackle, disc clash at %ss, knocked down %.2fs by the headshot" % [res.stun, res.get("hit", "-"), res.down]
-		print("%s %s: %s%s" % [name_, "OK" if ok else "FAIL", detail, cam_txt])
-		quit(0 if ok else 1)
-		return true
+		final = {"ok": ok, "detail": detail + cam_txt, "n": 0}
+		game.goto_menu()
+		return false
 	return false
