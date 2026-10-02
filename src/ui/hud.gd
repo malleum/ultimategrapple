@@ -11,6 +11,7 @@ extends CanvasLayer
 ## (split-screen views shrink it).
 
 const UI = preload("res://src/ui/ui.gd")
+const DiscCam = preload("res://src/ui/disc_cam.gd")
 const ThrowTypes = preload("res://src/disc/throw_types.gd")
 const Player = preload("res://src/player/player.gd")
 const Disc = preload("res://src/disc/disc.gd")
@@ -1018,7 +1019,26 @@ func show_results(tm: float, medal: String, is_pb: bool) -> void:
 	# children's scale whenever they re-sort.
 	results = CenterContainer.new()
 	results.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	results.add_child(panel)
+	if runner.pov_clip.size() >= 60:
+		# disc cam beside the card: the last seconds of the run from the disc
+		var row := UI.hbox(24)
+		row.alignment = BoxContainer.ALIGNMENT_CENTER
+		row.add_child(panel)
+		var cam_panel := PanelContainer.new()
+		var sb2 := sb.duplicate() as StyleBoxFlat
+		sb2.content_margin_left = 16
+		sb2.content_margin_right = 16
+		sb2.content_margin_top = 14
+		sb2.content_margin_bottom = 14
+		cam_panel.add_theme_stylebox_override("panel", sb2)
+		cam_panel.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		var cam := DiscCam.new()
+		cam_panel.add_child(cam)
+		cam.setup(runner)
+		row.add_child(cam_panel)
+		results.add_child(row)
+	else:
+		results.add_child(panel)
 	root.add_child(results)
 	results.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	results.pivot_offset = root.size * 0.5

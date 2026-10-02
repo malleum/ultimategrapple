@@ -9,6 +9,8 @@ uniform vec4 acc_col : source_color;
 uniform int style = 0;
 uniform float time_s = 0.0;
 uniform vec2 cam = vec2(0.0);
+uniform float view_rot = 0.0;    // disc cam: the view is turned / mirrored
+uniform float view_flip = 1.0;
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float noise(vec2 p) {
@@ -20,6 +22,12 @@ float fbm(vec2 p) { float v = 0.0; float a = 0.5; for (int i = 0; i < 5; i++) { 
 
 void fragment() {
 	vec2 uv = SCREEN_UV;
+	if (view_rot != 0.0 || view_flip != 1.0) {
+		vec2 p = (uv - 0.5) / SCREEN_PIXEL_SIZE;
+		p.y /= view_flip;
+		p = vec2(p.x * cos(view_rot) - p.y * sin(view_rot), p.x * sin(view_rot) + p.y * cos(view_rot));
+		uv = p * SCREEN_PIXEL_SIZE + 0.5;
+	}
 	vec2 par = uv + cam * vec2(0.00002, 0.00004);
 	float y = clamp(uv.y + cam.y * 0.00008, 0.0, 1.0);
 	vec3 col = mix(top_col.rgb, bot_col.rgb, smoothstep(0.0, 1.0, y));
@@ -86,7 +94,9 @@ var camera: Camera2D
 var t := 0.0
 
 
-func setup(p_theme: Dictionary, cam: Camera2D) -> void:
+## parallax = false: sky + particles only (the disc cam turns the view, which
+## the parallax layers can't follow).
+func setup(p_theme: Dictionary, cam: Camera2D, parallax := true) -> void:
 	th = p_theme
 	style = th.get("bg_style", "city")
 	camera = cam
@@ -109,7 +119,7 @@ func setup(p_theme: Dictionary, cam: Camera2D) -> void:
 	rect.material = sky_mat
 	sky_layer.add_child(rect)
 	# parallax layers
-	for i in 3:
+	for i in (3 if parallax else 0):
 		var px := Parallax2D.new()
 		var sc: float = [0.12, 0.3, 0.55][i]
 		px.scroll_scale = Vector2(sc, sc * 0.35)

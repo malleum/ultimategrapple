@@ -757,10 +757,11 @@ func _page_settings() -> void:
 		var k: String = key
 		v.add_child(UI.label(k.replace("_", " ").capitalize(), 20))
 		v.add_child(UI.slider(0, 1, float(Game.settings[k]), 0.05, func(x): Game.settings[k] = x; Game.save_settings()))
-	for key in ["fullscreen", "vsync", "show_ghost"]:
+	var names := {"disc_cam_lock": "Disc cam: lock to the disc (world turns)"}
+	for key in ["fullscreen", "vsync", "show_ghost", "disc_cam_lock"]:
 		var k2: String = key
 		var cb := CheckBox.new()
-		cb.text = k2.replace("_", " ").capitalize()
+		cb.text = names.get(k2, k2.replace("_", " ").capitalize())
 		cb.button_pressed = bool(Game.settings[k2])
 		cb.toggled.connect(func(on): Game.settings[k2] = on; Game.save_settings())
 		v.add_child(cb)

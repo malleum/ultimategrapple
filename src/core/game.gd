@@ -40,6 +40,7 @@ var settings := {
 	"player_color": 0,
 	"bindings": {},
 	"online_server": "joshammer.com",
+	"disc_cam_lock": true,   # finish replay: the disc stays level and the world turns
 }
 
 ## level_id -> {time: float, throws: int, medal: String}

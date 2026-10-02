@@ -18,6 +18,8 @@ const SpeedTrail = preload("res://src/fx/speed_trail.gd")
 const Hud = preload("res://src/ui/hud.gd")
 const PlayerInput = preload("res://src/core/player_input.gd")
 
+const POV_TICKS := 1200   # disc cam on the results card: the last 10 s before the chains
+const POV_AFTER := 100    # ... and a moment after
 const RECALL_PENALTY := 3.0
 const OOB_PENALTY := 2.0
 const FIRST_PERSONAL_BIT := 10   # physics + visibility layer bit for runner 0
@@ -38,6 +40,9 @@ var camera: Camera2D
 var hud: CanvasLayer
 var overlay: Node2D
 var pb_ghost: Node2D
+var speed_trail: Node2D
+var pov_clip: Array = []   # per tick: [frame, disc pos, disc pose] (see _record_pov)
+var pov_after := 0
 var background: Node2D
 
 var grapple_points: Array = []
@@ -131,6 +136,7 @@ func _ready() -> void:
 	var trail := SpeedTrail.new()
 	trail.runner = self
 	add_child(trail)
+	speed_trail = trail
 	player = Player.new()
 	player.color = color
 	player.level = level
@@ -204,6 +210,8 @@ func restart() -> void:
 	respawn_t = -1.0
 	lie = level.spawn
 	rec_frames.clear()
+	pov_clip.clear()
+	pov_after = 0
 	rec_tick = 0
 	for r in personal:
 		if is_instance_valid(r) and r.has_method("reset"):
@@ -261,6 +269,10 @@ func _physics_process(dt: float) -> void:
 		running = true
 		if pb_ghost.visible:
 			pb_ghost.start()
+	if level.is_timetrial() and (running or (done and pov_after < POV_AFTER)):
+		if done:
+			pov_after += 1
+		_record_pov()
 	if running and not done:
 		time += dt
 		_record()
@@ -657,6 +669,32 @@ func _frame() -> Array:
 	var dvis := 0 if (disc.state == Disc.HELD) else 1
 	f.append_array([snappedf(disc.global_position.x, 0.1), snappedf(disc.global_position.y, 0.1), dvis])
 	return f
+
+
+func _record_pov() -> void:
+	var f: Array = _frame()
+	f[5] = int(f[5]) & ~8   # the disc cam draws the disc itself
+	var held: bool = disc.state == Disc.HELD
+	var dp: Vector2 = player.hand() if held else disc.global_position
+	var pz: Vector2 = Vector2(0.0, 0.3) if held else disc.pose()
+	pov_clip.append([f, dp, pz])
+	if pov_clip.size() > 2 * (POV_TICKS + POV_AFTER):
+		pov_clip = pov_clip.slice(-(POV_TICKS + POV_AFTER))
+
+
+## The disc cam clip: up to the last 10 s before scoring plus a moment after.
+## Also returns the index of the scoring tick.
+func pov_frames() -> Dictionary:
+	var n := mini(pov_clip.size(), POV_TICKS + pov_after)
+	return {"frames": pov_clip.slice(-n), "score_at": n - pov_after}
+
+
+## Disc cam: move this runner's own drawables (body, disc, ghost, aim
+## overlay, trails) to `bits`, so a second view of the world can leave them out.
+func set_body_layer(bits: int) -> void:
+	for n in [player, disc, pb_ghost, overlay, speed_trail]:
+		if is_instance_valid(n):
+			_set_vis_recursive(n, bits)
 
 
 func _record(force := false) -> void:
