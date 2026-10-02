@@ -155,7 +155,13 @@ func _release(a: String) -> void:
 func _begin() -> void:
 	match scene:
 		"swing":
-			_setup(37, "cyber")
+			var G2 = root.get_node("Game")
+			for c in [[11, "canyon"], [37, "canyon"], [23, "fantasy"], [37, "frost"], [11, "fantasy"], [37, "cyber"]]:
+				data = G2.generate_level(int(c[0]), str(c[1]), 0.6, 10)
+				if _swing_point(380.0) != Vector2.ZERO:
+					print("swing on ", c)
+					_setup(int(c[0]), str(c[1]))
+					break
 		"zip":
 			_setup(37, "frost")
 		"pivot":
@@ -186,7 +192,7 @@ func _tick_swing() -> void:
 		print("swing point ", best)
 		_place(best + Vector2(-300, 210), Vector2(1100, 250))
 		aim = best
-		zoom = 1.8
+		zoom = 1.45
 		shots = [26, 34, 42, 50]
 	if f == 3:
 		_press("grapple")
