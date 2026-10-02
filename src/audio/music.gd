@@ -3,6 +3,8 @@ extends Node
 ## pad, arp, lead) rendered on a worker thread, cached to user:// and
 ## crossfaded in.
 
+const Perf = preload("res://src/core/perf.gd")
+
 const S = preload("res://src/audio/synth.gd")
 const Themes = preload("res://src/core/theme_db.gd")
 const SR := 32000
@@ -64,7 +66,9 @@ func play_theme(id: String) -> void:
 		return
 	var path := "user://music/%s_v%d.res" % [id, CACHE_VERSION]
 	if ResourceLoader.exists(path):
+		var t0 := Perf.begin()
 		var res = ResourceLoader.load(path)
+		Perf.end("music.load_cache", t0)
 		if res is AudioStreamWAV:
 			cache[id] = res
 			_start(res)
@@ -93,7 +97,9 @@ func _on_rendered(id: String, stream: AudioStreamWAV) -> void:
 		thread.wait_to_finish()
 		thread = null
 	cache[id] = stream
+	var t0 := Perf.begin()
 	ResourceSaver.save(stream, "user://music/%s_v%d.res" % [id, CACHE_VERSION])
+	Perf.end("music.save_cache", t0)
 	if id == current:
 		_start(stream)
 	_kick_thread()

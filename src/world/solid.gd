@@ -1,6 +1,8 @@
 extends StaticBody2D
 ## One piece of level geometry (rect or polygon) that draws itself in the theme style.
 
+const Perf = preload("res://src/core/perf.gd")
+
 var kind := "ground"
 var rect := Rect2()
 var poly := PackedVector2Array()
@@ -50,6 +52,13 @@ func _col(key: String) -> Color:
 
 
 func _draw() -> void:
+	var _pt := Perf.begin()
+	_draw_timed()
+	if Perf.on:
+		Perf.end("solid.draw", _pt)
+
+
+func _draw_timed() -> void:
 	if poly.size() >= 3:
 		_draw_poly()
 		return

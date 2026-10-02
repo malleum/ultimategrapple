@@ -2,6 +2,8 @@ extends Node2D
 ## Procedural neon runner. Drawn in the parent's local space (origin = feet).
 ## Fed either by the local player or by network/replay ghost state.
 
+const Perf = preload("res://src/core/perf.gd")
+
 var color := Color(0.2, 1.0, 0.9)
 var alpha := 1.0
 var vel := Vector2.ZERO
@@ -142,6 +144,13 @@ func _set_knocked(k: bool) -> void:
 
 
 func _draw() -> void:
+	var _pt := Perf.begin()
+	_draw_timed()
+	if Perf.on:
+		Perf.end("runner_visual.draw", _pt)
+
+
+func _draw_timed() -> void:
 	if dead:
 		return
 	# just over the glow threshold: a soft halo, not a bloomed-out blob

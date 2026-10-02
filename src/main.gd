@@ -1,6 +1,8 @@
 extends Node
 ## Root node. Hosts the current scene and a global overlay (FPS counter).
 
+const PerfScript = preload("res://src/core/perf.gd")
+
 var fps_label: Label
 var show_fps := false
 ## --render-replay=<course id>: play that replay once (under --write-movie)
@@ -21,6 +23,9 @@ func _ready() -> void:
 	fps_label.add_theme_color_override("font_color", Color(0.6, 1, 0.6))
 	fps_label.visible = false
 	overlay.add_child(fps_label)
+	# --perf-log (nix run . -- --perf-log): frame timing log, see src/core/perf.gd
+	if "--perf-log" in OS.get_cmdline_user_args() or "--perf-log" in OS.get_cmdline_args() or OS.get_environment("UG_PERF_LOG") != "":
+		add_child(PerfScript.new())
 	if Game.server_mode:
 		Net.start_dedicated_server()
 		return

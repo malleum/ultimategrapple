@@ -26,4 +26,5 @@
 - Tweens on UI that can be freed: `create_tween().bind_node(node)`, never a bare looping tween on a long-lived node.
 - Replays re-simulate recorded input (`PlayerInput` recording, `src/core/replay_input.gd`). Gameplay must stay reproducible: read time via `inp.now_us()` (never `Time.*` in gameplay), use the seeded `_rng`s, step world objects in `_physics_process`, and reset any new per-run player state in `Player.reset_run_state()`.
 - Controls are rebindable (`src/core/bindings.gd`, saved in settings.json). Never hard-code key names in UI; use `Bindings.label()/labels()`.
+- Performance: `--perf-log` (src/core/perf.gd) logs SEC/SPIKE/LEVEL/SUMMARY lines; wrap new per-frame work in `Perf.begin()`/`Perf.end("name", t0)`. World props must not `queue_redraw()` every tick unless they animate, and then only when `View.sees(...)` (src/world/view.gd, set by `Level.update_view()`). `tools/perf_scan.gd` compares script cost per course.
 - Per-player state (gates, glass, grapple points) lives in `src/level/runner.gd` on per-runner physics/visibility layer bits; shared world in `src/level/level.gd`.

@@ -1,6 +1,8 @@
 extends Node2D
 ## Breakable glass wall. Shatters from a dash, a fast body or a fast disc.
 
+const Perf = preload("res://src/core/perf.gd")
+
 var rect := Rect2()
 var th: Dictionary = {}
 var body: StaticBody2D
@@ -51,6 +53,13 @@ func reset() -> void:
 
 
 func _draw() -> void:
+	var _pt := Perf.begin()
+	_draw_timed()
+	if Perf.on:
+		Perf.end("glass.draw", _pt)
+
+
+func _draw_timed() -> void:
 	if broken:
 		return
 	var c: Color = th.get("accent2", Color(0.5, 1.5, 2.0))

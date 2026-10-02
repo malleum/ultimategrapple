@@ -2,6 +2,8 @@ extends Node2D
 ## Disc golf basket (visual). Scoring logic lives in disc.gd.
 ## Origin is the ground point under the pole.
 
+const Perf = preload("res://src/core/perf.gd")
+
 ## Geometry, shared with the scoring in disc.gd (y is up = negative). 50%
 ## bigger than the original basket and set lower: the catch zone now spans
 ## from the band down to just above the base.
@@ -35,6 +37,13 @@ func hit(strength: float) -> void:
 
 
 func _draw() -> void:
+	var _pt := Perf.begin()
+	_draw_timed()
+	if Perf.on:
+		Perf.end("basket.draw", _pt)
+
+
+func _draw_timed() -> void:
 	var metal := Color(0.75, 0.78, 0.82)
 	var gc: Color = th.get("basket", Color(2.2, 2.0, 0.3))
 	# beacon column (visible from afar)

@@ -1,6 +1,8 @@
 extends AnimatableBody2D
 ## Moving platform. Oscillates between base and base+move (cosine ease).
 
+const Perf = preload("res://src/core/perf.gd")
+
 var base_pos := Vector2.ZERO
 var move := Vector2.ZERO
 var period := 3.0
@@ -38,12 +40,26 @@ func reset() -> void:
 
 
 func _physics_process(dt: float) -> void:
+	var _pt := Perf.begin()
+	_physics_process_timed(dt)
+	if Perf.on:
+		Perf.end("mover.tick", _pt)
+
+
+func _physics_process_timed(dt: float) -> void:
 	t += dt
 	position = base_pos + move * (0.5 - 0.5 * cos((t / period + phase) * TAU))
 	set_meta("rect", Rect2(position, size))
 
 
 func _draw() -> void:
+	var _pt := Perf.begin()
+	_draw_timed()
+	if Perf.on:
+		Perf.end("mover.draw", _pt)
+
+
+func _draw_timed() -> void:
 	var c: Color = th.get("accent", Color(2, 0.5, 1.5))
 	var body: Color = th.get("block", Color(0.2, 0.2, 0.3))
 	draw_rect(Rect2(Vector2.ZERO, size), body)

@@ -5,6 +5,8 @@ extends Node2D
 ## visibility layer, so in split-screen one player's disc opening a gate never
 ## opens it for anyone else.
 
+const Perf = preload("res://src/core/perf.gd")
+
 const GrapplePoint = preload("res://src/world/grapple_point.gd")
 const Gate = preload("res://src/world/gate.gd")
 const Glass = preload("res://src/world/glass.gd")
@@ -273,6 +275,13 @@ func lock_input(locked: bool) -> void:
 
 
 func _physics_process(dt: float) -> void:
+	var _pt := Perf.begin()
+	_physics_process_timed(dt)
+	if Perf.on:
+		Perf.end("runner.physics", _pt)
+
+
+func _physics_process_timed(dt: float) -> void:
 	if level.is_timetrial() and not done:
 		# Player and disc state at the start of every tick. Playback re-simulates
 		# from the recorded inputs but pins these each tick: Godot's contact

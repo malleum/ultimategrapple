@@ -3,6 +3,8 @@ extends Node2D
 ## arc with spread wedge, grapple lock-on brackets, twisted rope, pivot
 ## momentum arrow. Colours stay close to LDR so the bloom doesn't smear them.
 
+const Perf = preload("res://src/core/perf.gd")
+
 const Player = preload("res://src/player/player.gd")
 const Disc = preload("res://src/disc/disc.gd")
 const ThrowTypes = preload("res://src/disc/throw_types.gd")
@@ -70,6 +72,13 @@ static func _soft(c: Color, cap := 1.15) -> Color:
 
 
 func _draw() -> void:
+	var _pt := Perf.begin()
+	_draw_timed()
+	if Perf.on:
+		Perf.end("overlay.draw", _pt)
+
+
+func _draw_timed() -> void:
 	if runner == null or runner.player == null:
 		return
 	var p = runner.player

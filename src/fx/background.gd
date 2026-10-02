@@ -1,6 +1,8 @@
 extends Node2D
 ## Themed sky (shader), 3 procedural parallax layers and ambient screen particles.
 
+const Perf = preload("res://src/core/perf.gd")
+
 const SKY_SHADER := """
 shader_type canvas_item;
 uniform vec4 top_col : source_color;
@@ -137,6 +139,13 @@ func setup(p_theme: Dictionary, cam: Camera2D, parallax := true) -> void:
 
 
 func _process(dt: float) -> void:
+	var _pt := Perf.begin()
+	_process_timed(dt)
+	if Perf.on:
+		Perf.end("background.process", _pt)
+
+
+func _process_timed(dt: float) -> void:
 	t += dt
 	if sky_mat:
 		sky_mat.set_shader_parameter("time_s", t)

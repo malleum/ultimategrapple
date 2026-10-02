@@ -1,6 +1,9 @@
 extends Node2D
 ## Theme decoration prop (no collision). Origin = ground contact point.
 
+const Perf = preload("res://src/core/perf.gd")
+const View = preload("res://src/world/view.gd")
+
 var kind := "cone"
 var th: Dictionary = {}
 var s := 1.0
@@ -26,11 +29,30 @@ func setup(data: Dictionary, p_theme: Dictionary) -> void:
 
 
 func _physics_process(dt: float) -> void:
+	var _pt := Perf.begin()
+	_physics_process_timed(dt)
+	if Perf.on:
+		Perf.end("decor.tick", _pt)
+
+
+## kinds whose drawing moves with time (the rest are drawn once)
+const ANIMATED := ["flag", "neon_sign", "antenna", "vent", "holo", "crystal", "cloud_puff", "chain", "ice_crystal", "tumbleweed", "sign"]
+
+
+func _physics_process_timed(dt: float) -> void:
 	t += dt
-	queue_redraw()
+	if kind in ANIMATED and View.sees_point(global_position, 260.0 * maxf(s, 1.0)):
+		queue_redraw()
 
 
 func _draw() -> void:
+	var _pt := Perf.begin()
+	_draw_timed()
+	if Perf.on:
+		Perf.end("decor.draw", _pt)
+
+
+func _draw_timed() -> void:
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2(s, s))
 	var acc: Color = th.get("accent", Color(2, 0.5, 1.5))
 	var acc2: Color = th.get("accent2", Color(0.5, 1.5, 2))

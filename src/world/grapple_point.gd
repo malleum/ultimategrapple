@@ -2,6 +2,9 @@ extends Node2D
 ## Grapple anchor. Kinds: static, fragile (breaks after use, respawns),
 ## boost (extra speed on release), moving (oscillates along a path).
 
+const Perf = preload("res://src/core/perf.gd")
+const View = preload("res://src/world/view.gd")
+
 var kind := "static"
 var active := true
 var base_pos := Vector2.ZERO
@@ -36,6 +39,13 @@ func setup(data: Dictionary, th: Dictionary) -> void:
 
 
 func _physics_process(dt: float) -> void:
+	var _pt := Perf.begin()
+	_physics_process_timed(dt)
+	if Perf.on:
+		Perf.end("grapple_point.tick", _pt)
+
+
+func _physics_process_timed(dt: float) -> void:
 	t += dt
 	if kind == "moving":
 		position = base_pos + move * (0.5 - 0.5 * cos((t / period + phase) * TAU))
@@ -47,7 +57,8 @@ func _physics_process(dt: float) -> void:
 		respawn_t -= dt
 		if respawn_t < 0.0:
 			active = true
-	queue_redraw()
+	if View.sees_point(global_position, 120.0) or break_t >= 0.0:
+		queue_redraw()
 
 
 func reset() -> void:
@@ -84,6 +95,13 @@ func _shatter() -> void:
 
 
 func _draw() -> void:
+	var _pt := Perf.begin()
+	_draw_timed()
+	if Perf.on:
+		Perf.end("grapple_point.draw", _pt)
+
+
+func _draw_timed() -> void:
 	if kind == "moving":
 		# show path
 		var a := base_pos - position

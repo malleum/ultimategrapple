@@ -2,6 +2,8 @@ extends CharacterBody2D
 ## Local player: momentum platformer + rope/zip grapple + disc throwing.
 ## Origin is at the feet.
 
+const Perf = preload("res://src/core/perf.gd")
+
 const ThrowTypes = preload("res://src/disc/throw_types.gd")
 const PlayerVisual = preload("res://src/player/player_visual.gd")
 const Disc = preload("res://src/disc/disc.gd")
@@ -251,6 +253,13 @@ func interp_pos() -> Vector2:
 # ================================================================== main loop
 
 func _physics_process(dt: float) -> void:
+	var _pt := Perf.begin()
+	_physics_process_timed(dt)
+	if Perf.on:
+		Perf.end("player.physics", _pt)
+
+
+func _physics_process_timed(dt: float) -> void:
 	prev_pos = cur_pos
 	anim_t += dt
 	tackle_cd -= dt

@@ -1,6 +1,8 @@
 extends Node2D
 ## Tapered motion ribbon behind a fast runner (drawn behind the runner itself).
 
+const Perf = preload("res://src/core/perf.gd")
+
 var runner: Node = null
 var pts: Array = []
 var amt := 0.0
@@ -27,6 +29,13 @@ func _process(dt: float) -> void:
 
 
 func _draw() -> void:
+	var _pt := Perf.begin()
+	_draw_timed()
+	if Perf.on:
+		Perf.end("speed_trail.draw", _pt)
+
+
+func _draw_timed() -> void:
 	if amt < 0.02 or pts.size() < 3:
 		return
 	var col: Color = runner.player.color

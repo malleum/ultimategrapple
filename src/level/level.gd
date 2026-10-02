@@ -7,6 +7,8 @@ extends Node2D
 ## mode: "solo" (time trial, PB ghosts, medals), "multi" (online race, one
 ## local runner + remote ghosts), "couch" (local split-screen race).
 
+const Perf = preload("res://src/core/perf.gd")
+
 const Themes = preload("res://src/core/theme_db.gd")
 const Solid = preload("res://src/world/solid.gd")
 const Zone = preload("res://src/world/zone.gd")
@@ -18,6 +20,7 @@ const Runner = preload("res://src/level/runner.gd")
 const PlayerInput = preload("res://src/core/player_input.gd")
 const Validator = preload("res://src/level/validator.gd")
 const Disc = preload("res://src/disc/disc.gd")
+const View = preload("res://src/world/view.gd")
 const Player = preload("res://src/player/player.gd")
 const DiscCam = preload("res://src/ui/disc_cam.gd")
 const MatchPlayback = preload("res://src/level/match_playback.gd")
@@ -82,6 +85,7 @@ func _ready() -> void:
 
 func _exit_tree() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	View.reset()
 	if mode == "couch" or mode == "multi":
 		var rec := build_match()
 		if not rec.is_empty():
@@ -331,6 +335,33 @@ func restart() -> void:
 
 
 func _physics_process(dt: float) -> void:
+	var _pt := Perf.begin()
+	_physics_process_timed(dt)
+	if Perf.on:
+		Perf.end("level.physics", _pt)
+
+
+## What the cameras see (plus a margin), for View.sees() in world props.
+func update_view() -> void:
+	var r := Rect2()
+	var first := true
+	for rn in runners:
+		if not is_instance_valid(rn) or rn.camera == null:
+			continue
+		var vp_size: Vector2 = rn.camera.get_viewport_rect().size
+		var half: Vector2 = vp_size * 0.5 / rn.camera.zoom
+		var c: Vector2 = rn.camera.get_screen_center_position()
+		var cr := Rect2(c - half, half * 2.0)
+		r = cr if first else r.merge(cr)
+		first = false
+	if first:
+		View.reset()
+	else:
+		View.rect = r.grow(View.MARGIN)
+
+
+func _physics_process_timed(dt: float) -> void:
+	update_view()
 	if countdown > 0.0:
 		countdown -= dt
 		if countdown <= 0.0:
@@ -554,6 +585,8 @@ func play_sfx(sfx_name: String, pos: Vector2, vol := 1.0, pitch := 1.0) -> void:
 
 
 func spawn_burst(pos: Vector2, color: Color, amount: int, area := Vector2.ZERO) -> void:
+	if Perf.on:
+		Perf.end("burst x" + str(amount), Perf.begin())   # count only
 	var p := CPUParticles2D.new()
 	p.position = pos
 	p.one_shot = true

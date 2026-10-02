@@ -3,6 +3,8 @@ extends Node2D
 ## Frame format: [x, y, vx, vy, facing, flags, ax, ay, disc_x, disc_y, disc_vis, disc_ang, disc_squash]
 ## (older saved ghosts stop at disc_vis)
 
+const Perf = preload("res://src/core/perf.gd")
+
 const PlayerVisual = preload("res://src/player/player_visual.gd")
 
 const REC_INTERVAL := 4.0 / 120.0   # seconds between recorded frames
@@ -236,6 +238,13 @@ func _lerp_frame(a: Array, b: Array, k: float) -> Array:
 
 
 func _draw() -> void:
+	var _pt := Perf.begin()
+	_draw_timed()
+	if Perf.on:
+		Perf.end("ghost.draw", _pt)
+
+
+func _draw_timed() -> void:
 	if disc_vis:
 		var lp := disc_pos - position
 		draw_circle(lp, 8.0, Color(disc_color, 0.35))

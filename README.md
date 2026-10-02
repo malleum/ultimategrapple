@@ -214,6 +214,17 @@ courses. `levels/` ships with seven starter courses (regenerate them with
   player to reach X round wins takes the set. You can use a listen server or a dedicated
   server (`--server --port= --wins= --source= --difficulty=`).
 
+## Performance log
+
+`nix run . -- --perf-log` (or `godot4 --path . -- --perf-log`, or `UG_PERF_LOG=1`) prints a
+frame-timing log to the terminal and saves it to
+`~/.local/share/godot/app_userdata/Ultimate Grapple/logs/perf-<date>.log` (the path is
+printed first). Per level: a `LEVEL` line (seed, theme, entity counts), a node census,
+one `SEC` line a second (fps, worst frame, 1% low, engine process / physics / render CPU
+and GPU times, draw calls, primitives, nodes, top script sections), a `SPIKE` line for
+every slow frame (what ran in it and where the runner was), and a `SUMMARY` when you
+leave. `tools/perf_scan.gd` runs the same sections over many generated courses headless.
+
 ## Layout
 
 ```

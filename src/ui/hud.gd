@@ -10,6 +10,8 @@ extends CanvasLayer
 ## Everything is laid out on a 1920x1080 design canvas and scaled to fit
 ## (split-screen views shrink it).
 
+const Perf = preload("res://src/core/perf.gd")
+
 const UI = preload("res://src/ui/ui.gd")
 const DiscCam = preload("res://src/ui/disc_cam.gd")
 const ThrowTypes = preload("res://src/disc/throw_types.gd")
@@ -309,6 +311,13 @@ func _medal_coin(ci: CanvasItem, c: Vector2, r: float, medal: String, lit: bool,
 # ================================================================== drawing
 
 func _draw_hud() -> void:
+	var _pt := Perf.begin()
+	_draw_hud_timed()
+	if Perf.on:
+		Perf.end("hud.draw", _pt)
+
+
+func _draw_hud_timed() -> void:
 	if runner == null or runner.player == null:
 		return
 	var ci := draw_layer
@@ -320,23 +329,108 @@ func _draw_hud() -> void:
 		_draw_popups(ci, vs)
 		_draw_snap(ci, vs)
 		return
-	_draw_speedlines(ci, vs, p)
-	_draw_timer(ci, vs)
-	_draw_course_card(ci, vs)
-	_draw_medal_ladder(ci, vs)
-	_draw_splits(ci, vs)
-	_draw_throw_cards(ci, vs, p)
-	_draw_nose(ci, vs, p)
-	_draw_badges(ci, vs, p)
-	_draw_charge(ci, vs, p)
-	_draw_speedo(ci, vs)
-	_draw_flow(ci, vs)
-	_draw_hints(ci, vs)
-	_draw_offscreen(ci, vs, p)
-	_draw_popups(ci, vs)
-	_draw_snap(ci, vs)
-	_draw_scoreboard(ci, vs)
-	_draw_countdown(ci, vs)
+	if Perf.on:
+		var _ht := Perf.begin()
+		_draw_speedlines(ci, vs, p)
+		Perf.end("hud.speedlines", _ht)
+	else:
+		_draw_speedlines(ci, vs, p)
+	if Perf.on:
+		var _ht := Perf.begin()
+		_draw_timer(ci, vs)
+		Perf.end("hud.timer", _ht)
+	else:
+		_draw_timer(ci, vs)
+	if Perf.on:
+		var _ht := Perf.begin()
+		_draw_course_card(ci, vs)
+		Perf.end("hud.course_card", _ht)
+	else:
+		_draw_course_card(ci, vs)
+	if Perf.on:
+		var _ht := Perf.begin()
+		_draw_medal_ladder(ci, vs)
+		Perf.end("hud.medal_ladder", _ht)
+	else:
+		_draw_medal_ladder(ci, vs)
+	if Perf.on:
+		var _ht := Perf.begin()
+		_draw_splits(ci, vs)
+		Perf.end("hud.splits", _ht)
+	else:
+		_draw_splits(ci, vs)
+	if Perf.on:
+		var _ht := Perf.begin()
+		_draw_throw_cards(ci, vs, p)
+		Perf.end("hud.throw_cards", _ht)
+	else:
+		_draw_throw_cards(ci, vs, p)
+	if Perf.on:
+		var _ht := Perf.begin()
+		_draw_nose(ci, vs, p)
+		Perf.end("hud.nose", _ht)
+	else:
+		_draw_nose(ci, vs, p)
+	if Perf.on:
+		var _ht := Perf.begin()
+		_draw_badges(ci, vs, p)
+		Perf.end("hud.badges", _ht)
+	else:
+		_draw_badges(ci, vs, p)
+	if Perf.on:
+		var _ht := Perf.begin()
+		_draw_charge(ci, vs, p)
+		Perf.end("hud.charge", _ht)
+	else:
+		_draw_charge(ci, vs, p)
+	if Perf.on:
+		var _ht := Perf.begin()
+		_draw_speedo(ci, vs)
+		Perf.end("hud.speedo", _ht)
+	else:
+		_draw_speedo(ci, vs)
+	if Perf.on:
+		var _ht := Perf.begin()
+		_draw_flow(ci, vs)
+		Perf.end("hud.flow", _ht)
+	else:
+		_draw_flow(ci, vs)
+	if Perf.on:
+		var _ht := Perf.begin()
+		_draw_hints(ci, vs)
+		Perf.end("hud.hints", _ht)
+	else:
+		_draw_hints(ci, vs)
+	if Perf.on:
+		var _ht := Perf.begin()
+		_draw_offscreen(ci, vs, p)
+		Perf.end("hud.offscreen", _ht)
+	else:
+		_draw_offscreen(ci, vs, p)
+	if Perf.on:
+		var _ht := Perf.begin()
+		_draw_popups(ci, vs)
+		Perf.end("hud.popups", _ht)
+	else:
+		_draw_popups(ci, vs)
+	if Perf.on:
+		var _ht := Perf.begin()
+		_draw_snap(ci, vs)
+		Perf.end("hud.snap", _ht)
+	else:
+		_draw_snap(ci, vs)
+	if Perf.on:
+		var _ht := Perf.begin()
+		_draw_scoreboard(ci, vs)
+		Perf.end("hud.scoreboard", _ht)
+	else:
+		_draw_scoreboard(ci, vs)
+	if Perf.on:
+		var _ht := Perf.begin()
+		_draw_countdown(ci, vs)
+		Perf.end("hud.countdown", _ht)
+	else:
+		_draw_countdown(ci, vs)
 	if level.mode == "replay":
 		_draw_keys(ci, vs)
 

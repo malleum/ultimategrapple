@@ -3,6 +3,9 @@ extends Area2D
 ## laser (timed beam) and saw (moving circle). Bodies that implement
 ## trigger_enter(kind, node)/trigger_exit(kind, node) react to it.
 
+const Perf = preload("res://src/core/perf.gd")
+const View = preload("res://src/world/view.gd")
+
 var kind := "hazard"          # hazard | kill | wind | booster | pad | laser | saw
 var th: Dictionary = {}
 var rect := Rect2()
@@ -132,6 +135,13 @@ func reset() -> void:
 
 
 func _physics_process(dt: float) -> void:
+	var _pt := Perf.begin()
+	_physics_process_timed(dt)
+	if Perf.on:
+		Perf.end("zone." + kind + ".tick", _pt)
+
+
+func _physics_process_timed(dt: float) -> void:
 	t += dt
 	if has_meta("laser"):
 		var cyc := on_time + off_time
@@ -144,10 +154,39 @@ func _physics_process(dt: float) -> void:
 		lit = now_lit
 	elif has_meta("saw"):
 		position = base_pos + move * (0.5 - 0.5 * cos((t / period + phase) * TAU))
-	queue_redraw()
+	# plain spike strips are static: drawn once. The rest animate, but only
+	# need re-recording while a camera can see them.
+	if _static:
+		return
+	if View.sees(_bounds()):
+		queue_redraw()
+
+
+var _static_cached := -1
+var _static: bool:
+	get:
+		if _static_cached < 0:
+			_static_cached = 1 if kind == "hazard" and not has_meta("laser") and not has_meta("saw") else 0
+		return _static_cached == 1
+
+
+func _bounds() -> Rect2:
+	if has_meta("laser"):
+		return Rect2(a, Vector2.ZERO).expand(b).grow(40.0)
+	if has_meta("saw"):
+		return Rect2(global_position - Vector2(radius, radius), Vector2(radius, radius) * 2.0).grow(20.0)
+	# kill fog / wind / boosters draw around their rect
+	return Rect2(rect.position - Vector2(0, 300), rect.size + Vector2(0, 330))
 
 
 func _draw() -> void:
+	var _pt := Perf.begin()
+	_draw_timed()
+	if Perf.on:
+		Perf.end("zone." + kind + ".draw", _pt)
+
+
+func _draw_timed() -> void:
 	var hz: Color = th.get("hazard", Color(2, 0.2, 0.2))
 	match kind:
 		"hazard":
@@ -202,31 +241,46 @@ func _draw_spikes(hz: Color) -> void:
 	var r := rect
 	var n: int
 	var base_c := Color(hz.r * 0.35, hz.g * 0.35, hz.b * 0.35)
+	# the whole strip as one zigzag: one fill (fan-free triangle list) and one
+	# outline, instead of two draw commands per spike
+	var tris := PackedVector2Array()
+	var edge := PackedVector2Array()
 	match dir_name:
 		"up", "down":
 			n = maxi(1, int(r.size.x / 16.0))
 			var w := r.size.x / n
+			var base_y := r.end.y if dir_name == "up" else r.position.y
+			var tip_y := r.position.y if dir_name == "up" else r.end.y
 			for i in n:
 				var x0 := r.position.x + i * w
-				var tri: PackedVector2Array
-				if dir_name == "up":
-					tri = PackedVector2Array([Vector2(x0, r.end.y), Vector2(x0 + w * 0.5, r.position.y), Vector2(x0 + w, r.end.y)])
-				else:
-					tri = PackedVector2Array([Vector2(x0, r.position.y), Vector2(x0 + w * 0.5, r.end.y), Vector2(x0 + w, r.position.y)])
-				draw_colored_polygon(tri, base_c)
-				draw_polyline(tri, hz, 1.5)
+				var p0 := Vector2(x0, base_y)
+				var p1 := Vector2(x0 + w * 0.5, tip_y)
+				var p2 := Vector2(x0 + w, base_y)
+				tris.append_array([p0, p1, p2])
+				edge.append_array([p0, p1, p1, p2])
+			edge.append_array([Vector2(r.position.x, base_y), Vector2(r.end.x, base_y)])
 		_:
 			n = maxi(1, int(r.size.y / 16.0))
 			var h := r.size.y / n
+			var base_x := r.end.x if dir_name == "left" else r.position.x
+			var tip_x := r.position.x if dir_name == "left" else r.end.x
 			for i in n:
 				var y0 := r.position.y + i * h
-				var tri: PackedVector2Array
-				if dir_name == "left":
-					tri = PackedVector2Array([Vector2(r.end.x, y0), Vector2(r.position.x, y0 + h * 0.5), Vector2(r.end.x, y0 + h)])
-				else:
-					tri = PackedVector2Array([Vector2(r.position.x, y0), Vector2(r.end.x, y0 + h * 0.5), Vector2(r.position.x, y0 + h)])
-				draw_colored_polygon(tri, base_c)
-				draw_polyline(tri, hz, 1.5)
+				var p0 := Vector2(base_x, y0)
+				var p1 := Vector2(tip_x, y0 + h * 0.5)
+				var p2 := Vector2(base_x, y0 + h)
+				tris.append_array([p0, p1, p2])
+				edge.append_array([p0, p1, p1, p2])
+			edge.append_array([Vector2(base_x, r.position.y), Vector2(base_x, r.end.y)])
+	var cols := PackedColorArray()
+	cols.resize(tris.size())
+	cols.fill(base_c)
+	var idx := PackedInt32Array()
+	idx.resize(tris.size())
+	for i in tris.size():
+		idx[i] = i
+	RenderingServer.canvas_item_add_triangle_array(get_canvas_item(), idx, tris, cols)
+	draw_multiline(edge, hz, 1.5)
 
 
 func _draw_laser(hz: Color) -> void:

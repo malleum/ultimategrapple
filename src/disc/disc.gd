@@ -6,6 +6,8 @@ extends CharacterBody2D
 ## down as the disc slows ("fade"), and wobbles when spin is low. Spin comes
 ## from the snap mechanic and drives stability, skip shots and wall kicks.
 
+const Perf = preload("res://src/core/perf.gd")
+
 const ThrowTypes = preload("res://src/disc/throw_types.gd")
 const Basket = preload("res://src/world/basket.gd")
 
@@ -226,6 +228,13 @@ func is_airborne() -> bool:
 # ------------------------------------------------------------------ physics
 
 func _physics_process(dt: float) -> void:
+	var _pt := Perf.begin()
+	_physics_process_timed(dt)
+	if Perf.on:
+		Perf.end("disc.physics", _pt)
+
+
+func _physics_process_timed(dt: float) -> void:
 	if state == HELD or state == SCORED:
 		return
 	age += dt
@@ -591,6 +600,13 @@ func pose() -> Vector2:
 
 
 func _draw() -> void:
+	var _pt := Perf.begin()
+	_draw_timed()
+	if Perf.on:
+		Perf.end("disc.draw", _pt)
+
+
+func _draw_timed() -> void:
 	var pz := pose()
 	var ang := pz.x
 	var squash := pz.y

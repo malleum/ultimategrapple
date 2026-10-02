@@ -2,6 +2,9 @@ extends Node2D
 ## Disc gate: throwing the disc through the ring opens a door ("open") or
 ## materialises a bridge ("bridge").
 
+const Perf = preload("res://src/core/perf.gd")
+const View = preload("res://src/world/view.gd")
+
 var ring_pos := Vector2.ZERO
 var door_rect := Rect2()
 var mode := "open"
@@ -63,10 +66,19 @@ func reset() -> void:
 func _physics_process(dt: float) -> void:
 	t += dt
 	anim = minf(anim + dt * 3.0, 1.0)
-	queue_redraw()
+	# always while it is opening; otherwise only when the ring or door is in view
+	if anim < 1.0 or View.sees(Rect2(ring_pos, Vector2.ZERO).expand(door_rect.position).expand(door_rect.end).grow(120.0)):
+		queue_redraw()
 
 
 func _draw() -> void:
+	var _pt := Perf.begin()
+	_draw_timed()
+	if Perf.on:
+		Perf.end("gate.draw", _pt)
+
+
+func _draw_timed() -> void:
 	var c: Color = th.get("accent", Color(2, 0.5, 1.5))
 	var gc: Color = th.get("basket", Color(2, 2, 0.4))
 	var ring_c := gc if not triggered else Color(0.4, 2.2, 0.8)
