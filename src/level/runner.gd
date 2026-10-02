@@ -56,6 +56,7 @@ var rec_frames: Array = []
 var rec_tick := 0
 var shake_amt := 0.0
 var cam_zoom := 0.85
+var cam_look := Vector2.ZERO
 var input_locked := false
 # replays: the seed this run's randomness came from, what the player had
 # selected when it started, and where the player was each tick (sync check)
@@ -214,6 +215,7 @@ func restart() -> void:
 	disc.hold()
 	camera.position = player.center()
 	camera.reset_physics_interpolation()
+	cam_look = Vector2.ZERO
 	if hud:
 		hud.on_restart()
 	if level.mode == "solo":
@@ -319,7 +321,11 @@ func _update_camera(dt: float) -> void:
 	else:
 		var c: Vector2 = player.center()
 		var v: Vector2 = player.velocity
-		var look := Vector2(clampf(v.x * 0.28, -420, 420), clampf(v.y * 0.12, -160, 240))
+		# look-ahead is low-passed: feeding raw velocity in made the camera bob
+		# with every jump, apex and landing
+		var raw := Vector2(clampf(v.x * 0.28, -420, 420), clampf(v.y * 0.05, -60, 140))
+		cam_look = cam_look.lerp(raw, 1.0 - exp(-3.0 * dt))
+		var look := cam_look
 		var m: Vector2 = player.mouse_world() - c
 		look += m.limit_length(900.0) * 0.18
 		if disc.state != Disc.HELD and disc.state != Disc.SCORED:
@@ -327,8 +333,9 @@ func _update_camera(dt: float) -> void:
 			if dd.length() < 1100.0:
 				look += dd * 0.15
 		target = c + look
-	var k := 1.0 - exp(-7.0 * dt)
-	camera.position = camera.position.lerp(target, k)
+	# horizontal follows briskly, vertical more softly (no jump jitter)
+	camera.position.x = lerpf(camera.position.x, target.x, 1.0 - exp(-7.0 * dt))
+	camera.position.y = lerpf(camera.position.y, target.y, 1.0 - exp(-4.5 * dt))
 	var spd: float = player.velocity.length()
 	var base := 0.86 if container == null else 0.7
 	var want_zoom := lerpf(base, base * 0.84, clampf((spd - 500.0) / 900.0, 0.0, 1.0))
@@ -485,6 +492,9 @@ func _on_player_fx(kind: String, pos: Vector2, data) -> void:
 		"land":
 			play_sfx("land", pos, clampf(float(data) / 1400.0, 0.2, 1.0))
 			level.spawn_dust(pos, int(clampf(float(data) / 150.0, 3, 12)))
+		"mantle":
+			play_sfx("land", pos, 0.45, 1.25)
+			level.spawn_dust(pos, 4)
 		"airjump":
 			play_sfx("jump", pos, 0.9, 1.3)
 			spawn_burst(pos + Vector2(0, 18), player.color * 1.6, 12, Vector2(26, 4))

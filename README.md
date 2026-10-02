@@ -30,7 +30,7 @@ decorations, window decorations come from libdecor (bundled in the nixpkgs Godot
 
 Carry the disc, throw it, chase it, catch it, and chain your movement until it hits the chains.
 
-- **Carrying is about 25% slower** (780 vs 593 px/s). On open *fairways*, throwing the disc ahead and sprinting
+- **Carrying is about 38% slower** (858 vs 534 px/s). On open *fairways*, throwing the disc ahead and sprinting
   after it wins. In tight *tunnels*, throws just bounce off the walls, so carrying it and
   making one final throw wins. The generator builds both kinds of section and signposts them.
 - **Throwing while moving** adds aim sway, random spray and lost range.
@@ -85,6 +85,11 @@ reticle reads the screen behind it and switches to dark ink over bright skies.
 - **Six throws.** Backhand (glider), forehand (fast, dips late), hammer (flips, drops over
   walls), roller (rolls along floors and up ramps), scoober (short, half the moving penalty)
   and thumber (fast, cuts down hard).
+- **Smooth jumps.** Letting go of jump early eases into a short hop (extra gravity rather
+  than a sudden stop), held jumps hang briefly at the top, coyote time is 0.12 s and jump
+  buffering 0.15 s. Jumping into a wall whose top is within ~1.5 tiles of your feet climbs
+  onto it instead of wall-jumping away, and clipping a ceiling corner by a few pixels slides
+  you past it. The camera's look-ahead is smoothed so it doesn't bob with every jump.
 - **Double jump.** One extra jump in the air, refreshed by landing, grappling, launch
   pads and sky catches. There is no dash.
 - **Sky catch.** Catching the disc midair refreshes your double jump and your air pivot.

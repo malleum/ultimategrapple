@@ -572,11 +572,11 @@
 	"kill_y": 448.0,
 	"length": 12,
 	"medals": {
-		"ace": 21.97,
-		"bronze": 50.71,
-		"gold": 28.17,
-		"par": 28.17,
-		"silver": 36.62
+		"ace": 21.5,
+		"bronze": 49.63,
+		"gold": 27.57,
+		"par": 27.57,
+		"silver": 35.84
 	},
 	"name": "Neon Kernel",
 	"pinned": true,

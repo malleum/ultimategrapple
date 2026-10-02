@@ -16,19 +16,24 @@ signal recalled
 enum { NORMAL, SWING, ZIP, PIVOT, DEAD }
 
 # --- movement tuning (px, px/s, px/s^2)
-const RUN_SPEED := 780.0         # empty-handed
+const RUN_SPEED := 858.0         # empty-handed
 const GROUND_ACCEL := 6600.0
 const GROUND_DECEL := 7200.0
 const OVERSPEED_FRICTION := 650.0
-const AIR_ACCEL := 3600.0
+const AIR_ACCEL := 4200.0
 const GRAVITY := 2300.0
 const FALL_GRAVITY := 2750.0
 const MAX_FALL := 1400.0
 const FAST_FALL := 1950.0
 const JUMP_V := 830.0
-const JUMP_CUT := 0.45
-const COYOTE := 0.09
-const JUMP_BUFFER := 0.12
+const RELEASE_GRAVITY := 2.6     # gravity x while rising after letting go of jump (short hops)
+const APEX_GRAVITY := 0.55       # gravity x near the top of a held jump (a little hang)
+const APEX_BAND := 130.0         # |vy| below this counts as "near the top"
+const TURN_ACCEL_MULT := 1.8     # extra grip when reversing direction on the ground
+const MANTLE_UP := 48.0          # walls whose top is within this above your feet get climbed
+const CORNER_NUDGE := 12.0       # head clips a ceiling corner by up to this: slide past it
+const COYOTE := 0.12
+const JUMP_BUFFER := 0.15
 const WALL_SLIDE_MAX := 260.0
 const WALL_JUMP_X := 540.0
 const WALL_JUMP_Y := 790.0
@@ -38,10 +43,10 @@ const SLIDE_MIN_SPEED := 190.0
 const SLIDE_BOOST := 150.0
 const SLIDE_FRICTION := 300.0
 const CROUCH_SPEED := 170.0
-const CARRY_SPEED_MULT := 0.76    # carrying the disc: ~593, a quarter slower
+const CARRY_SPEED_MULT := 0.622   # carrying the disc: ~534
 const CARRY_JUMP_MULT := 0.97
 const MAX_SPEED := 2600.0
-const THROW_MOVE_REF := 660.0     # speed that counts as "full run" for moving-throw sway
+const THROW_MOVE_REF := 593.0     # speed that counts as "full run" for moving-throw sway
 
 # --- grapple
 const GRAPPLE_RANGE := 680.0
@@ -87,6 +92,7 @@ var buffer_t := 0.0
 var jump_held_cut := false
 var wall_dir := 0
 var wall_lock_t := 0.0
+var mantle_t := 0.0         # climbing onto a ledge (no wall jump / jump cut meanwhile)
 var has_air_jump := true    # double jump: refreshed by ground, grapple, pads, sky catch
 var sliding := false
 var crouched := false
@@ -176,6 +182,7 @@ func reset_run_state(seed_value: int) -> void:
 	_rng.seed = seed_value
 	coyote_t = 0.0
 	buffer_t = 0.0
+	mantle_t = 0.0
 	jump_held_cut = false
 	wall_dir = 0
 	wall_lock_t = 0.0
@@ -265,6 +272,7 @@ func _physics_process(dt: float) -> void:
 
 func _timers(dt: float) -> void:
 	coyote_t -= dt
+	mantle_t -= dt
 	buffer_t -= dt
 	wall_lock_t -= dt
 	slide_boost_cd -= dt
@@ -353,6 +361,8 @@ func _normal(dt: float) -> void:
 				_set_low(false)
 				sliding = false
 			fx.emit("jump", global_position, sliding)
+		elif wall_dir != 0 and _try_mantle(wall_dir):
+			buffer_t = 0.0   # jumped at a wall you can reach the top of: climb it
 		elif wall_dir != 0:
 			velocity.x = -wall_dir * WALL_JUMP_X
 			velocity.y = -WALL_JUMP_Y * jump_mult
@@ -375,8 +385,9 @@ func _normal(dt: float) -> void:
 			jumped = true
 			jump_held_cut = false
 			fx.emit("airjump", center(), null)
-	if not jump_held_cut and velocity.y < 0.0 and not inp.pressed("jump") and pad_lock_t <= 0.0:
-		velocity.y *= JUMP_CUT
+	# a jump stays "variable" until its apex: letting go early adds gravity
+	# (smooth short hop) instead of chopping the upward speed in one frame
+	if not jump_held_cut and velocity.y >= 0.0:
 		jump_held_cut = true
 
 	# ---- slide / crouch
@@ -422,31 +433,94 @@ func _normal(dt: float) -> void:
 			if signf(input_x) == signf(velocity.x) and absf(velocity.x) > max_speed:
 				velocity.x = move_toward(velocity.x, target_v, OVERSPEED_FRICTION * ice_mult * dt)
 			else:
-				velocity.x = move_toward(velocity.x, target_v, GROUND_ACCEL * ice_mult * dt)
+				var turning := absf(velocity.x) > 1.0 and signf(velocity.x) != signf(input_x)
+				velocity.x = move_toward(velocity.x, target_v, GROUND_ACCEL * ice_mult * (TURN_ACCEL_MULT if turning else 1.0) * dt)
 		else:
 			velocity.x = move_toward(velocity.x, 0.0, GROUND_DECEL * (0.08 if floor_ice else 1.0) * dt)
 	else:
-		if input_x != 0.0 and wall_lock_t <= 0.0 and pad_lock_t <= 0.0:
+		if input_x != 0.0 and pad_lock_t <= 0.0:
+			# after a wall jump, steering fades back in rather than snapping on
+			var grip := 1.0 - clampf(wall_lock_t / WALL_LOCK, 0.0, 1.0) * 0.85
 			var target_v := input_x * max_speed
 			if absf(velocity.x) < max_speed or signf(velocity.x) != signf(input_x):
-				velocity.x = move_toward(velocity.x, target_v, AIR_ACCEL * dt)
+				velocity.x = move_toward(velocity.x, target_v, AIR_ACCEL * grip * dt)
+		# jumped / fell into a wall near its top while pushing at it: climb on
+		if mantle_t <= 0.0 and velocity.y > -320.0 and state == NORMAL:
+			var push := int(signf(input_x)) if input_x != 0.0 else 0
+			if push != 0 and test_move(global_transform, Vector2(push * 4.0, 0)):
+				_try_mantle(push)
 
 	# ---- vertical
 	if not on_floor or jumped:
 		var g := GRAVITY if velocity.y < 0.0 else FALL_GRAVITY
+		if not jump_held_cut and mantle_t <= 0.0:
+			if velocity.y < 0.0 and not inp.pressed("jump") and pad_lock_t <= 0.0:
+				g *= RELEASE_GRAVITY
+			elif absf(velocity.y) < APEX_BAND and inp.pressed("jump"):
+				g *= APEX_GRAVITY
 		var max_fall := MAX_FALL
 		if down and velocity.y > -100.0:
 			g *= 1.4
 			max_fall = FAST_FALL
 		velocity.y = minf(velocity.y + g * dt, max_fall)
 		# wall slide
-		if wall_dir != 0 and signf(input_x) == wall_dir and velocity.y > WALL_SLIDE_MAX:
+		if wall_dir != 0 and signf(input_x) == wall_dir and velocity.y > WALL_SLIDE_MAX and mantle_t <= 0.0:
 			velocity.y = move_toward(velocity.y, WALL_SLIDE_MAX, 6000.0 * dt)
 	for w in winds:
 		if is_instance_valid(w):
 			velocity += w.force * dt
 			velocity.y = maxf(velocity.y, -950.0)
+	if velocity.y < 0.0:
+		_corner_correct(dt)
 	_move(dt)
+
+
+## How far up the body must rise to step `dir`-ward onto the top of the wall
+## it is touching; -1 if that wall's top is out of reach (or a ceiling's in
+## the way).
+func _ledge_lift(dir: int) -> float:
+	var xf := global_transform
+	if dir == 0 or not test_move(xf, Vector2(dir * 6.0, 0)):
+		return -1.0
+	var h := 4.0
+	while h <= MANTLE_UP:
+		if test_move(xf, Vector2(0, -h)):
+			return -1.0
+		if not test_move(xf.translated(Vector2(0, -h)), Vector2(dir * 14.0, 0)):
+			return h
+		h += 4.0
+	return -1.0
+
+
+## Pop up onto a ledge: just enough upward speed to clear its lip, carrying
+## on toward it. Feels like sliding up the last bit of wall, not bonking.
+func _try_mantle(dir: int) -> bool:
+	var h := _ledge_lift(dir)
+	if h < 0.0:
+		return false
+	velocity.y = minf(velocity.y, -sqrt(2.0 * GRAVITY * (h + 10.0)))
+	velocity.x = dir * maxf(absf(velocity.x), 260.0)
+	mantle_t = 0.3
+	jump_held_cut = true
+	wall_lock_t = 0.0
+	facing = dir
+	fx.emit("mantle", global_position + Vector2(dir * 10.0, -h), dir)
+	return true
+
+
+## Rising into a ceiling corner by a few pixels: slide sideways past it
+## instead of stopping dead.
+func _corner_correct(dt: float) -> void:
+	var xf := global_transform
+	var rise := Vector2(0, minf(velocity.y * dt, -1.0))
+	if not test_move(xf, rise):
+		return
+	for off in [4.0, 8.0, CORNER_NUDGE]:
+		for sgn in [1.0, -1.0]:
+			var side := Vector2(off * sgn, 0)
+			if not test_move(xf, side) and not test_move(xf.translated(side), rise):
+				global_position.x += off * sgn
+				return
 
 
 ## Ground just below while falling: a jump press now should wait for landing.
@@ -464,7 +538,7 @@ func _move(_dt: float) -> void:
 	for i in get_slide_collision_count():
 		var c := get_slide_collision(i)
 		var o := c.get_collider()
-		if o and o.has_meta("glass") and pre_vel.length() > 700.0:
+		if o and o.has_meta("glass") and pre_vel.length() > 650.0:
 			o.get_parent().shatter(pre_vel)
 			velocity = pre_vel * 0.9
 	var was_floor := on_floor

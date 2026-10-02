@@ -16,7 +16,7 @@ const RECENT_PATH := "user://recent.json"
 const RECENT_MAX := 40
 ## Bump when movement / physics / input layout change: older replays can't
 ## re-simulate faithfully any more. 2: no dash, double jump, faster running.
-const REPLAY_VERSION := 3   # 3: bigger basket, 3x air pivot
+const REPLAY_VERSION := 4   # 3: bigger basket, 3x air pivot; 4: speeds, mantle, smoother jumps
 const ReplayInput = preload("res://src/core/replay_input.gd")
 const GENERATOR_VERSION := 1
 

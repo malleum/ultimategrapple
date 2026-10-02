@@ -686,11 +686,11 @@
 	"kill_y": 544.0,
 	"length": 14,
 	"medals": {
-		"ace": 24.57,
-		"bronze": 56.7,
-		"gold": 31.5,
-		"par": 31.5,
-		"silver": 40.95
+		"ace": 24.0,
+		"bronze": 55.39,
+		"gold": 30.77,
+		"par": 30.77,
+		"silver": 40.0
 	},
 	"name": "Crucible",
 	"pinned": true,

@@ -11,6 +11,7 @@
   - `godot4 --headless -s tools/test_bindings.gd` (rebinding, side mouse buttons, wheel taps, pad)
   - `godot4 --headless --fixed-fps 120 -s tools/test_replay.gd` (replay playback is exact; PB run saves + replays to the same time; no tween error flood after restart)
   - `godot4 --headless --fixed-fps 120 -s tools/test_grapple.gd` (grapple hold/regrab/through-platform/zip-around/cursor pick/range, double jump)
+  - `godot4 --headless --fixed-fps 120 -s tools/test_moves.gd` (run speeds, ledge mantle instead of wall-jump, smooth short hop, ceiling corner nudge)
   - `nix build .#default` (pck export + wrapper)
 - Avoid `:=` on Variant values (Dictionary/Array element access) — Godot treats failed inference as a parse error.
 - Course fairness checks live in `src/level/validator.gd` (used by test_gen on generated + `levels/*.json`). Changing generator geometry: bump `Gen.VERSION` and add a `Validator.repair()` step so old pinned saves get fixed on load.

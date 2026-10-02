@@ -295,11 +295,11 @@
 	"kill_y": 640.0,
 	"length": 8,
 	"medals": {
-		"ace": 13.42,
-		"bronze": 30.98,
-		"gold": 17.21,
-		"par": 17.21,
-		"silver": 22.37
+		"ace": 13.02,
+		"bronze": 30.04,
+		"gold": 16.69,
+		"par": 16.69,
+		"silver": 21.7
 	},
 	"name": "First Pull",
 	"pinned": true,
