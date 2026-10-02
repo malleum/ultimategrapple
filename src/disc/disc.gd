@@ -579,8 +579,11 @@ func pose() -> Vector2:
 	match state:
 		FLIGHT, CHAINED:
 			var sq := 0.3
-			if t.flip_t > 0.0 and age > t.flip_t:
-				sq = -0.3
+			if t.get("inverted", false):
+				sq = -0.3   # scoober: leaves the hand upside down
+			elif t.flip_t > 0.0:
+				# turns over through edge-on, over the same window its lift changes
+				sq = lerpf(0.3, -0.3, smoothstep(t.flip_t * 0.6, t.flip_t * 1.4, age))
 			return Vector2(plane_angle(), sq)
 		ROLL:
 			return Vector2(0.0, 1.0)

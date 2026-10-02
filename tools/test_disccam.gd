@@ -168,8 +168,47 @@ func _physics_process(_dt: float) -> bool:
 				var main_vp2 = r.player.get_viewport()
 				_check("restore", r.player.visibility_layer == 1 and r.disc.visibility_layer == 1 and main_vp2.canvas_cull_mask & (1 << DiscCam.CAM_BIT) != 0,
 					"restart gives the runner its layers back")
+				_flip_checks(r)
+				phase = "roll"
+				f = 0
+		"roll":
+			# synthetic clip: a roller rolling right along the ground
+			if f == 1:
+				_game().settings["disc_cam_lock"] = true
+				var frames: Array = []
+				for k in 240:
+					var fr: Array = r._frame()
+					frames.append([fr, Vector2(k * 6.0, -14.0), Vector2(0.0, 1.0)])
+				cam = DiscCam.new()
+				lvl.runners[0].hud.add_child(cam)
+				cam.setup(lvl, {"frames": frames, "score_at": 200}, Color(0, 1, 1), Color(2, 0.5, 1.5))
+			if f == 90:
+				_check("roller", absf(angle_difference(cam.cam_rot, PI * 0.5)) < 0.05 and cam.flip > 0.99,
+					"rolling right: world tipped %.0f deg so it rolls up the screen" % rad_to_deg(cam.cam_rot))
+				cam.queue_free()
 				return _finish()
 	return false
+
+
+## Disc pose: a scoober is upside down from release; hammer and thumber turn
+## over through edge-on, the thumber sooner and faster.
+func _flip_checks(r) -> void:
+	var d = r.disc
+	var res := {}
+	for ti in [2, 4, 5]:
+		r.player.has_disc = false
+		d.launch(Vector2(0, -400), Vector2(600, -200), ti, 1.0, 0.0, 0.0)
+		var sq := []
+		for age in [0.0, 0.15, 0.3, 0.6]:
+			d.age = age
+			sq.append(snappedf(d.pose().y, 0.01))
+		res[ti] = sq
+	var ok: bool = res[4][0] < 0.0 and res[4][3] < 0.0 \
+		and res[2][0] > 0.29 and res[2][3] < -0.29 and absf(res[2][2]) < 0.29 \
+		and res[5][1] < res[2][1] and res[5][3] < -0.29
+	_check("flips", ok, "squash at 0/0.15/0.3/0.6 s: hammer %s, scoober %s, thumber %s" % [res[2], res[4], res[5]])
+	d.hold()
+	r.player.has_disc = true
 
 
 func _finish() -> bool:

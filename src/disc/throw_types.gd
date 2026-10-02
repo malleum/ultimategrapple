@@ -15,6 +15,7 @@ extends RefCounted
 ## spin       base spin factor (before snap)
 ## roll       converts to rolling on ground contact
 ## trim       initial nose attitude offset (rad) relative to aim
+## inverted   drawn upside down from release (scoober); looks only, flight unchanged
 ## gyro       attitude held in the world frame by spin (see Disc._gyro_aero):
 ##            steep nose-up throws stay nose-up and can glide back
 
@@ -37,7 +38,7 @@ const TYPES := [
 		"desc": "Edge-first. Rolls along floors and up ramps. Great under low roofs."},
 	{"id": "scoober", "name": "SCOOBER", "icon": "SC", "speed": 950.0, "cl0": 0.12, "cla": 1.0, "cd0": 0.09, "cda": 2.0,
 		"lift": 0.6, "flip_t": 0.0, "flip_lift": 1.0, "fade_v": 300.0, "fade": 0.3, "grav": 1050.0,
-		"move_pen": 0.45, "spin": 0.95, "roll": false, "trim": 0.05,
+		"move_pen": 0.45, "spin": 0.95, "roll": false, "trim": 0.05, "inverted": true,
 		"desc": "Short, soft, precise. Half the moving-throw penalty."},
 	{"id": "thumber", "name": "THUMBER", "icon": "TH", "speed": 1650.0, "cl0": 0.08, "cla": 1.0, "cd0": 0.09, "cda": 2.2,
 		"lift": 0.8, "flip_t": 0.18, "flip_lift": -1.1, "fade_v": 700.0, "fade": 0.8, "grav": 1050.0,

@@ -47,6 +47,7 @@ var cam_pos := Vector2.ZERO
 var cam_rot := 0.0
 var flip := 1.0            # smoothed y mirror: -1 = disc upside down
 var zoom := ZOOM_NEAR
+var roll_dir := 1.0
 var _main_vp: Viewport
 var _main_mask := 0
 var _hidden := {}           # CanvasItem -> its visibility_layer before the cam
@@ -244,9 +245,19 @@ func _process(dt: float) -> void:
 	if cam_pos.distance_to(dp) > 300.0:
 		cam_pos = dp
 	cam_pos = cam_pos.lerp(dp, 1.0 - exp(-18.0 * dt))
-	cam_rot = lerp_angle(cam_rot, disc_draw.ang if lock else 0.0, 1.0 - exp(-14.0 * dt))
-	var want_flip := (-1.0 if pz.y < 0.0 else 1.0) if lock else 1.0
-	flip = move_toward(flip, want_flip, dt * 4.0)
+	# a roller on the ground is on its edge: the world tips 90 degrees, so it
+	# always rolls "up" the screen with the ground beside it
+	var rolling := pz.y > 0.99
+	var mvx: float = (b[1] as Vector2).x - (a[1] as Vector2).x
+	if absf(mvx) > 0.01:
+		roll_dir = signf(mvx)
+	var want_rot: float = (PI * 0.5 * roll_dir if rolling else disc_draw.ang) if lock else 0.0
+	cam_rot = lerp_angle(cam_rot, want_rot, 1.0 - exp(-14.0 * dt))
+	# the mirror follows the disc turning over (its squash goes 0.3 -> -0.3
+	# through edge-on), so a thumber flips faster than a hammer and a scoober
+	# is upside down from the release
+	var want_flip := clampf(pz.y / 0.3, -1.0, 1.0) if lock else 1.0
+	flip = move_toward(flip, want_flip, dt * 10.0)
 	var fy := flip if absf(flip) > 0.05 else 0.05 * signf(flip + 0.0001)
 	# close in while carried, pulling out as the disc flies faster
 	var spd: float = (b[1] as Vector2).distance_to(a[1]) * Engine.physics_ticks_per_second
