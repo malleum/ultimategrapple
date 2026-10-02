@@ -314,6 +314,12 @@ func _draw_hud() -> void:
 	var ci := draw_layer
 	var vs := ci.size
 	var p = runner.player
+	if cinema:
+		# photo mode: only the in-the-moment bits (speed lines, popups, snaps)
+		_draw_speedlines(ci, vs, p)
+		_draw_popups(ci, vs)
+		_draw_snap(ci, vs)
+		return
 	_draw_speedlines(ci, vs, p)
 	_draw_timer(ci, vs)
 	_draw_course_card(ci, vs)
@@ -489,6 +495,7 @@ func _draw_medal_ladder(ci: Control, vs: Vector2) -> void:
 const SPLIT_GOLD := Color(1.0, 0.82, 0.25)
 const SPLIT_AHEAD := Color(0.35, 1.0, 0.55)
 const SPLIT_BEHIND := Color(1.0, 0.42, 0.4)
+var cinema := false       # photo mode: hide the panels, keep speed lines + popups
 var split_flash := 0.0    # seconds left showing the last split's delta under the timer
 var split_last := -1
 
