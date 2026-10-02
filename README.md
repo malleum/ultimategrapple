@@ -136,7 +136,14 @@ courses. `levels/` ships with seven starter courses (regenerate them with
   bridges and fragile anchors are per player: your disc opening a gate never opens it for
   anyone else. This works through per-runner physics layers and viewport visibility layers
   (see `src/level/runner.gd`).
-- **Online / LAN.** ENet host/join with LAN discovery. Everyone races the same course at the
+- **Online.** PLAY ONLINE joins the public dedicated server at `joshammer.com:24680` (or
+  any `host[:port]` you type). Nobody has to port-forward. The first player in the lobby is
+  the leader: they pick wins, course source and difficulty, and start the set. Otherwise
+  the set starts when everyone is READY. To run your own server on NixOS:
+  `imports = [ ultimate-grapple.nixosModules.server ]; services.ultimate-grapple-server = {
+  enable = true; openFirewall = true; };` (cloud firewalls need UDP 24680 too).
+  `tools/test_online.gd` is a two-client smoke test against a running server.
+- **LAN.** ENet host/join with LAN discovery. Everyone races the same course at the
   same time as non-colliding ghosts. First to sink the disc wins the round, and the first
   player to reach X round wins takes the set. You can use a listen server or a dedicated
   server (`--server --port= --wins= --source= --difficulty=`).

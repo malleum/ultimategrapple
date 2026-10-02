@@ -79,6 +79,12 @@ func _step(dt: float) -> void:
 	queue_redraw()
 
 
+## Forget the cloth's world positions (after a teleport), so it re-hangs.
+func reset_scarf() -> void:
+	_sw.clear()
+	_sw_prev.clear()
+
+
 func _scarf_anchor() -> Vector2:
 	if low:
 		return Vector2(facing * 9.0, -17.0)

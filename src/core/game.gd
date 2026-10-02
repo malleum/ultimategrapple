@@ -29,6 +29,7 @@ var settings := {
 	"player_name": "Runner",
 	"player_color": 0,
 	"bindings": {},
+	"online_server": "joshammer.com",
 }
 
 ## level_id -> {time: float, throws: int, medal: String}

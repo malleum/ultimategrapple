@@ -6,6 +6,8 @@ extends Node
 const Themes = preload("res://src/core/theme_db.gd")
 
 const PORT := 24680
+## Public dedicated server (minimus, UDP 24680). Players can type another.
+const ONLINE_SERVER := "joshammer.com"
 const DISCOVERY_PORT := 24681
 const STATE_HZ := 30.0
 const ROUND_BREAK := 5.0
@@ -35,6 +37,7 @@ var _bcast: PacketPeerUDP = null
 var _listen: PacketPeerUDP = null
 var _bcast_t := 0.0
 var _round_timer := -1.0
+var _join_seq := 0
 
 
 func _ready() -> void:
@@ -174,6 +177,11 @@ func _on_peer_disconnected(id: int) -> void:
 	if lvl:
 		lvl.remove_remote_ghost(id)
 	if is_server():
+		if dedicated and players.is_empty():
+			# everyone left: drop the set so the next group starts fresh
+			round_active = false
+			set_winner = -1
+			_round_timer = -1.0
 		_push_lobby()
 		_check_round_complete()
 
@@ -186,6 +194,9 @@ func register(info: Dictionary) -> void:
 	info.wins = 0
 	info.ready = false
 	info.name = str(info.get("name", "Runner")).substr(0, 16)
+	info.color = posmod(int(info.get("color", 0)), 8)
+	_join_seq += 1
+	info.order = _join_seq
 	players[id] = info
 	_set_status("%s joined" % info.name)
 	_push_lobby()
@@ -224,12 +235,62 @@ func toggle_ready() -> void:
 		rpc_id(1, "set_ready", want)
 
 
+## Who may change settings and start a set: the host on a listen server,
+## the player who has been connected longest on a dedicated one.
+func leader_id() -> int:
+	var best := -1
+	var best_order := 0
+	for id in players:
+		var o := int(players[id].get("order", 0))
+		if best == -1 or o < best_order:
+			best = int(id)
+			best_order = o
+	return best
+
+
+func is_leader() -> bool:
+	return peer != null and leader_id() == my_id()
+
+
 func update_settings(s: Dictionary) -> void:
-	if not is_server():
-		return
-	for k in s:
-		settings[k] = s[k]
+	if is_server():
+		_apply_settings(s)
+	elif is_leader():
+		rpc_id(1, "request_settings", s)
+
+
+func _apply_settings(s: Dictionary) -> void:
+	# clients can send anything: only take known keys, clamped
+	if s.has("wins"):
+		settings.wins = clampi(int(s.wins), 1, 15)
+	if s.has("source") and str(s.source) in ["random", "pinned"]:
+		settings.source = str(s.source)
+	if s.has("difficulty"):
+		settings.difficulty = clampf(float(s.difficulty), 0.0, 1.0)
+	if s.has("length"):
+		settings.length = clampi(int(s.length), 4, 30)
+	if s.has("theme") and (str(s.theme) == "" or Themes.THEMES.has(str(s.theme))):
+		settings.theme = str(s.theme)
 	_push_lobby()
+
+
+@rpc("any_peer", "reliable")
+func request_settings(s: Dictionary) -> void:
+	if is_server() and multiplayer.get_remote_sender_id() == leader_id() and not round_active:
+		_apply_settings(s)
+
+
+func request_start() -> void:
+	if is_server():
+		start_set()
+	elif is_leader():
+		rpc_id(1, "remote_start")
+
+
+@rpc("any_peer", "reliable")
+func remote_start() -> void:
+	if is_server() and multiplayer.get_remote_sender_id() == leader_id() and not round_active:
+		start_set()
 
 
 # ================================================================ rounds

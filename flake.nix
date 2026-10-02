@@ -92,6 +92,80 @@
         };
       });
 
+      # Dedicated server as a NixOS service (headless Godot, UDP).
+      #   imports = [ ultimate-grapple.nixosModules.server ];
+      #   services.ultimate-grapple-server = { enable = true; openFirewall = true; };
+      # Players reach it with PLAY ONLINE (host[:port]); no port forwarding on
+      # their side. Cloud firewalls (e.g. Oracle VCN) need UDP <port> too.
+      nixosModules.server = { config, lib, pkgs, ... }:
+        let cfg = config.services.ultimate-grapple-server;
+        in {
+          options.services.ultimate-grapple-server = {
+            enable = lib.mkEnableOption "the Ultimate Grapple dedicated race server";
+            port = lib.mkOption {
+              type = lib.types.port;
+              default = 24680;
+              description = "UDP port the server listens on.";
+            };
+            openFirewall = lib.mkOption {
+              type = lib.types.bool;
+              default = false;
+              description = "Open the server's UDP port in the NixOS firewall.";
+            };
+            wins = lib.mkOption {
+              type = lib.types.ints.between 1 15;
+              default = 3;
+              description = "Default round wins needed to take a set (the lobby leader can change it).";
+            };
+            source = lib.mkOption {
+              type = lib.types.enum [ "random" "pinned" ];
+              default = "random";
+              description = "Default course source: freshly generated or the built-in pinned courses.";
+            };
+            difficulty = lib.mkOption {
+              type = lib.types.numbers.between 0 1;
+              default = 0.5;
+              description = "Default course difficulty, 0..1.";
+            };
+            package = lib.mkOption {
+              type = lib.types.package;
+              default = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
+              description = "Ultimate Grapple package (its --server mode runs headless).";
+            };
+          };
+          config = lib.mkIf cfg.enable {
+            systemd.services.ultimate-grapple-server = {
+              description = "Ultimate Grapple dedicated race server";
+              after = [ "network-online.target" ];
+              wants = [ "network-online.target" ];
+              wantedBy = [ "multi-user.target" ];
+              serviceConfig = {
+                ExecStart = lib.concatStringsSep " " [
+                  "${cfg.package}/bin/ultimate-grapple --server"
+                  "--port=${toString cfg.port}"
+                  "--wins=${toString cfg.wins}"
+                  "--source=${cfg.source}"
+                  "--difficulty=${toString cfg.difficulty}"
+                ];
+                DynamicUser = true;
+                StateDirectory = "ultimate-grapple-server";
+                Environment = [ "HOME=/var/lib/ultimate-grapple-server" ];
+                Restart = "always";
+                RestartSec = 5;
+                # Hardening: it needs the network and nothing else.
+                ProtectSystem = "strict";
+                ProtectHome = true;
+                PrivateTmp = true;
+                PrivateDevices = true;
+                NoNewPrivileges = true;
+                RestrictAddressFamilies = [ "AF_INET" "AF_INET6" "AF_UNIX" ];
+                MemoryMax = "512M";
+              };
+            };
+            networking.firewall.allowedUDPPorts = lib.mkIf cfg.openFirewall [ cfg.port ];
+          };
+        };
+
       devShells = forAll (pkgs: {
         default = pkgs.mkShell {
           packages = [ pkgs.godot_4 ];

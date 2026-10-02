@@ -262,6 +262,16 @@ func _build_lobby() -> void:
 		ch.queue_free()
 	if not Net.in_lobby:
 		Net.start_discovery()
+		var on := UI.hbox()
+		var srv := LineEdit.new()
+		srv.text = str(Game.settings.online_server)
+		srv.placeholder_text = Net.ONLINE_SERVER
+		srv.custom_minimum_size = Vector2(320, 0)
+		srv.text_changed.connect(func(tx): Game.settings.online_server = tx.strip_edges(); Game.save_settings())
+		on.add_child(UI.button("PLAY ONLINE", func(): Net.join(srv.text.strip_edges() if srv.text.strip_edges() != "" else Net.ONLINE_SERVER), 26))
+		on.add_child(srv)
+		lobby_box.add_child(on)
+		lobby_box.add_child(UI.label("Joins the public server. No port forwarding needed. The first player in picks the settings and starts.", 16, UI.DIM))
 		var h := UI.hbox()
 		h.add_child(UI.button("HOST GAME", func(): Net.host(), 26))
 		var ip := LineEdit.new()
@@ -282,10 +292,10 @@ func _build_lobby() -> void:
 	for id in Net.players:
 		var p: Dictionary = Net.players[id]
 		var row := UI.hbox()
-		row.add_child(UI.label(("● " if p.get("ready", false) else "○ ") + str(p.name) + ("  (you)" if id == Net.my_id() else "") + ("  [host]" if id == 1 else ""), 22, Game.player_palette(int(p.color)) * 1.4))
+		row.add_child(UI.label(("● " if p.get("ready", false) else "○ ") + str(p.name) + ("  (you)" if id == Net.my_id() else "") + ("  [leader]" if int(id) == Net.leader_id() else ""), 22, Game.player_palette(int(p.color)) * 1.4))
 		row.add_child(UI.label("wins %d" % int(p.wins), 18, UI.DIM))
 		lobby_box.add_child(row)
-	if Net.is_server():
+	if Net.is_leader():
 		var s := UI.hbox()
 		s.add_child(UI.label("First to", 20))
 		var sb := SpinBox.new()
@@ -307,8 +317,10 @@ func _build_lobby() -> void:
 		lobby_box.add_child(s)
 	var h2 := UI.hbox()
 	h2.add_child(UI.button("READY", func(): Net.toggle_ready(), 24))
-	if Net.is_server():
-		h2.add_child(UI.button("START SET", func(): Net.champion_text = ""; Net.start_set(), 24))
+	if Net.is_leader():
+		h2.add_child(UI.button("START SET", func(): Net.champion_text = ""; Net.request_start(), 24))
+	else:
+		lobby_box.add_child(UI.label("Waiting for the leader to start (or everyone READY).", 16, UI.DIM))
 	h2.add_child(UI.button("LEAVE", func(): Net.leave(); _build_lobby(), 24))
 	lobby_box.add_child(h2)
 

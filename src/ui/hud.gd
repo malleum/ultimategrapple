@@ -836,7 +836,9 @@ func show_results(tm: float, medal: String, is_pb: bool) -> void:
 		return
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	var mcol: Color = MEDAL_LDR.get(medal, MEDAL_LDR[""])
-	results = PanelContainer.new()
+	if results:
+		results.queue_free()
+	var panel := PanelContainer.new()
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.02, 0.015, 0.06, 0.92)
 	sb.border_color = mcol
@@ -850,12 +852,10 @@ func show_results(tm: float, medal: String, is_pb: bool) -> void:
 	sb.content_margin_right = 40
 	sb.content_margin_top = 26
 	sb.content_margin_bottom = 26
-	results.add_theme_stylebox_override("panel", sb)
-	results.set_anchors_preset(Control.PRESET_CENTER)
-	results.custom_minimum_size = Vector2(720, 0)
-	results.position = Vector2(root.size.x * 0.5 - 360, root.size.y * 0.5 - 300)
+	panel.add_theme_stylebox_override("panel", sb)
+	panel.custom_minimum_size = Vector2(720, 0)
 	var v := UI.vbox(10)
-	results.add_child(v)
+	panel.add_child(v)
 	v.add_child(UI.label("CHAINS!", 30, Color(1, 0.85, 0.35), HORIZONTAL_ALIGNMENT_CENTER))
 	var badge := MedalBadge.new()
 	badge.medal = medal
@@ -899,9 +899,16 @@ func show_results(tm: float, medal: String, is_pb: bool) -> void:
 		h.add_child(UI.button("PIN  [P]", func(): level.pin_current()))
 	h.add_child(UI.button("MENU", func(): Game.goto_menu()))
 	v.add_child(h)
+	# A full-screen CenterContainer does the centring, whatever height the
+	# panel ends up. The pop-in animates the holder: containers reset their
+	# children's scale whenever they re-sort.
+	results = CenterContainer.new()
+	results.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	results.add_child(panel)
 	root.add_child(results)
+	results.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	results.pivot_offset = root.size * 0.5
 	results.scale = Vector2(0.9, 0.9)
-	results.pivot_offset = results.size * 0.5
 	results.modulate.a = 0.0
 	var tw3 := create_tween().set_parallel(true)
 	tw3.tween_property(results, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)

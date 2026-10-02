@@ -52,6 +52,18 @@ func stop() -> void:
 	playing = false
 
 
+## Back to the first recorded frame and wait there (restart).
+func rewind() -> void:
+	playing = false
+	play_t = 0.0
+	if frames.is_empty():
+		return
+	_apply(frames[0], 0.0)
+	# the scarf and pose would otherwise keep their old world positions
+	visual.reset_scarf()
+	reset_physics_interpolation()
+
+
 func push_state(frame: Array) -> void:
 	buffer.append([Time.get_ticks_msec() / 1000.0, frame])
 	while buffer.size() > 40:
@@ -72,6 +84,10 @@ func _process(dt: float) -> void:
 			f = _lerp_frame(frames[i], frames[i + 1], idx - i)
 	if f.is_empty():
 		return
+	_apply(f, dt)
+
+
+func _apply(f: Array, dt: float) -> void:
 	cur = f
 	position = Vector2(f[0], f[1])
 	visual.update_from_snapshot(f, position, dt)

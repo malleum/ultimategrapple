@@ -206,6 +206,7 @@ func _setup_pb_ghost() -> void:
 	var frames := Game.load_ghost(level.level_id)
 	if frames.size() > 2:
 		pb_ghost.setup_replay(frames, Color(1, 1, 1))
+		pb_ghost.rewind()
 		pb_ghost.visible = true
 
 
