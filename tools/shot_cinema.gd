@@ -93,9 +93,8 @@ func _place(pos: Vector2, vel: Vector2) -> void:
 
 
 func _process(_dt: float) -> bool:
-	if r and is_instance_valid(r) and r.camera:
-		r.camera.zoom = Vector2(zoom, zoom)
-		r.cam_zoom = zoom
+	if r and is_instance_valid(r):
+		r.zoom_override = zoom
 	return false
 
 
@@ -164,7 +163,7 @@ func _begin() -> void:
 		"hammer":
 			_setup(11, "canyon")
 		"chains":
-			_setup(23, "foundry")
+			_setup(23, "field")
 		"skip":
 			_setup(23, "fantasy")
 		"skycatch":
@@ -172,7 +171,7 @@ func _begin() -> void:
 		"charge":
 			# first course (other than the swing shot's) with a clear swing arc
 			var G = root.get_node("Game")
-			for c in [[37, "field"], [11, "canyon"], [37, "canyon"], [23, "fantasy"], [11, "heaven"], [37, "foundry"], [23, "frost"]]:
+			for c in [[11, "heaven"], [37, "field"], [11, "canyon"], [37, "canyon"], [23, "fantasy"], [11, "heaven"], [37, "foundry"], [23, "frost"]]:
 				data = G.generate_level(int(c[0]), str(c[1]), 0.6, 10)
 				if _swing_point(380.0) != Vector2.ZERO:
 					print("charge on ", c)
@@ -272,11 +271,17 @@ func _tick_chains() -> void:
 	var bp: Vector2 = lvl.basket_pos
 	if f == 2:
 		var pos := bp + Vector2(-380, 0)
-		for rp in _route():
-			if rp.x < bp.x - 300 and rp.x > bp.x - 700 and absf(rp.y - bp.y) < 200:
-				pos = rp
+		for dx in [320.0, 380.0, 260.0, 440.0, 220.0, 190.0, 165.0]:
+			var c := bp + Vector2(-dx, 0)
+			var clear := _free(c + Vector2(0, -4))
+			for k in range(1, 9):   # line from the hand to the chains
+				var q: Vector2 = c + Vector2(0, -32) + (bp + Vector2(0, -95) - c - Vector2(0, -32)) * (k / 9.0)
+				clear = clear and _free(q + Vector2(0, 25), Vector2(-4, -12))
+			if clear:
+				pos = c
+				break
 		_place(pos + Vector2(0, -4), Vector2.ZERO)
-		zoom = 1.35
+		zoom = 1.7
 		follow = "disc"
 		st["try"] = 0
 	if f == 6 and not st.has("thrown"):
@@ -288,9 +293,11 @@ func _tick_chains() -> void:
 		r.disc.launch(from, (to - from).normalized() * 1250.0, 0, lp.spin, 0.0, 0.0, 1.0)
 	if r.done and not st.has("in"):
 		st["in"] = f
+		r.hud.popup("CHAINS!", Color(2.2, 1.8, 0.3), 2.0)
 		shots = [f + 2, f + 6, f + 12, f + 24]
 	if not r.done and f > 6 and r.disc.state != Disc.FLIGHT and r.disc.state != Disc.CHAINED and not st.has("in"):
 		# missed: try a bit higher
+		print("chains try %d: player %s basket %s disc ended %s state %d" % [st.try, p.global_position.round(), bp, r.disc.global_position.round(), r.disc.state])
 		st.try = int(st.try) + 1
 		st.erase("thrown")
 		r.disc.hold()

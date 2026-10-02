@@ -47,6 +47,7 @@ var pov_clip: Array = []   # per tick: [frame, disc pos, disc pose] (see _record
 var pov_after := 0
 var split_times: Array = []   # cumulative times at each split crossed this run (finish last)
 var split_gold: Array = []    # per split: that segment was a best-ever
+var zoom_override := 0.0      # photo mode / tools: fixed camera zoom
 var follow_fn := Callable()   # match playback: [pos, vel] the camera follows instead
 var background: Node2D
 
@@ -447,6 +448,8 @@ func _update_camera(dt: float) -> void:
 	var base := 0.86 if container == null else 0.7
 	var want_zoom := lerpf(base, base * 0.84, clampf((spd - 500.0) / 900.0, 0.0, 1.0))
 	cam_zoom = lerpf(cam_zoom, want_zoom, 1.0 - exp(-2.0 * dt))
+	if zoom_override > 0.0:
+		cam_zoom = zoom_override
 	camera.zoom = Vector2(cam_zoom, cam_zoom)
 	shake_amt = maxf(0.0, shake_amt - 40.0 * dt)
 	var s := shake_amt * float(Game.settings.get("screen_shake", 1.0))
