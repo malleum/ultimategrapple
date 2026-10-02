@@ -7,6 +7,7 @@ extends CharacterBody2D
 ## from the snap mechanic and drives stability, skip shots and wall kicks.
 
 const ThrowTypes = preload("res://src/disc/throw_types.gd")
+const Basket = preload("res://src/world/basket.gd")
 
 signal scored
 signal state_changed(new_state: int)
@@ -413,7 +414,7 @@ func _check_support(_dt: float) -> void:
 
 func _chained(dt: float) -> void:
 	chain_timer += dt
-	var target: Vector2 = level.basket_pos + Vector2(clampf(global_position.x - level.basket_pos.x, -16, 16), -46)
+	var target: Vector2 = level.basket_pos + Vector2(clampf(global_position.x - level.basket_pos.x, -24, 24), Basket.CATCH_Y)
 	velocity = velocity.lerp(Vector2.ZERO, 8.0 * dt)
 	global_position = global_position.move_toward(target, 500.0 * dt)
 	if chain_timer > 0.35 or global_position.distance_to(target) < 4.0:
@@ -424,16 +425,16 @@ func _check_basket() -> void:
 	if level == null or not level.has_basket:
 		return
 	var l: Vector2 = global_position - level.basket_pos
-	if absf(l.x) > 60.0 or l.y > 10.0 or l.y < -130.0:
+	if absf(l.x) > Basket.HALF_W + 40.0 or l.y > 10.0 or l.y < Basket.BAND_TOP - 20.0:
 		return
 	var spd := velocity.length()
 	# chains
-	if state != CHAINED and absf(l.x) < 26.0 and l.y > -104.0 and l.y < -56.0:
-		if spd > 1500.0 and absf(l.x) > 14.0:
+	if state != CHAINED and absf(l.x) < Basket.CHAIN_HALF and l.y > Basket.CHAIN_TOP and l.y < Basket.CHAIN_BOT:
+		if spd > 1500.0 and absf(l.x) > Basket.SPIT_X:
 			# too hot off the edge of the chains: spit out
 			velocity = Vector2(-velocity.x * 0.25, velocity.y * 0.3 - 120.0)
 			impact.emit("chain_spit", spd)
-			global_position.x = level.basket_pos.x + signf(l.x) * 28.0
+			global_position.x = level.basket_pos.x + signf(l.x) * (Basket.CHAIN_HALF + 3.0)
 			_set_state(FLIGHT)
 			return
 		_set_state(CHAINED)
@@ -441,19 +442,20 @@ func _check_basket() -> void:
 		impact.emit("chains", spd)
 		return
 	# dropping into the tray from above
-	if absf(l.x) < 30.0 and l.y > -56.0 and l.y < -38.0 and velocity.y > -50.0 and state != CHAINED:
+	if absf(l.x) < Basket.TRAY_HALF and l.y > Basket.TRAY_TOP and l.y < Basket.TRAY_BOT and velocity.y > -50.0 and state != CHAINED:
 		_set_state(CHAINED)
 		chain_timer = 0.2
 		impact.emit("chains", spd)
 		return
 	# pole
-	if absf(l.x) < 4.0 + RADIUS and l.y > -38.0 and l.y < 0.0 and state == FLIGHT:
+	if absf(l.x) < Basket.POLE_HALF + RADIUS and l.y > Basket.TRAY_BOT and l.y < 0.0 and state == FLIGHT:
 		velocity.x = -velocity.x * 0.4
-		global_position.x = level.basket_pos.x + signf(l.x if l.x != 0 else -velocity.x) * (4.0 + RADIUS + 1.0)
+		global_position.x = level.basket_pos.x + signf(l.x if l.x != 0 else -velocity.x) * (Basket.POLE_HALF + RADIUS + 1.0)
 		impact.emit("pole", spd)
 	# top band
-	if absf(l.x) < 32.0 and l.y > -114.0 and l.y < -104.0 and state == FLIGHT:
-		velocity.y = -absf(velocity.y) * 0.4 if l.y < -109.0 else absf(velocity.y) * 0.3
+	if absf(l.x) < Basket.HALF_W and l.y > Basket.BAND_TOP - 2.0 and l.y < Basket.BAND_BOT and state == FLIGHT:
+		var mid := (Basket.BAND_TOP + Basket.BAND_BOT) * 0.5
+		velocity.y = -absf(velocity.y) * 0.4 if l.y < mid else absf(velocity.y) * 0.3
 		impact.emit("pole", spd)
 
 
@@ -467,7 +469,7 @@ func _check_gates() -> void:
 
 
 func _score() -> void:
-	global_position = level.basket_pos + Vector2(clampf(global_position.x - level.basket_pos.x, -16, 16), -46)
+	global_position = level.basket_pos + Vector2(clampf(global_position.x - level.basket_pos.x, -24, 24), Basket.CATCH_Y)
 	velocity = Vector2.ZERO
 	_set_state(SCORED)
 	scored.emit()

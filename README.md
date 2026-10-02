@@ -81,7 +81,7 @@ reticle reads the screen behind it and switches to dark ink over bright skies.
   flat plate. `tools/flight_path.gd` prints and plots these flights.
 - **Pivot.** Plant your feet to freeze and store your momentum, then throw clean. Let go of
   pivot within 0.3 s after the throw for a **PIVOT LAUNCH** that gives the stored momentum
-  back. There is also a short one-per-airtime air pivot.
+  back. There is also an air pivot (up to ~1 s, once per airtime).
 - **Six throws.** Backhand (glider), forehand (fast, dips late), hammer (flips, drops over
   walls), roller (rolls along floors and up ramps), scoober (short, half the moving penalty)
   and thumber (fast, cuts down hard).

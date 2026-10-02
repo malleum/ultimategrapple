@@ -64,7 +64,7 @@ const OVERCHARGE_START := 1.1
 const NOSE_STEP := deg_to_rad(3.0)
 const NOSE_MAX := deg_to_rad(15.0)
 const PIVOT_MAX := 1.5
-const AIR_PIVOT_MAX := 0.35
+const AIR_PIVOT_MAX := 1.05
 const PIVOT_LAUNCH_WINDOW := 0.3
 
 const STAND := Vector2(20, 44)

@@ -58,7 +58,7 @@ static func check(d: Dictionary) -> Array:
 			basket_ok = true
 		if r.intersects(Rect2(spawn + Vector2(-10, -44), Vector2(20, 40))):
 			errs.append("spawn inside solid")
-		if r.intersects(Rect2(basket + Vector2(-30, -110), Vector2(60, 100))):
+		if r.intersects(Rect2(basket + Vector2(-50, -150), Vector2(100, 142))):
 			errs.append("basket blocked by solid %s" % [s.r])
 	if not spawn_ok:
 		errs.append("no ground under spawn")

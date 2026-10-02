@@ -751,7 +751,7 @@ func _keycap(ci: Control, r: Rect2, action: String, key: String, caption: String
 
 
 func _draw_offscreen(ci: Control, vs: Vector2, p) -> void:
-	_offscreen(ci, level.basket_pos + Vector2(0, -60), _ldr(level.th.get("basket", UI.GOLD)), "BASKET", vs, 0)
+	_offscreen(ci, level.basket_pos + Vector2(0, -85), _ldr(level.th.get("basket", UI.GOLD)), "BASKET", vs, 0)
 	if not p.has_disc and runner.disc.state != Disc.SCORED:
 		_offscreen(ci, runner.disc.global_position, _ldr(runner.disc.color), "DISC", vs, 1)
 

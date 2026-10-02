@@ -315,7 +315,7 @@ func _update_lie() -> void:
 func _update_camera(dt: float) -> void:
 	var target: Vector2
 	if done:
-		target = level.basket_pos + Vector2(0, -120)
+		target = level.basket_pos + Vector2(0, -140)
 	else:
 		var c: Vector2 = player.center()
 		var v: Vector2 = player.velocity
@@ -399,8 +399,8 @@ func _on_scored() -> void:
 	finish_time = total_time()
 	var th: Dictionary = level.th
 	level.basket.hit(1500.0)
-	spawn_burst(level.basket_pos + Vector2(0, -60), th.get("basket", Color(2, 2, 0.3)), 60)
-	spawn_burst(level.basket_pos + Vector2(0, -60), player.color * 2.0, 40)
+	spawn_burst(level.basket_pos + Vector2(0, -85), th.get("basket", Color(2, 2, 0.3)), 60)
+	spawn_burst(level.basket_pos + Vector2(0, -85), player.color * 2.0, 40)
 	play_sfx("chains_big", level.basket_pos)
 	play_sfx("fanfare", level.basket_pos)
 	shake(12.0)
