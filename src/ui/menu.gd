@@ -505,7 +505,7 @@ func _page_controls() -> void:
 	cols.add_child(right)
 	var K := func(a): return Bindings.labels(a)
 	var lines_l := [
-		[K.call("move_left") + " · " + K.call("move_right"), "run  (carrying the disc is ~25% slower)"],
+		[K.call("move_left") + " · " + K.call("move_right"), "run  (carrying the disc is ~38% slower)"],
 		[K.call("jump"), "jump · double jump in the air · wall-jump · jump off rope"],
 		[K.call("move_down"), "slide at speed (boost) · crouch · fast-fall"],
 		[K.call("grapple"), "grapple swing (hold) · up/down reel · run keys pump"],
