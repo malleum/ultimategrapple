@@ -1,6 +1,7 @@
 # Ultimate Grapple — notes for Claude
 
 - Sole developer project: commit and push directly to `main`. No feature branches, no PRs.
+- Never commit to `malleum/nixos` (the minimus server config). The user bumps its `flake.lock` for ultimate-grapple themselves; when a change touches the online protocol, just say the server needs a bump.
 - Engine: Godot 4.7 (GDScript). Run from source: `godot4 --path .`; package: `nix run .`.
 - Before pushing, run the headless checks:
   - `godot4 --headless --import` (refreshes script class cache)
