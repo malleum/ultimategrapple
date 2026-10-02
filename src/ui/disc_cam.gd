@@ -21,6 +21,8 @@ const VIEW := Vector2i(640, 360)
 const HOLD := 1.2           # seconds on the last frame before looping
 const SLOWMO := 0.35        # playback speed around the moment it hits the chains
 const SLOWMO_TICKS := 45    # ... for this many ticks either side
+const ZOOM_NEAR := 1.3      # disc in hand / slow
+const ZOOM_FAR := 0.8       # disc at full speed
 
 var runner: Node
 var frames: Array = []
@@ -36,6 +38,7 @@ var hold_t := 0.0
 var cam_pos := Vector2.ZERO
 var cam_rot := 0.0
 var flip := 1.0            # smoothed y mirror: -1 = disc upside down
+var zoom := ZOOM_NEAR
 var _main_vp: Viewport
 var _main_mask := 0
 
@@ -159,6 +162,7 @@ func _restart() -> void:
 	var pz: Vector2 = f[2]
 	cam_rot = pz.x if lock_on() else 0.0
 	flip = (-1.0 if pz.y < 0.0 else 1.0) if lock_on() else 1.0
+	zoom = ZOOM_NEAR
 	disc_draw.trail.clear()
 
 
@@ -212,8 +216,10 @@ func _process(dt: float) -> void:
 	var want_flip := (-1.0 if pz.y < 0.0 else 1.0) if lock else 1.0
 	flip = move_toward(flip, want_flip, dt * 4.0)
 	var fy := flip if absf(flip) > 0.05 else 0.05 * signf(flip + 0.0001)
-	var z: float = runner.camera.zoom.x if runner.camera else 0.85
-	z *= Vector2(sv.size).x / float(runner.player.get_viewport().get_visible_rect().size.x) * 1.6
+	# close in while carried, pulling out as the disc flies faster
+	var spd: float = (b[1] as Vector2).distance_to(a[1]) * Engine.physics_ticks_per_second
+	zoom = lerpf(zoom, lerpf(ZOOM_NEAR, ZOOM_FAR, clampf(spd / 1600.0, 0.0, 1.0)), 1.0 - exp(-3.0 * dt))
+	var z := zoom * Vector2(sv.size).x / float(VIEW.x)
 	var c := Vector2(sv.size) * 0.5
 	sv.canvas_transform = Transform2D.IDENTITY.translated(-cam_pos).rotated(-cam_rot).scaled(Vector2(z, z * fy)).translated(c)
 	if bg.sky_mat:
