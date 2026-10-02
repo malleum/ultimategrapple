@@ -64,6 +64,7 @@ func _ready() -> void:
 	medals = level_data.get("medals", {})
 	if local_players.is_empty():
 		local_players = [{"input": PlayerInput.new(PlayerInput.ANY), "name": str(Game.settings.player_name), "color": Game.player_color()}]
+	split_xs = _make_splits()
 	_build_environment()
 	_build_world()
 	_build_runners()
@@ -92,6 +93,53 @@ func _exit_tree() -> void:
 # every runner's 30 Hz frames on the race clock (the same frames ghosts use),
 # so it can be watched afterwards following any runner. Online, the others'
 # frames are the ones their clients streamed to us.
+
+var split_xs: Array = []     # x positions of the split lines (the finish is the last split)
+
+
+## Split lines: the intended route cut into equal lengths, one split per two
+## generator segments (3..8 splits counting the finish).
+func _make_splits() -> Array:
+	var route: Array = level_data.get("route", [])
+	if route.size() < 2:
+		return []
+	var n := clampi(int(level_data.get("segments", []).size() / 2), 3, 8)
+	var pts: Array = []
+	for rp in route:
+		pts.append(Vector2(float(rp[0]), float(rp[1])))
+	var total := 0.0
+	for i in range(1, pts.size()):
+		total += pts[i - 1].distance_to(pts[i])
+	if total < 1.0:
+		return []
+	var xs: Array = []
+	var acc := 0.0
+	var k := 1
+	var maxx: float = pts[0].x
+	for i in range(1, pts.size()):
+		var seg: float = pts[i - 1].distance_to(pts[i])
+		while k < n and acc + seg >= total * k / n:
+			var f := (total * k / n - acc) / maxf(seg, 0.001)
+			var x: float = lerpf(pts[i - 1].x, pts[i].x, f)
+			maxx = maxf(maxx, x)
+			xs.append(maxx)
+			k += 1
+		acc += seg
+	return xs
+
+
+var rival := {}              # solo: a friend's run raced as a ghost {frames, name, time, color}
+var wind_zones: Array = []   # Zone nodes of kind "wind" (for the aim readout)
+
+
+## Sum of the wind forces at a world point.
+func wind_at(p: Vector2) -> Vector2:
+	var w := Vector2.ZERO
+	for z in wind_zones:
+		if z.rect.has_point(p):
+			w += z.force
+	return w
+
 
 var race_start_ms := -1
 var net_results := {}       # online: peer id -> finish time (from the server)
@@ -197,6 +245,8 @@ func _build_world() -> void:
 				z.level = self
 				world.add_child(z)
 				shared_resettables.append(z)
+				if z.kind == "wind":
+					wind_zones.append(z)
 			"mover":
 				var m := Mover.new()
 				m.setup(e, th)

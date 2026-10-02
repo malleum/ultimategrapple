@@ -165,6 +165,7 @@ func _process(dt: float) -> void:
 		pp.t += dt
 	popups = popups.filter(func(x): return x.t < x.dur)
 	snap_t = maxf(0.0, snap_t - dt)
+	split_flash = maxf(0.0, split_flash - dt)
 	flow_pop = maxf(0.0, flow_pop - dt * 3.0)
 	if flow_t > 0.0 and not get_tree().paused:
 		flow_t -= dt
@@ -317,6 +318,7 @@ func _draw_hud() -> void:
 	_draw_timer(ci, vs)
 	_draw_course_card(ci, vs)
 	_draw_medal_ladder(ci, vs)
+	_draw_splits(ci, vs)
 	_draw_throw_cards(ci, vs, p)
 	_draw_nose(ci, vs, p)
 	_draw_badges(ci, vs, p)
@@ -448,6 +450,13 @@ func _draw_course_card(ci: Control, vs: Vector2) -> void:
 		_slab(ci, lr, 8.0, Color(0.02, 0.015, 0.06, 0.6), Color(1, 1, 1, 0.1))
 		ci.draw_circle(lr.position + Vector2(20, 13), 6, MEDAL_LDR.get(rm, MEDAL_LDR[""]))
 		_text(ci, lr.position + Vector2(34, 18), line, 14, Color(0.9, 0.92, 1.0), HORIZONTAL_ALIGNMENT_LEFT, -1, _bold, 0)
+	if not level.rival.is_empty() and level.mode == "solo":
+		var vy: float = r.end.y + (38.0 if rec else 6.0)
+		var vline := "VS %s  %s" % [str(level.rival.name).to_upper(), Game.format_time(float(level.rival.time))]
+		var vr := Rect2(12, vy, _text_w(vline, 14, _bold) + 50, 26)
+		_slab(ci, vr, 8.0, Color(0.02, 0.015, 0.06, 0.6), Color(level.rival.color, 0.4))
+		ci.draw_circle(vr.position + Vector2(20, 13), 6, level.rival.color)
+		_text(ci, vr.position + Vector2(34, 18), vline, 14, Color(1.0, 0.92, 0.85), HORIZONTAL_ALIGNMENT_LEFT, -1, _bold, 0)
 
 
 func _draw_medal_ladder(ci: Control, vs: Vector2) -> void:
@@ -473,6 +482,87 @@ func _draw_medal_ladder(ci: Control, vs: Vector2) -> void:
 		y += 34.0
 	if m.has("par"):
 		_text(ci, Vector2(x + 24, r.end.y - 9), "PAR  " + Game.format_time(float(m.par)), 12, Color(1, 1, 1, 0.5), HORIZONTAL_ALIGNMENT_LEFT, -1, _bold, 0)
+
+
+# ---------------------------------------------------------------- splits
+
+const SPLIT_GOLD := Color(1.0, 0.82, 0.25)
+const SPLIT_AHEAD := Color(0.35, 1.0, 0.55)
+const SPLIT_BEHIND := Color(1.0, 0.42, 0.4)
+var split_flash := 0.0    # seconds left showing the last split's delta under the timer
+var split_last := -1
+
+
+func on_split(i: int) -> void:
+	split_last = i
+	split_flash = 2.2
+
+
+## +1.23 / −0.45 (true minus sign so the column lines up)
+static func _short_time(t: float) -> String:
+	return "%.2f" % t if t < 60.0 else "%d:%05.2f" % [int(t / 60.0), fmod(t, 60.0)]
+
+
+static func _delta_text(d: float) -> String:
+	return ("+" if d >= 0.0 else "−") + "%.2f" % absf(d)
+
+
+func _split_color(i: int, d: float) -> Color:
+	if i < runner.split_gold.size() and runner.split_gold[i]:
+		return SPLIT_GOLD
+	return SPLIT_AHEAD if d < 0.0 else SPLIT_BEHIND
+
+
+## LiveSplit-style column under the medal ladder: one row per split with the
+## PB time, turning into the delta (green ahead, red behind, gold = best
+## segment ever) once crossed. Time trial modes only.
+func _draw_splits(ci: Control, vs: Vector2) -> void:
+	if not level.is_timetrial():
+		return
+	var n: int = runner.split_count()
+	if n == 0:
+		return
+	var e: Dictionary = Game.get_splits(level.level_id, n)
+	var pb: Array = e.pb
+	var x := vs.x - 268.0
+	var y0 := 12.0 + 40.0 + 34.0 * 4 + 10.0
+	var row := 25.0
+	var r := Rect2(x, y0, 256, 30 + row * n)
+	_slab(ci, r, 12.0, Color(0.02, 0.015, 0.06, 0.72), Color(1, 1, 1, 0.1))
+	_text(ci, Vector2(x + 18, y0 + 20), "SPLITS", 12, Color(1, 1, 1, 0.45), HORIZONTAL_ALIGNMENT_LEFT, -1, _bold, 0)
+	var done_n: int = runner.split_times.size()
+	for i in n:
+		var yy := y0 + 30.0 + row * i
+		var cur: bool = i == done_n and not runner.done
+		if cur:
+			ci.draw_rect(Rect2(x + 8, yy - 2, 240, row - 2), Color(0.4, 0.8, 1.0, 0.12))
+		var label := "FINISH" if i == n - 1 else "SPLIT %d" % (i + 1)
+		_text(ci, Vector2(x + 18, yy + 16), label, 13, Color(1, 1, 1, 0.8 if cur else 0.55), HORIZONTAL_ALIGNMENT_LEFT, -1, _bold, 0)
+		var has_pb := i < pb.size()
+		if i < done_n:
+			var tm: float = runner.split_times[i]
+			if has_pb:
+				var d: float = tm - float(pb[i])
+				_text(ci, Vector2(x + 110, yy + 16), _delta_text(d), 14, _split_color(i, d), HORIZONTAL_ALIGNMENT_LEFT, -1, _mono, 0)
+			_text(ci, Vector2(x + 172, yy + 16), _short_time(tm), 14, Color(1, 1, 1, 0.9), HORIZONTAL_ALIGNMENT_LEFT, -1, _mono, 0)
+		elif has_pb:
+			_text(ci, Vector2(x + 172, yy + 16), _short_time(float(pb[i])), 14, Color(1, 1, 1, 0.35), HORIZONTAL_ALIGNMENT_LEFT, -1, _mono, 0)
+	# the split just crossed, big under the timer
+	if split_flash > 0.0 and split_last >= 0 and split_last < done_n:
+		var a := clampf(split_flash / 0.4, 0.0, 1.0)
+		var tm2: float = runner.split_times[split_last]
+		var txt := Game.format_time(tm2)
+		var col := Color(1, 1, 1)
+		if split_last < pb.size():
+			var d2: float = tm2 - float(pb[split_last])
+			txt = _delta_text(d2)
+			col = _split_color(split_last, d2)
+		elif split_last < runner.split_gold.size() and runner.split_gold[split_last]:
+			col = SPLIT_GOLD
+		var w := _text_w(txt, 26, _mono) + 40.0
+		var rr := Rect2(vs.x * 0.5 - w * 0.5, 158, w, 38)
+		_slab(ci, rr, 10.0, Color(0.02, 0.015, 0.06, 0.75 * a), Color(col, 0.5 * a))
+		_text(ci, Vector2(rr.position.x, rr.position.y + 28), txt, 26, Color(col, a), HORIZONTAL_ALIGNMENT_CENTER, rr.size.x, _mono, 4)
 
 
 func _draw_throw_cards(ci: Control, vs: Vector2, p) -> void:
@@ -989,6 +1079,12 @@ func show_results(tm: float, medal: String, is_pb: bool) -> void:
 	if flow_best >= 2:
 		chips.add_child(UI.label("FLOW ×%d" % flow_best, 20, Color(1, 0.5, 0.9)))
 	v.add_child(chips)
+	if not level.rival.is_empty() and not replaying:
+		var rt: float = level.rival.time
+		var who := str(level.rival.name)
+		var beat := tm < rt
+		var vs_txt := ("YOU BEAT %s BY %.2fs" % [who.to_upper(), rt - tm]) if beat else ("%s WAS %.2fs FASTER" % [who.to_upper(), tm - rt])
+		v.add_child(UI.label(vs_txt, 22, Color(0.5, 1, 0.7) if beat else Color(1, 0.6, 0.45), HORIZONTAL_ALIGNMENT_CENTER))
 	for m in ["bronze", "silver", "gold", "ace"]:
 		if level.medals.has(m) and tm > float(level.medals[m]):
 			v.add_child(UI.label("Next: %s at %s  (−%.2fs)" % [m.to_upper(), Game.format_time(float(level.medals[m])), tm - float(level.medals[m])], 18, UI.DIM, HORIZONTAL_ALIGNMENT_CENTER))

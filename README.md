@@ -39,6 +39,15 @@ Carry the disc, throw it, chase it, catch it, and chain your movement until it h
   stays comparable.
 - **Medals** are based on a par time (ACE, GOLD = par, SILVER, BRONZE). Personal-best
   ghosts replay against you.
+- **Splits.** Each course is cut into 3-8 splits along its route (a long throw carries you
+  through split lines too). The column under the medals shows your PB splits and, as you
+  cross each line, how far ahead (green) or behind (red) you are, gold for a best-ever
+  segment, LiveSplit style.
+- **Wind readout.** Holding the disc, every wind zone along your aim line gets a chevron
+  marker where the line enters it (direction and strength 1-5); in flight the disc shows
+  the wind it is in.
+- **Rumble.** Controllers vibrate on snaps (stronger the better the snap), catches,
+  grapples, hard landings, chains, deaths, and versus hits. Strength in Settings.
 
 ## Controls
 
@@ -105,6 +114,11 @@ reticle reads the screen behind it and switches to dark ink over bright skies.
   downhill slide acceleration, ice floors and speed boosters.
 
 ## Replays
+
+**Race a friend.** SHARE FILE on a replay saves it as a `.ugr` file in
+`~/Documents/Ultimate Grapple/`. Your friend drops it on the game window (or uses IMPORT
+FRIEND'S RUN on the REPLAYS page) and races your ghost, name and all, on the same course;
+the results card says who won and by how much.
 
 **Disc cam.** The results card plays the last 10 seconds of the run from the disc's
 point of view: carried in your hand, thrown, and into the chains (with a slow-mo moment as

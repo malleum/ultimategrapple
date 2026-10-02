@@ -8,13 +8,15 @@
   - `godot4 --headless --fixed-fps 120 -s tools/test_play.gd` (scripted gameplay + couch isolation)
   - `godot4 --headless --fixed-fps 120 -s tools/fuzz.gd -- 21 1500` (random-input fuzz)
   - `godot4 --headless --fixed-fps 120 -s tools/test_tunnels.gd` (slides through every spike-ceiling tunnel)
-  - `godot4 --headless -s tools/test_bindings.gd` (rebinding, side mouse buttons, wheel taps, pad)
+  - `godot4 --headless -s tools/test_bindings.gd` (rebinding, side mouse buttons, wheel taps, pad, rumble routing)
   - `godot4 --headless --fixed-fps 120 -s tools/test_replay.gd` (replay playback is exact; PB run saves + replays to the same time; no tween error flood after restart)
   - `godot4 --headless --fixed-fps 120 -s tools/test_grapple.gd` (grapple hold/regrab/through-platform/zip-around/cursor pick/range, double jump)
   - `godot4 --headless --fixed-fps 120 -s tools/test_moves.gd` (run speeds, ledge mantle instead of wall-jump, smooth short hop, ceiling corner nudge)
   - `godot4 --headless --fixed-fps 120 -s tools/test_versus.gd` (multiplayer: penalties freeze, disc clash, slide tackle, disc hits on runners)
   - `godot4 --headless --fixed-fps 120 -s tools/test_disccam.gd` (results card disc cam: clip, lock-to-disc view, layers restored)
   - `godot4 --headless --fixed-fps 120 -s tools/test_match.gd` (couch round saved as a match recording, plays back on the recorded paths)
+  - `godot4 --headless --fixed-fps 120 -s tools/test_splits.gd` (split lines along the route, PB splits + gold segments)
+  - `godot4 --headless --fixed-fps 120 -s tools/test_rival.gd` (share a run file, import it, race the friend's ghost)
   - `nix build .#default` (pck export + wrapper)
 - Avoid `:=` on Variant values (Dictionary/Array element access) — Godot treats failed inference as a parse error.
 - Course fairness checks live in `src/level/validator.gd` (used by test_gen on generated + `levels/*.json`). Changing generator geometry: bump `Gen.VERSION` and add a `Validator.repair()` step so old pinned saves get fixed on load.

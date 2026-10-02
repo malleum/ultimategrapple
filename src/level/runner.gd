@@ -17,6 +17,7 @@ const Overlay = preload("res://src/level/overlay.gd")
 const SpeedTrail = preload("res://src/fx/speed_trail.gd")
 const Hud = preload("res://src/ui/hud.gd")
 const PlayerInput = preload("res://src/core/player_input.gd")
+const Rumble = preload("res://src/core/rumble.gd")
 
 const POV_TICKS := 1200   # disc cam on the results card: the last 10 s before the chains
 const POV_AFTER := 100    # ... and a moment after
@@ -40,9 +41,12 @@ var camera: Camera2D
 var hud: CanvasLayer
 var overlay: Node2D
 var pb_ghost: Node2D
+var rival_ghost: Node2D = null   # a friend's imported run (Game.race_rival)
 var speed_trail: Node2D
 var pov_clip: Array = []   # per tick: [frame, disc pos, disc pose] (see _record_pov)
 var pov_after := 0
+var split_times: Array = []   # cumulative times at each split crossed this run (finish last)
+var split_gold: Array = []    # per split: that segment was a best-ever
 var follow_fn := Callable()   # match playback: [pos, vel] the camera follows instead
 var background: Node2D
 
@@ -125,6 +129,9 @@ func _ready() -> void:
 	# ---- actors
 	pb_ghost = Ghost.new()
 	add_child(pb_ghost)
+	if not level.rival.is_empty():
+		rival_ghost = Ghost.new()
+		add_child(rival_ghost)
 	disc = Disc.new()
 	disc.level = level
 	disc.runner = self
@@ -211,6 +218,10 @@ func restart() -> void:
 	respawn_t = -1.0
 	lie = level.spawn
 	rec_frames.clear()
+	split_times.clear()
+	split_gold.clear()
+	if level.mode == "solo":
+		Game.save_splits()
 	pov_clip.clear()
 	pov_after = 0
 	rec_tick = 0
@@ -234,6 +245,12 @@ func restart() -> void:
 
 
 func _setup_pb_ghost() -> void:
+	if rival_ghost:
+		rival_ghost.stop()
+		rival_ghost.setup_replay(level.rival.frames, level.rival.color)
+		rival_ghost.visual.name_tag = str(level.rival.name)
+		rival_ghost.visual.alpha = 0.6
+		rival_ghost.rewind()
 	pb_ghost.stop()
 	pb_ghost.visible = false
 	if not Game.settings.get("show_ghost", true):
@@ -270,6 +287,8 @@ func _physics_process(dt: float) -> void:
 		running = true
 		if pb_ghost.visible:
 			pb_ghost.start()
+		if rival_ghost:
+			rival_ghost.start()
 	# disc cam clip; online, keep sending a moment after the chains too so the
 	# others' disc cam sees it go in
 	var post := done and pov_after < POV_AFTER
@@ -280,6 +299,8 @@ func _physics_process(dt: float) -> void:
 	if running and not done:
 		time += dt
 		_record()
+		if level.is_timetrial():
+			_check_splits()
 	if level.mode == "multi" and ((running and not done) or post):
 		Net.send_state(_frame())
 		if not done:
@@ -346,6 +367,7 @@ func _remote_contacts() -> void:
 
 
 func on_tackle_landed(victim: String) -> void:
+	rumble("tackle_landed")
 	hud.popup("TACKLE!" if victim == "" else "TACKLED %s!" % victim.to_upper(), Color(2.2, 1.6, 0.3), 1.2)
 	shake(6.0)
 
@@ -360,6 +382,7 @@ const DISC_HIT_TEXT := {"head": ["HEADSHOT", "KNOCKED DOWN"], "arm": ["DISARMED"
 
 
 func on_disc_hit_landed(victim: String, zone: String) -> void:
+	rumble("hit_landed")
 	var t: String = DISC_HIT_TEXT.get(zone, ["HIT", "HIT"])[0]
 	hud.popup("%s!" % t if victim == "" else "%s %s!" % [t, victim.to_upper()], Color(2.2, 1.6, 0.3), 1.2)
 	shake(4.0)
@@ -502,13 +525,23 @@ func _on_scored() -> void:
 	spawn_burst(level.basket_pos + Vector2(0, -85), th.get("basket", Color(2, 2, 0.3)), 60)
 	spawn_burst(level.basket_pos + Vector2(0, -85), player.color * 2.0, 40)
 	play_sfx("chains_big", level.basket_pos)
+	rumble("chains")
 	play_sfx("fanfare", level.basket_pos)
 	shake(12.0)
 	pb_ghost.stop()
+	if rival_ghost:
+		rival_ghost.stop()
+	if split_count() > 0:
+		while split_times.size() < split_count() - 1:   # finished past a split line we never crossed
+			_split(finish_time)
+		_split(finish_time)
 	if level.mode == "solo":
 		inp.stop_recording()
 		var medal: String = level.medal_for(finish_time)
 		var is_pb := Game.submit_record(level.level_id, finish_time, player.throws, medal)
+		if is_pb and split_count() > 0:
+			Game.set_pb_splits(level.level_id, split_count(), split_times)
+		Game.save_splits()
 		if is_pb:
 			_record(true)
 			Game.save_ghost(level.level_id, rec_frames)
@@ -544,7 +577,41 @@ func _make_replay(medal: String) -> Dictionary:
 		"date": int(Time.get_unix_time_from_system()),
 		"input": inp.rec,
 		"track": track,
+		"ghost": rec_frames.duplicate(),
 	}
+
+
+## Controller rumble for this runner's own pad(s).
+func rumble(name: String, scale := 1.0) -> void:
+	if level.mode != "replay" and level.mode != "match":
+		Rumble.play(inp, name, scale)
+
+
+func _rumble_fx(kind: String, data) -> void:
+	if level.mode == "replay" or level.mode == "match":
+		return
+	match kind:
+		"throw":
+			rumble("throw", 0.5 + 0.5 * float(data.power))
+		"snap":
+			Rumble.snap(inp, float(data.score))
+		"catch":
+			rumble("sky_catch" if data else "catch")
+		"grapple_attach":
+			rumble("grapple")
+		"land":
+			if float(data) > 900.0:
+				rumble("land_hard", clampf(float(data) / 1600.0, 0.3, 1.0))
+		"boost", "booster", "pivot_launch":
+			rumble("pad")
+		"death":
+			rumble("death")
+		"frozen":
+			rumble("frozen")
+		"tackled":
+			rumble("tackled")
+		"disc_hit":
+			rumble("hit_" + str(data.zone), 0.5 + 0.5 * float(data.power))
 
 
 func _on_disc_impact(kind: String, strength: float) -> void:
@@ -574,6 +641,7 @@ func _on_disc_impact(kind: String, strength: float) -> void:
 		"runner":
 			play_sfx("disc_hit", p, clampf(strength / 1100.0, 0.3, 1.0), 1.15)
 		"clash":
+			rumble("clash")
 			play_sfx("pole", p, 1.0, 1.4)
 			spawn_burst(p, Color(2.2, 2.0, 2.2), 16)
 			hud.popup("CLASH!", Color(2.0, 1.8, 2.2), 0.8)
@@ -581,6 +649,7 @@ func _on_disc_impact(kind: String, strength: float) -> void:
 
 func _on_player_fx(kind: String, pos: Vector2, data) -> void:
 	var th: Dictionary = level.th
+	_rumble_fx(kind, data)
 	match kind:
 		"jump":
 			play_sfx("jump", pos)
@@ -682,6 +751,35 @@ func _frame() -> Array:
 	f.append_array([snappedf(disc.global_position.x, 0.1), snappedf(disc.global_position.y, 0.1), dvis,
 		snappedf(pz.x, 0.01), snappedf(pz.y, 0.01)])
 	return f
+
+
+func split_count() -> int:
+	return level.split_xs.size() + 1 if not level.split_xs.is_empty() else 0
+
+
+func _check_splits() -> void:
+	var xs: Array = level.split_xs
+	# progress is the runner, or the disc while it's out (a long throw carries
+	# you through split lines too)
+	var x: float = player.global_position.x
+	if disc.state != Disc.HELD and disc.state != Disc.SCORED:
+		x = maxf(x, disc.global_position.x)
+	while split_times.size() < xs.size() and x >= float(xs[split_times.size()]):
+		_split(total_time())
+
+
+func _split(tm: float) -> void:
+	var i := split_times.size()
+	var prev: float = split_times[-1] if i > 0 else 0.0
+	split_times.append(tm)
+	var gold := false
+	if level.mode == "solo" and tm - prev > 0.001:
+		gold = Game.note_segment(level.level_id, split_count(), i, tm - prev)
+	else:
+		var e: Dictionary = Game.get_splits(level.level_id, split_count())
+		gold = i < e.gold.size() and float(e.gold[i]) >= 0.0 and tm - prev <= float(e.gold[i]) + 0.0005
+	split_gold.append(gold)
+	hud.on_split(i)
 
 
 func _record_pov() -> void:

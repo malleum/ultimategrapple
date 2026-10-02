@@ -589,7 +589,34 @@ func _page_replays() -> void:
 		h.add_child(tm)
 		h.add_child(UI.button("WATCH", func(): Game.play_replay(id), 20))
 		h.add_child(UI.button("EXPORT MP4", func(): Game.export_replay_mp4(id), 20))
+		h.add_child(UI.button("SHARE FILE", func(): Game.export_run_file(id), 20))
 		rows.add_child(h)
+	# friends' runs (imported .ugr files)
+	var rivals := Game.list_rivals()
+	rows.add_child(UI.label("FRIENDS' RUNS", 28, UI.NEON))
+	if rivals.is_empty():
+		rows.add_child(UI.label("SHARE FILE saves your run as a .ugr in %s. Import a friend's (or drop it on the window) to race their ghost on that course." % Game.share_dir(), 18, UI.DIM))
+	for e in rivals:
+		var rid: String = str(e.get("id", ""))
+		var rh := UI.hbox(14)
+		rh.add_child(UI.label("◆", 22, Color(1, 0.6, 0.3)))
+		var rn := UI.label(str(e.get("name", "Course")), 22)
+		rn.custom_minimum_size = Vector2(330, 0)
+		rn.clip_text = true
+		rh.add_child(rn)
+		var rp := UI.label(str(e.get("player", "Friend")), 18, UI.DIM)
+		rp.custom_minimum_size = Vector2(170, 0)
+		rp.clip_text = true
+		rh.add_child(rp)
+		var rt := UI.label(Game.format_time(float(e.get("time", 0.0))), 22, UI.GOLD)
+		rt.custom_minimum_size = Vector2(150, 0)
+		rh.add_child(rt)
+		rh.add_child(UI.button("RACE", func(): Game.race_rival(rid), 20))
+		rh.add_child(UI.button("WATCH", func():
+			if not Game.watch_rival(rid):
+				_on_export_status("That run was made with another version of the game: race it as a ghost instead.", true), 20))
+		rh.add_child(UI.button("REMOVE", func(): Game.delete_rival(rid); show_page("replays"), 20))
+		rows.add_child(rh)
 	# couch + online rounds
 	var matches := Game.list_matches()
 	rows.add_child(UI.label("MATCHES", 28, UI.NEON))
@@ -619,6 +646,10 @@ func _page_replays() -> void:
 	replay_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(replay_status)
 	var b := UI.hbox(16)
+	b.add_child(UI.button("IMPORT FRIEND'S RUN", _import_dialog, 20))
+	b.add_child(UI.button("OPEN SHARE FOLDER", func():
+		DirAccess.make_dir_recursive_absolute(Game.share_dir())
+		OS.shell_open(Game.share_dir()), 20))
 	b.add_child(UI.button("OPEN VIDEOS FOLDER", func():
 		DirAccess.make_dir_recursive_absolute(Game.videos_dir())
 		OS.shell_open(Game.videos_dir()), 20))
@@ -626,6 +657,25 @@ func _page_replays() -> void:
 	v.add_child(b)
 	if not Game.export_status.is_connected(_on_export_status):
 		Game.export_status.connect(_on_export_status)
+
+
+func _import_dialog() -> void:
+	var fd := FileDialog.new()
+	fd.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	fd.access = FileDialog.ACCESS_FILESYSTEM
+	fd.filters = PackedStringArray(["*.ugr ; Ultimate Grapple runs"])
+	fd.use_native_dialog = true
+	DirAccess.make_dir_recursive_absolute(Game.share_dir())
+	fd.current_dir = Game.share_dir()
+	fd.title = "Import a friend's run"
+	fd.file_selected.connect(func(path):
+		var err := Game.import_rival(path)
+		show_page("replays")
+		_on_export_status(err if err != "" else "Imported %s" % path.get_file(), true)
+		fd.queue_free())
+	fd.canceled.connect(fd.queue_free)
+	add_child(fd)
+	fd.popup_centered_ratio(0.7)
 
 
 func _on_export_status(tx: String, _done: bool) -> void:
@@ -778,7 +828,7 @@ func _page_settings() -> void:
 	var v := UI.vbox(12)
 	panel.add_child(v)
 	v.add_child(UI.label("SETTINGS", 44, UI.NEON))
-	for key in ["master_volume", "music_volume", "sfx_volume", "screen_shake"]:
+	for key in ["master_volume", "music_volume", "sfx_volume", "screen_shake", "rumble"]:
 		var k: String = key
 		v.add_child(UI.label(k.replace("_", " ").capitalize(), 20))
 		v.add_child(UI.slider(0, 1, float(Game.settings[k]), 0.05, func(x): Game.settings[k] = x; Game.save_settings()))

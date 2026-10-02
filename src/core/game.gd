@@ -40,7 +40,8 @@ var settings := {
 	"player_color": 0,
 	"bindings": {},
 	"online_server": "joshammer.com",
-	"disc_cam_lock": true,   # finish replay: the disc stays level and the world turns
+	"disc_cam_lock": true,
+	"rumble": 1.0,           # controller vibration strength (0 = off)   # finish replay: the disc stays level and the world turns
 }
 
 ## level_id -> {time: float, throws: int, medal: String}
@@ -59,6 +60,7 @@ func _ready() -> void:
 	Bindings.load_from(settings.bindings)
 	_load_records()
 	DirAccess.make_dir_recursive_absolute(PINNED_USER_DIR)
+	get_tree().root.files_dropped.connect(_on_files_dropped)
 	DirAccess.make_dir_recursive_absolute(GHOST_DIR)
 	DirAccess.make_dir_recursive_absolute(REPLAY_DIR)
 	var args := OS.get_cmdline_user_args()
@@ -151,6 +153,48 @@ func submit_record(level_id: String, time: float, throws: int, medal: String) ->
 	return better
 
 
+# ---------------------------------------------------------------- splits
+# Per course: the PB run's cumulative split times and the best time ever for
+# each segment ("gold"), LiveSplit style. Reset when the split count changes.
+
+const SPLITS_PATH := "user://splits.json"
+var _splits := {}
+var _splits_loaded := false
+
+
+func get_splits(level_id: String, n: int) -> Dictionary:
+	if not _splits_loaded:
+		_splits_loaded = true
+		var d = _load_json(SPLITS_PATH, {})
+		_splits = d if d is Dictionary else {}
+	var e = _splits.get(level_id)
+	if not e is Dictionary or int(e.get("n", 0)) != n:
+		e = {"n": n, "pb": [], "gold": []}
+		_splits[level_id] = e
+	return e
+
+
+## A segment was completed in `seg` seconds: keep it if it's the best yet.
+func note_segment(level_id: String, n: int, i: int, seg: float) -> bool:
+	var e := get_splits(level_id, n)
+	var gold: Array = e.gold
+	while gold.size() <= i:
+		gold.append(-1.0)
+	if float(gold[i]) < 0.0 or seg < float(gold[i]):
+		gold[i] = seg
+		return true
+	return false
+
+
+func set_pb_splits(level_id: String, n: int, times: Array) -> void:
+	get_splits(level_id, n).pb = times.duplicate()
+
+
+func save_splits() -> void:
+	if _splits_loaded and not render_mode:
+		_save_json(SPLITS_PATH, _splits)
+
+
 func get_record(level_id: String):
 	return records.get(level_id)
 
@@ -235,12 +279,13 @@ func goto_menu(page: String = "title") -> void:
 
 
 ## mode: "solo" | "multi"
-func play_level(data: Dictionary, mode: String = "solo", local_players: Array = [], replay: Dictionary = {}) -> Node:
+func play_level(data: Dictionary, mode: String = "solo", local_players: Array = [], replay: Dictionary = {}, rival: Dictionary = {}) -> Node:
 	var lvl := LevelScript.new()
 	lvl.level_data = data
 	lvl.mode = mode
 	lvl.local_players = local_players
 	lvl.replay = replay
+	lvl.rival = rival
 	if mode == "solo":
 		_note_recent(str(data.get("id", "")))
 	change_scene(lvl)
@@ -343,6 +388,153 @@ func play_replay(level_id: String) -> bool:
 	var who := {"input": ReplayInput.new(rep.input), "name": str(rep.get("player", "Runner")), "color": rep.get("color", player_color())}
 	play_level(rep.level, "replay", [who], rep)
 	return true
+
+
+# ---------------------------------------------------------------- friends' runs
+# SHARE FILE writes a personal-best replay (plus its ghost frames) as a .ugr
+# file; a friend imports it (button, or drop the file on the window) and can
+# race it as a named ghost on the same course, or watch it.
+
+const RIVAL_DIR := "user://rivals"
+const RIVAL_INDEX := "user://rivals/index.json"
+
+
+func share_dir() -> String:
+	var d := OS.get_system_dir(OS.SYSTEM_DIR_DOCUMENTS)
+	if d == "":
+		d = OS.get_environment("HOME")
+	return d.path_join("Ultimate Grapple")
+
+
+func export_run_file(level_id: String) -> String:
+	var rep := load_replay(level_id)
+	if rep.is_empty():
+		export_status.emit("No replay saved for this course", true)
+		return ""
+	if not rep.has("ghost"):
+		rep["ghost"] = load_ghost(level_id)
+	DirAccess.make_dir_recursive_absolute(share_dir())
+	var base := "%s %s %s" % [str(rep.name), format_time(float(rep.time)).replace(":", "m"), str(rep.get("player", "Runner"))]
+	var path := share_dir().path_join(base.validate_filename().replace(" ", "_") + ".ugr")
+	var f := FileAccess.open_compressed(path, FileAccess.WRITE, FileAccess.COMPRESSION_ZSTD)
+	if f == null:
+		export_status.emit("Could not write %s" % path, true)
+		return ""
+	rep["kind"] = "run"
+	f.store_var(rep)
+	f.close()
+	export_status.emit("Saved %s. Send it to a friend: they drop it on the game window (or IMPORT) to race your ghost." % path, true)
+	return path
+
+
+## Import a friend's .ugr. Returns "" on success, else what went wrong.
+func import_rival(path: String) -> String:
+	var f := FileAccess.open_compressed(path, FileAccess.READ, FileAccess.COMPRESSION_ZSTD)
+	if f == null:
+		return "Could not open %s" % path.get_file()
+	var v = f.get_var()   # no objects: plain data only
+	f.close()
+	if not (v is Dictionary and v.get("level") is Dictionary and v.has("time")):
+		return "%s is not an Ultimate Grapple run" % path.get_file()
+	var frames: Array = v.get("ghost", []) if v.get("ghost") is Array else []
+	if frames.size() < 3:
+		frames = ghost_from_track(v.get("track", PackedVector2Array()))
+	if frames.size() < 3:
+		return "%s has no ghost in it" % path.get_file()
+	v["ghost"] = frames
+	var lid := str(v.get("level_id", v.level.get("id", "course")))
+	var who := str(v.get("player", "Friend"))
+	var id := ("%s__%s" % [lid, who]).validate_filename().replace(" ", "_")
+	DirAccess.make_dir_recursive_absolute(RIVAL_DIR)
+	var out := FileAccess.open_compressed(RIVAL_DIR + "/" + id + ".ugr", FileAccess.WRITE, FileAccess.COMPRESSION_ZSTD)
+	if out == null:
+		return "Could not store the run"
+	out.store_var(v)
+	out.close()
+	var idx = _load_json(RIVAL_INDEX, [])
+	if not idx is Array:
+		idx = []
+	idx = idx.filter(func(e): return str(e.get("id", "")) != id)
+	idx.push_front({"id": id, "name": str(v.get("name", "Course")), "player": who, "time": float(v.time),
+		"theme": str(v.get("theme", "")), "level_id": lid, "date": int(Time.get_unix_time_from_system())})
+	_save_json(RIVAL_INDEX, idx)
+	return ""
+
+
+## Ghost frames rebuilt from a replay's per-tick track (older files without
+## ghost frames): position, velocity, disc position every 4 ticks.
+func ghost_from_track(track) -> Array:
+	var out: Array = []
+	if not track is PackedVector2Array:
+		return out
+	var ticks := int(track.size() / 4)
+	for k in range(0, ticks, 4):
+		var p: Vector2 = track[k * 4]
+		var v: Vector2 = track[k * 4 + 1]
+		var d: Vector2 = track[k * 4 + 2]
+		var dv: Vector2 = track[k * 4 + 3]
+		var held := dv == Vector2.ZERO and d.distance_to(p) < 60.0
+		var flags := (1 if absf(v.y) < 1.0 else 0) | (8 if held else 0)
+		out.append([p.x, p.y, v.x, v.y, 1 if v.x >= 0.0 else -1, flags, 0.0, 0.0, d.x, d.y, 0 if held else 1])
+	return out
+
+
+func list_rivals() -> Array:
+	var idx = _load_json(RIVAL_INDEX, [])
+	if not idx is Array:
+		return []
+	return idx.filter(func(e): return e is Dictionary and FileAccess.file_exists(RIVAL_DIR + "/" + str(e.get("id", "")) + ".ugr"))
+
+
+func load_rival(id: String) -> Dictionary:
+	var f := FileAccess.open_compressed(RIVAL_DIR + "/" + id.validate_filename() + ".ugr", FileAccess.READ, FileAccess.COMPRESSION_ZSTD)
+	if f == null:
+		return {}
+	var v = f.get_var()
+	return v if v is Dictionary and v.get("level") is Dictionary else {}
+
+
+func delete_rival(id: String) -> void:
+	DirAccess.remove_absolute(RIVAL_DIR + "/" + id.validate_filename() + ".ugr")
+	var idx = _load_json(RIVAL_INDEX, [])
+	if idx is Array:
+		_save_json(RIVAL_INDEX, idx.filter(func(e): return str(e.get("id", "")) != id))
+
+
+## Play the friend's course with their run as a named ghost.
+func race_rival(id: String) -> bool:
+	var v := load_rival(id)
+	if v.is_empty():
+		return false
+	var c = v.get("color", Color(1.0, 0.6, 0.2))
+	var rival := {"frames": v.ghost, "name": str(v.get("player", "Friend")), "time": float(v.time),
+		"color": c if c is Color else Color(1.0, 0.6, 0.2)}
+	var data: Dictionary = v.level.duplicate(true)
+	play_level(data, "solo", [], {}, rival)
+	return true
+
+
+## Watch the friend's run (when it was recorded with this replay version).
+func watch_rival(id: String) -> bool:
+	var v := load_rival(id)
+	if v.is_empty() or int(v.get("v", 0)) != REPLAY_VERSION or not v.has("input"):
+		return false
+	var who := {"input": ReplayInput.new(v.input), "name": str(v.get("player", "Friend")), "color": v.get("color", Color(1, 0.6, 0.2))}
+	play_level(v.level, "replay", [who], v)
+	return true
+
+
+func _on_files_dropped(files: PackedStringArray) -> void:
+	var msgs: Array = []
+	for fp in files:
+		if fp.get_extension().to_lower() in ["ugr", "rep"]:
+			var err := import_rival(fp)
+			msgs.append(err if err != "" else "Imported %s" % fp.get_file())
+	if msgs.is_empty():
+		return
+	export_status.emit("\n".join(msgs), true)
+	if current_scene and current_scene.has_method("show_page"):
+		current_scene.show_page("replays")
 
 
 # ---------------------------------------------------------------- match recordings

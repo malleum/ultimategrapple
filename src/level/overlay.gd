@@ -4,6 +4,7 @@ extends Node2D
 ## momentum arrow. Colours stay close to LDR so the bloom doesn't smear them.
 
 const Player = preload("res://src/player/player.gd")
+const Disc = preload("res://src/disc/disc.gd")
 const ThrowTypes = preload("res://src/disc/throw_types.gd")
 
 var runner: Node = null
@@ -113,6 +114,27 @@ func _draw() -> void:
 				draw_line(hand + dir * s, hand + dir * minf(s + 8.0, len), Color(gcol, 0.35 * e), 2.0)
 				s += 22.0
 
+	# ---------------------------------------------------------------- wind
+	# Holding the disc: every wind zone along the aim line gets a chip where
+	# the line enters it (direction + strength). In flight: a chip on the disc.
+	if p.state != Player.DEAD and not runner.level.wind_zones.is_empty():
+		if p.has_disc:
+			var m: Vector2 = p.mouse_world_draw()
+			var adir := (m - hand).normalized() if m.distance_to(hand) > 1.0 else Vector2(p.facing, 0)
+			var seen := {}
+			var s2 := 0.0
+			while s2 < WIND_LOOK:
+				var q := hand + adir * s2
+				for z in runner.level.wind_zones:
+					if not seen.has(z) and z.rect.has_point(q):
+						seen[z] = true
+						_wind_chip(q + Vector2(0, -26), z.force, 0.9 if s2 > 0.0 else 1.0)
+				s2 += 36.0
+		elif runner.disc.state == Disc.FLIGHT:
+			var w: Vector2 = runner.level.wind_at(runner.disc.global_position)
+			if w != Vector2.ZERO:
+				_wind_chip(runner.disc.global_position + Vector2(0, -30), w, 1.0)
+
 	# ---------------------------------------------------------------- rope
 	if (p.state == Player.SWING or p.state == Player.ZIP) and not p.anchors.is_empty():
 		var pts := PackedVector2Array()
@@ -218,6 +240,26 @@ func _draw_reticle() -> void:
 			c.draw_arc(m, 22.0, a0, a1, 4, Color(col, 0.95) if on else Color(0.6, 0.6, 0.6, 0.35), 4.0, true)
 		if full_flash > 0.0:
 			c.draw_arc(m, 22.0 + (1.0 - full_flash) * 16.0, 0, TAU, 32, Color(1, 1, 1, full_flash), 2.0, true)
+
+
+const WIND_LOOK := 1600.0   # how far along the aim line wind zones are flagged
+
+
+## Wind marker: a chevron arrow in the wind's direction, one chevron per
+## ~800 px/s² of force (1..5), on a dark pill so it reads on any sky.
+func _wind_chip(at: Vector2, force: Vector2, alpha: float) -> void:
+	var n := clampi(int(round(force.length() / 800.0)), 1, 5)
+	var d := force.normalized()
+	var o := d.orthogonal()
+	var col := Color(0.75, 1.5, 2.0, alpha)
+	var span := 9.0 * n + 12.0
+	draw_line(at - d * span * 0.5, at + d * span * 0.5, Color(0, 0, 0, 0.45 * alpha), 22.0, true)
+	var pulse := fmod(t * 1.6, 1.0)
+	for i in n:
+		var c := at + d * (-span * 0.5 + 9.0 + i * 9.0 + pulse * 3.0)
+		var pts := PackedVector2Array([c - d * 5.0 + o * 6.0, c + d * 2.0, c - d * 5.0 - o * 6.0])
+		draw_polyline(pts, col, 2.6, true)
+	draw_string(ThemeDB.fallback_font, at + Vector2(-20, 24), "WIND %d" % n, HORIZONTAL_ALIGNMENT_CENTER, 40, 11, Color(0.8, 1.4, 1.9, 0.9 * alpha))
 
 
 func _rope(pts: PackedVector2Array, col: Color, zip: bool) -> void:

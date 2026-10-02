@@ -1,6 +1,7 @@
 extends SceneTree
 ## Rebinding checks: side mouse buttons, wheel taps, key moves, controller
-## buttons/triggers, conflicts, snap timing hooks and save/load round-trip.
+## buttons/triggers, conflicts, snap timing hooks, save/load round-trip and
+## which pads rumble.
 ## godot --headless -s tools/test_bindings.gd
 
 const Bindings = preload("res://src/core/bindings.gd")
@@ -126,6 +127,16 @@ func _process(_dt: float) -> bool:
 	_check("round trip kbm", JSON.stringify(Bindings.kbm) == JSON.stringify(before.kbm))
 	_check("round trip pad", JSON.stringify(Bindings.pad) == JSON.stringify(before.pad))
 	_check("InputMap rebuilt", InputMap.action_get_events("jump").size() == 1 and InputMap.action_get_events("pause").size() == 1)
+
+	# rumble: only pads this input reads, and in solo only while a pad is in use
+	var Rumble = load("res://src/core/rumble.gd")
+	_check("rumble kbm: no pads", Rumble.pads_for(PlayerInput.new(PlayerInput.KBM)).is_empty())
+	var any_in := PlayerInput.new(PlayerInput.ANY)
+	any_in.using_pad = false
+	_check("rumble solo on keyboard: no pads", Rumble.pads_for(any_in).is_empty())
+	_check("rumble unplugged pad: nothing", Rumble.pads_for(PlayerInput.new(5)).is_empty())
+	for nm in Rumble.PATTERNS:
+		_check("rumble pattern %s" % nm, (Rumble.PATTERNS[nm] as Array).size() == 3)
 
 	Bindings.load_from(saved)
 	print("bindings: %d failures" % fails)
