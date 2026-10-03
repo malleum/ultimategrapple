@@ -241,7 +241,7 @@ func _input(event: InputEvent) -> void:
 
 func _current_medal(tm: float) -> String:
 	for m in MEDALS:
-		if level.medals.has(m) and tm <= float(level.medals[m]):
+		if level.medals.has(m) and Game.centis(tm) <= Game.centis(float(level.medals[m])):
 			return m
 	return ""
 
@@ -463,13 +463,11 @@ func _draw_timer(ci: Control, vs: Vector2) -> void:
 	if runner.done:
 		mcol = MEDAL_LDR.get(level.medal_for(runner.finish_time), MEDAL_LDR[""])
 	_slab(ci, r, 18.0, Color(0.02, 0.015, 0.06, 0.78), Color(mcol, 0.55))
-	# digits: MM:SS large + .mmm small, monospaced
+	# digits: MM:SS large + .cc small, monospaced (truncated like every other time)
 	var tm := time_shown
-	var mm := int(tm / 60.0)
-	var ss := int(fmod(tm, 60.0))
-	var ms := int(fmod(tm, 1.0) * 1000.0)
-	var big := "%02d:%02d" % [mm, ss]
-	var small := ".%03d" % ms
+	var cs := Game.centis(tm)
+	var big := "%02d:%02d" % [cs / 6000, (cs / 100) % 60]
+	var small := ".%02d" % (cs % 100)
 	var bw := _text_w(big, 64, _mono)
 	var sw := _text_w(small, 36, _mono)
 	var x0 := vs.x * 0.5 - (bw + sw) * 0.5
@@ -493,7 +491,7 @@ func _draw_timer(ci: Control, vs: Vector2) -> void:
 				continue
 			var mt := float(m[key])
 			var mx := bx + bwid * clampf(mt / top, 0.0, 1.0)
-			var gone := tm > mt
+			var gone := Game.centis(tm) > Game.centis(mt)
 			var col: Color = MEDAL_LDR[key]
 			ci.draw_line(Vector2(mx, by - 4), Vector2(mx, by + 10), Color(col, 0.35 if gone else 1.0), 3.0)
 			if key == cur and not runner.done:
@@ -504,7 +502,7 @@ func _draw_timer(ci: Control, vs: Vector2) -> void:
 			pb_mark = float(rec.time) if rec else 0.0
 		if pb_mark > 0.0 and level.mode == "solo":
 			var pbx := bx + bwid * clampf(pb_mark / top, 0.0, 1.0)
-			var pgone := tm > pb_mark
+			var pgone := Game.centis(tm) > Game.centis(pb_mark)
 			ci.draw_line(Vector2(pbx, by - 7), Vector2(pbx, by + 13), Color(0.02, 0.0, 0.06, 0.8), 6.0)
 			ci.draw_line(Vector2(pbx, by - 7), Vector2(pbx, by + 13), Color(0.55, 1.0, 0.75, 0.35 if pgone else 1.0), 3.0)
 			_text(ci, Vector2(pbx - 30, by - 10), "PB", 11, Color(0.55, 1.0, 0.75, 0.4 if pgone else 0.95), HORIZONTAL_ALIGNMENT_CENTER, 60, _bold, 3)
@@ -515,7 +513,7 @@ func _draw_timer(ci: Control, vs: Vector2) -> void:
 		# next medal countdown chip
 		if cur != "" and not runner.done:
 			var left := float(m[cur]) - tm
-			var chip := "%s  %.1fs" % [cur.to_upper(), left]
+			var chip := "%s  %ss" % [cur.to_upper(), Game.short_time(left)]
 			var cw := _text_w(chip, 15, _bold) + 26.0
 			var cr := Rect2(vs.x * 0.5 - cw * 0.5, r.end.y + 4, cw, 24)
 			_slab(ci, cr, 8.0, Color(mcol.r * 0.25, mcol.g * 0.25, mcol.b * 0.25, 0.85), Color(mcol, 0.7))
@@ -586,7 +584,7 @@ func _draw_medal_ladder(ci: Control, vs: Vector2) -> void:
 		if not m.has(key):
 			continue
 		var mt := float(m[key])
-		var lit: bool = tm <= mt
+		var lit: bool = Game.centis(tm) <= Game.centis(mt)
 		var col: Color = MEDAL_LDR[key]
 		_medal_coin(ci, Vector2(x + 34, y + 9), 13.0, key, lit, medal_flash.get(key, 0.0))
 		_text(ci, Vector2(x + 56, y + 15), key.to_upper(), 14, Color(col, 1.0 if lit else 0.4), HORIZONTAL_ALIGNMENT_LEFT, -1, _bold, 0)
@@ -598,7 +596,7 @@ func _draw_medal_ladder(ci: Control, vs: Vector2) -> void:
 		_text(ci, Vector2(x + 24, r.end.y - 9), "PAR  " + Game.format_time(float(m.par)), 12, Color(1, 1, 1, 0.5), HORIZONTAL_ALIGNMENT_LEFT, -1, _bold, 0)
 	# your PB beside par, struck through once the clock is past it
 	if pb_mark > 0.0 and level.mode == "solo":
-		var plit: bool = tm <= pb_mark
+		var plit: bool = Game.centis(tm) <= Game.centis(pb_mark)
 		var pc := Color(0.55, 1.0, 0.75, 0.95 if plit else 0.4)
 		var ptxt := "PB  " + Game.format_time(pb_mark)
 		_text(ci, Vector2(x + 140, r.end.y - 9), ptxt, 12, pc, HORIZONTAL_ALIGNMENT_LEFT, -1, _bold, 0)
@@ -621,13 +619,13 @@ func on_split(i: int) -> void:
 	split_flash = 2.2
 
 
-## +1.23 / −0.45 (true minus sign so the column lines up)
 static func _short_time(t: float) -> String:
-	return "%.2f" % t if t < 60.0 else "%d:%05.2f" % [int(t / 60.0), fmod(t, 60.0)]
+	return Game.short_time(t)
 
 
-static func _delta_text(d: float) -> String:
-	return ("+" if d >= 0.0 else "−") + "%.2f" % absf(d)
+## shown difference a - b in seconds (hundredths, truncated values)
+static func _shown_diff(a: float, b: float) -> float:
+	return (Game.centis(a) - Game.centis(b)) / 100.0
 
 
 func _split_color(i: int, d: float) -> Color:
@@ -664,8 +662,8 @@ func _draw_splits(ci: Control, vs: Vector2) -> void:
 		if i < done_n:
 			var tm: float = runner.split_times[i]
 			if has_pb:
-				var d: float = tm - float(pb[i])
-				_text(ci, Vector2(x + 110, yy + 16), _delta_text(d), 14, _split_color(i, d), HORIZONTAL_ALIGNMENT_LEFT, -1, _mono, 0)
+				var d: float = _shown_diff(tm, float(pb[i]))
+				_text(ci, Vector2(x + 110, yy + 16), Game.delta_text(tm, float(pb[i])), 14, _split_color(i, d), HORIZONTAL_ALIGNMENT_LEFT, -1, _mono, 0)
 			_text(ci, Vector2(x + 172, yy + 16), _short_time(tm), 14, Color(1, 1, 1, 0.9), HORIZONTAL_ALIGNMENT_LEFT, -1, _mono, 0)
 		elif has_pb:
 			_text(ci, Vector2(x + 172, yy + 16), _short_time(float(pb[i])), 14, Color(1, 1, 1, 0.35), HORIZONTAL_ALIGNMENT_LEFT, -1, _mono, 0)
@@ -676,8 +674,8 @@ func _draw_splits(ci: Control, vs: Vector2) -> void:
 		var txt := Game.format_time(tm2)
 		var col := Color(1, 1, 1)
 		if split_last < pb.size():
-			var d2: float = tm2 - float(pb[split_last])
-			txt = _delta_text(d2)
+			var d2: float = _shown_diff(tm2, float(pb[split_last]))
+			txt = Game.delta_text(tm2, float(pb[split_last]))
 			col = _split_color(split_last, d2)
 		elif split_last < runner.split_gold.size() and runner.split_gold[split_last]:
 			col = SPLIT_GOLD
@@ -1260,15 +1258,15 @@ func show_results(tm: float, medal: String, is_pb: bool, old_pb := -1.0) -> void
 		tw2.tween_property(pb, "modulate:a", 0.45, 0.5)
 		tw2.tween_property(pb, "modulate:a", 1.0, 0.5)
 		if old_pb > 0.0:
-			v.add_child(UI.label("−%.3fs  ·  old best %s" % [old_pb - tm, Game.format_time(old_pb)], 20,
+			v.add_child(UI.label("−%ss  ·  old best %s" % [Game.gap_text(old_pb, tm), Game.format_time(old_pb)], 20,
 				Color(0.5, 1, 0.7), HORIZONTAL_ALIGNMENT_CENTER))
 		else:
 			v.add_child(UI.label("first clear", 18, UI.DIM, HORIZONTAL_ALIGNMENT_CENTER))
 	var chips := UI.hbox(26)
 	chips.alignment = BoxContainer.ALIGNMENT_CENTER
 	if level.par_time() > 0.0:
-		var dp: float = tm - level.par_time()
-		chips.add_child(UI.label("%s%.2fs PAR" % ["+" if dp >= 0 else "−", absf(dp)], 20, Color(1, 0.55, 0.4) if dp > 0 else Color(0.5, 1, 0.7)))
+		var dp: float = _shown_diff(tm, level.par_time())
+		chips.add_child(UI.label("%ss PAR" % Game.delta_text(tm, level.par_time()), 20, Color(1, 0.55, 0.4) if dp > 0 else Color(0.5, 1, 0.7)))
 	chips.add_child(UI.label("◎ %d throws" % runner.player.throws, 20, Color(0.6, 0.9, 1.0)))
 	chips.add_child(UI.label("✕ %d deaths" % runner.deaths, 20, Color(1, 0.6, 0.6)))
 	if runner.penalty > 0.0:
@@ -1295,8 +1293,8 @@ func show_results(tm: float, medal: String, is_pb: bool, old_pb := -1.0) -> void
 	if rivals.size() == 1 and not replaying:
 		var rt: float = level.rival.time
 		var who := str(level.rival.name)
-		var beat := tm < rt
-		var vs_txt := ("YOU BEAT %s BY %.2fs" % [who.to_upper(), rt - tm]) if beat else ("%s WAS %.2fs FASTER" % [who.to_upper(), tm - rt])
+		var beat := Game.centis(tm) < Game.centis(rt)
+		var vs_txt := ("YOU BEAT %s BY %ss" % [who.to_upper(), Game.gap_text(rt, tm)]) if beat else ("%s WAS %ss FASTER" % [who.to_upper(), Game.gap_text(tm, rt)])
 		v.add_child(UI.label(vs_txt, 22, Color(0.5, 1, 0.7) if beat else Color(1, 0.6, 0.45), HORIZONTAL_ALIGNMENT_CENTER))
 	elif rivals.size() > 1 and not replaying:
 		var place := 1
@@ -1306,8 +1304,8 @@ func show_results(tm: float, medal: String, is_pb: bool, old_pb := -1.0) -> void
 		v.add_child(UI.label("%s OF %d AGAINST THE GHOSTS" % [ordinal(place), rivals.size() + 1], 22,
 			Color(0.5, 1, 0.7) if place == 1 else Color(1, 0.8, 0.5), HORIZONTAL_ALIGNMENT_CENTER))
 	for m in ["bronze", "silver", "gold", "ace"]:
-		if level.medals.has(m) and tm > float(level.medals[m]):
-			v.add_child(UI.label("Next: %s at %s  (−%.2fs)" % [m.to_upper(), Game.format_time(float(level.medals[m])), tm - float(level.medals[m])], 18, UI.DIM, HORIZONTAL_ALIGNMENT_CENTER))
+		if level.medals.has(m) and Game.centis(tm) > Game.centis(float(level.medals[m])):
+			v.add_child(UI.label("Next: %s at %s  (−%ss)" % [m.to_upper(), Game.format_time(float(level.medals[m])), Game.gap_text(tm, float(level.medals[m]))], 18, UI.DIM, HORIZONTAL_ALIGNMENT_CENTER))
 			break
 	var h := UI.hbox(14)
 	h.alignment = BoxContainer.ALIGNMENT_CENTER

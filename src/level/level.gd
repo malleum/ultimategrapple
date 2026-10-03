@@ -425,7 +425,7 @@ func _local_disc_hit(a, b) -> void:
 
 func medal_for(t: float) -> String:
 	for m in ["ace", "gold", "silver", "bronze"]:
-		if medals.has(m) and t <= float(medals[m]):
+		if medals.has(m) and Game.centis(t) <= Game.centis(float(medals[m])):
 			return m
 	return ""
 

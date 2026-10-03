@@ -73,6 +73,11 @@ func _physics_process(_dt: float) -> bool:
 		var shown: Array = r.split_pb()
 		_check("shown", absf(float(shown[3]) - float(first[3])) < 0.0001,
 			"results column still compares against the beaten PB (finish %.2f, delta %+.2fs)" % [float(shown[3]), float(second[3]) - float(shown[3])])
+		# every time on screen: hundredths, truncated, differences of the shown values
+		var ok_fmt: bool = G.format_time(15.9995) == "00:15.99" and G.format_time(16.0) == "00:16.00" \
+			and G.format_time(75.678) == "01:15.67" and G.short_time(9.999) == "9.99" \
+			and G.delta_text(15.9995, 17.0) == "−1.01" and G.delta_text(2.42, 2.16) == "+0.26" and G.gap_text(17.0, 15.9995) == "1.01"
+		_check("format", ok_fmt, "15.9995 -> %s, 16.0 -> %s, delta %s" % [G.format_time(15.9995), G.format_time(16.0), G.delta_text(15.9995, 17.0)])
 		var saved = JSON.parse_string(FileAccess.get_file_as_string(G.SPLITS_PATH))
 		_check("saved", saved is Dictionary and saved.has(ID), "splits.json has the course")
 		G.records.erase(ID)

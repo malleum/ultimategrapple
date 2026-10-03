@@ -415,7 +415,7 @@ func submit(course: String, info: Dictionary, blob: PackedByteArray) -> void:
 		return
 	var b: Dictionary = _boards.get(course, {})
 	var old: Dictionary = b.get(me.uid, {})
-	var improved := old.is_empty() or t < float(old.get("time", INF))
+	var improved := old.is_empty() or Game.centis(t) < Game.centis(float(old.get("time", INF)))
 	if improved:
 		var splits: Array = []
 		if info.get("splits") is Array:

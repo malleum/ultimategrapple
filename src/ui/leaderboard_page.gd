@@ -208,9 +208,9 @@ func _rebuild_splits() -> void:
 				split_grid.add_child(UI.label("-", 16, UI.DIM))
 				continue
 			var t := float(e.splits[i])
-			var d := t - float(best[i])
-			var txt := "%.2f" % t if d < 0.005 else "%.2f  +%.2f" % [t, d]
-			split_grid.add_child(UI.label(txt, 16, UI.GOLD if d < 0.005 else Color(1, 0.65, 0.5)))
+			var lead := Game.centis(t) <= Game.centis(float(best[i]))
+			var txt := Game.short_time(t) if lead else "%s  +%s" % [Game.short_time(t), Game.gap_text(t, float(best[i]))]
+			split_grid.add_child(UI.label(txt, 16, UI.GOLD if lead else Color(1, 0.65, 0.5)))
 
 
 func _fetch_then(what: String) -> void:

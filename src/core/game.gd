@@ -148,7 +148,7 @@ func _load_records() -> void:
 
 func submit_record(level_id: String, time: float, throws: int, medal: String) -> bool:
 	var prev = records.get(level_id)
-	var better: bool = prev == null or time < float(prev.time)
+	var better: bool = prev == null or centis(time) < centis(float(prev.time))   # as shown: a tie isn't a PB
 	if better:
 		records[level_id] = {"time": time, "throws": throws, "medal": medal}
 		_save_json(SAVE_PATH, records)
@@ -1034,9 +1034,36 @@ func _process(_dt: float) -> void:
 			_couch_round()
 
 
+## Every time on screen goes through these: hundredths, truncated (never
+## rounded up), so the timer, the results card, splits and boards always
+## agree on the same run. Differences are taken between the shown values.
+static func centis(t: float) -> int:
+	return int(floor(t * 100.0 + 0.0001))
+
+
+## MM:SS.cc
 static func format_time(t: float) -> String:
-	if t < 0.0 or is_inf(t):
-		return "--:--.---"
-	var m := int(t / 60.0)
-	var s := fmod(t, 60.0)
-	return "%02d:%06.3f" % [m, s]
+	if t < 0.0 or is_inf(t) or is_nan(t):
+		return "--:--.--"
+	var c := centis(t)
+	return "%02d:%02d.%02d" % [c / 6000, (c / 100) % 60, c % 100]
+
+
+## S.cc (M:SS.cc past a minute): compact, for splits and boards
+static func short_time(t: float) -> String:
+	var c := centis(maxf(t, 0.0))
+	if c < 6000:
+		return "%d.%02d" % [c / 100, c % 100]
+	return "%d:%02d.%02d" % [c / 6000, (c / 100) % 60, c % 100]
+
+
+## a - b as shown: "+1.23" / "−0.45" (true minus sign), from the truncated values
+static func delta_text(a: float, b: float) -> String:
+	var d := centis(a) - centis(b)
+	return ("+" if d >= 0 else "−") + "%d.%02d" % [absi(d) / 100, absi(d) % 100]
+
+
+## |a - b| as shown, "1.23"
+static func gap_text(a: float, b: float) -> String:
+	var d := absi(centis(a) - centis(b))
+	return "%d.%02d" % [d / 100, d % 100]
