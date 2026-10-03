@@ -8,6 +8,13 @@ permanent levels, then race them against friends in split-screen or online.
 Built with **Godot 4.7**, in GDScript. Every visual and every sound is procedural, so there
 are no external assets.
 
+**Download (no Nix):** [latest Linux and Windows builds](https://github.com/malleum/ultimategrapple/releases/latest).
+Unzip and run `ultimate-grapple.x86_64` / `UltimateGrapple.exe`. These are Godot's official
+export templates with the game embedded, so they use the system's GPU driver like any other
+game (on a non-NixOS distro with Nvidia, use these instead of `nix run`, which can't see the
+host driver without nixGL). `.github/workflows/release.yml` rebuilds them on every push to
+`main` (the rolling `nightly` release) and on `v*` tags.
+
 ```sh
 nix run .                    # play
 nix run . -- --server        # headless dedicated server (port 24680)

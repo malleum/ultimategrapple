@@ -1,0 +1,105 @@
+# Standalone Linux + Windows builds: Godot's official export templates with
+# the game embedded, zipped. They load the system's GPU driver like any
+# normal game, so they run on any distro (no Nix, no nixGL) and on Windows.
+#
+#   push to main  -> the rolling "nightly" release (marked latest), so
+#                    https://github.com/malleum/ultimategrapple/releases/latest
+#                    always has the newest build
+#   push a v* tag -> a versioned release
+#   manual run    -> same as a push to main
+name: Release builds
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GODOT_VERSION: "4.7.2"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Godot + export templates
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: ~/godot-dl
+          key: godot-${{ env.GODOT_VERSION }}-stable-linux-windows
+
+      - name: Download Godot + export templates
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p ~/godot-dl && cd ~/godot-dl
+          base="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable"
+          curl -fsSL -o godot.zip "$base/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          unzip -o godot.zip && rm godot.zip
+          # the full template archive is ~1.3 GB: keep only what we export with
+          curl -fsSL -o t.tpz "$base/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          unzip -o -j t.tpz templates/linux_release.x86_64 templates/windows_release_x86_64.exe \
+            templates/version.txt templates/icudt_godot.dat
+          rm t.tpz
+
+      - name: Install
+        run: |
+          set -euo pipefail
+          tdir="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$tdir"
+          cp ~/godot-dl/{linux_release.x86_64,windows_release_x86_64.exe,version.txt,icudt_godot.dat} "$tdir/"
+          echo "GODOT=$HOME/godot-dl/Godot_v${GODOT_VERSION}-stable_linux.x86_64" >> "$GITHUB_ENV"
+
+      - name: Import
+        run: $GODOT --headless --import
+
+      - name: Export
+        run: |
+          set -euo pipefail
+          mkdir -p dist/UltimateGrapple-linux dist/UltimateGrapple-windows
+          $GODOT --headless --export-release "Linux" dist/UltimateGrapple-linux/ultimate-grapple.x86_64
+          $GODOT --headless --export-release "Windows Desktop" dist/UltimateGrapple-windows/UltimateGrapple.exe
+          test -s dist/UltimateGrapple-linux/ultimate-grapple.x86_64
+          test -s dist/UltimateGrapple-windows/UltimateGrapple.exe
+          # the Linux build must start and run its scripts without errors
+          out=$(timeout 120 dist/UltimateGrapple-linux/ultimate-grapple.x86_64 --headless --quit-after 300 2>&1 || true)
+          echo "$out"
+          if echo "$out" | grep -qE "SCRIPT ERROR|Parse Error"; then exit 1; fi
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          cp packaging/README-linux.txt dist/UltimateGrapple-linux/README.txt
+          cp packaging/README-windows.txt dist/UltimateGrapple-windows/README.txt
+          cd dist
+          zip -r -9 UltimateGrapple-linux-x86_64.zip UltimateGrapple-linux
+          zip -r -9 UltimateGrapple-windows-x86_64.zip UltimateGrapple-windows
+          ls -la
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          notes="Built from ${GITHUB_SHA::7} ($(git log -1 --format=%s)).
+
+          **Linux**: unzip, then run \`./ultimate-grapple.x86_64\` (any distro, no Nix needed).
+          **Windows**: unzip, then run \`UltimateGrapple.exe\` (SmartScreen may warn: More info → Run anyway)."
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tag="${GITHUB_REF#refs/tags/}"
+            gh release create "$tag" dist/*.zip --title "Ultimate Grapple $tag" --notes "$notes" --latest
+          else
+            gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
+            gh release create nightly dist/*.zip --target "$GITHUB_SHA" \
+              --title "Ultimate Grapple (latest build)" --notes "$notes" --latest
+          fi
