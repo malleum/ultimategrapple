@@ -5,6 +5,7 @@ extends SceneTree
 ##   through   a point behind a platform can be grabbed; the rope goes straight
 ##             through it and stays straight while hanging under it
 ##   bend      a clear rope bends round the platform once you swing under it
+##   walled    a point behind a wall can't be grabbed or zipped to
 ##   zip_wrap  zipping to a point behind a platform: pulled into it, the rope
 ##             bends round it and the zip still arrives
 ##   cursor    cursor right next to a point picks it even outside the aim cone
@@ -15,6 +16,7 @@ extends SceneTree
 const P_OPEN := Vector2(0, -400)
 const P_BEHIND := Vector2(1200, -700)    # above the slab
 const P_FAR := Vector2(-1600, -420)
+const P_WALLED := Vector2(3300, -400)    # behind a tall wall
 
 var lvl
 var p
@@ -31,11 +33,12 @@ func _level() -> Dictionary:
 	return {"version": 2, "id": "test_grapple", "name": "G", "theme": "field", "spawn": [0, 0], "basket": [6000, 0],
 		"kill_y": 6000, "bounds": [-4000, -3000, 12000, 9000],
 		"solids": [{"r": [-4000, 2000, 12000, 400], "k": "ground"}, {"r": [1050, -560, 300, 60], "k": "block"},
-			{"r": [-1200, 600, 400, 60], "k": "block"}],
+			{"r": [-1200, 600, 400, 60], "k": "block"}, {"r": [3150, -800, 40, 800], "k": "block"}],
 		"polys": [], "route": [], "medals": {"par": 9},
 		"entities": [{"t": "grapple", "p": [P_OPEN.x, P_OPEN.y], "k": "static"},
 			{"t": "grapple", "p": [P_BEHIND.x, P_BEHIND.y], "k": "static"},
-			{"t": "grapple", "p": [P_FAR.x, P_FAR.y], "k": "static"}]}
+			{"t": "grapple", "p": [P_FAR.x, P_FAR.y], "k": "static"},
+			{"t": "grapple", "p": [P_WALLED.x, P_WALLED.y], "k": "static"}]}
 
 
 func _check(name: String, ok: bool, detail := "") -> void:
@@ -58,6 +61,7 @@ func _physics_process(_dt: float) -> bool:
 		tests.append(["regrab", Vector2(-200, -150), Vector2.ZERO])
 		tests.append(["through", Vector2(1180, -420), Vector2.ZERO])
 		tests.append(["bend", Vector2(1560, -420), Vector2.ZERO])
+		tests.append(["walled", Vector2(3000, -420), Vector2.ZERO])
 		tests.append(["zip_wrap", Vector2(1180, -420), Vector2.ZERO])
 		tests.append(["cursor", Vector2(-150, -150), Vector2.ZERO])
 		tests.append(["range", Vector2(-1000, -150), Vector2.ZERO])
@@ -102,6 +106,15 @@ func _physics_process(_dt: float) -> bool:
 			if f == 120:
 				_check("bend", bool(data.clear) and data.has("bent") and p.state == 1,
 					"clear at attach: %s, bent round the slab at tick %s" % [data.clear, data.get("bent", "-")])
+				_next()
+		"walled":
+			if f == 3:
+				Input.action_press("grapple")
+			if f == 8:
+				Input.action_release("grapple")
+				Input.action_press("zip")
+			if f == 14:
+				_check("walled", p.target.is_empty() and p.state == 0, "wall between: target=%s state=%d" % [p.target.get("pos"), p.state])
 				_next()
 		"zip_wrap":
 			if f == 3:
@@ -159,6 +172,8 @@ func _next() -> void:
 	match t[0]:
 		"through", "zip_wrap", "bend":
 			aim = P_BEHIND
+		"walled":
+			aim = P_WALLED
 		"range":
 			aim = P_FAR
 		_:

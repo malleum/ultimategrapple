@@ -690,10 +690,12 @@ func _find_target() -> Dictionary:
 			score = minf(score, cursor_d / CURSOR_SNAP * 0.3)
 		if score >= best_score:
 			continue
-		# a platform in the way doesn't rule a point out (the rope wraps around
-		# it), it just loses to a clear one
-		var q := PhysicsRayQueryParameters2D.create(c, p, collision_mask, [get_rid()])
-		if not space.intersect_ray(q).is_empty():
+		# a wall in the way rules a point out; platforms don't (the rope goes
+		# straight through them), they just make it lose to a clear one
+		var los := _line_of_sight(c, p)
+		if los == LOS_WALL:
+			continue
+		if los == LOS_PLATFORM:
 			score += 0.3
 			if score >= best_score:
 				continue
@@ -707,6 +709,39 @@ func _find_target() -> Dictionary:
 	if not hit2.is_empty() and hit2.collider and hit2.collider.has_meta("grip"):
 		return {"pos": hit2.position + hit2.normal * 2.0, "node": null}
 	return {}
+
+
+enum { LOS_CLEAR, LOS_PLATFORM, LOS_WALL }
+const PLATFORM_MAX_H := 64.0   # a slab this thin (and at least twice as wide) is a platform
+
+
+## What lies between c and a grapple point p: nothing, only platforms (the
+## rope may pass through), or a wall (no grapple). Something within a few px
+## of the point is what the point is mounted on, not in the way.
+func _line_of_sight(c: Vector2, p: Vector2) -> int:
+	var space := get_world_2d().direct_space_state
+	var ex: Array[RID] = [get_rid()]
+	var out := LOS_CLEAR
+	for i in 8:
+		var hit := space.intersect_ray(PhysicsRayQueryParameters2D.create(c, p, collision_mask, ex))
+		if hit.is_empty() or hit.position.distance_to(p) < 8.0:
+			break
+		if not _is_platform(hit.collider):
+			return LOS_WALL
+		out = LOS_PLATFORM
+		ex.append(hit.rid)
+	return out
+
+
+static func _is_platform(col: Object) -> bool:
+	if col == null:
+		return false
+	if col.get("kind") == "oneway":
+		return true
+	if not col.has_meta("rect"):
+		return false
+	var r: Rect2 = col.get_meta("rect")
+	return r.size.y <= PLATFORM_MAX_H and r.size.x >= r.size.y * 2.0
 
 
 func _attach(t: Dictionary, mode: int) -> void:

@@ -104,8 +104,9 @@ reticle reads the screen behind it and switches to dark ink over bright skies.
 - **Double jump.** One extra jump in the air, refreshed by landing, grappling, launch
   pads and sky catches. There is no dash.
 - **Sky catch.** Catching the disc midair refreshes your double jump and your air pivot.
-- **Grapple.** 680 px range. Points behind a platform can still be grabbed: the rope goes
-  straight through the platforms in the way. It only bends around a corner when you move
+- **Grapple.** 680 px range. Points behind a platform (a slab up to 2 tiles thick) can still
+  be grabbed: the rope goes straight through the platforms in the way. A wall between you and
+  a point rules it out for both grapple and zip. It only bends around a corner when you move
   so that something new comes between you and the point (a platform it went through counts
   as new once the rope has come clear of it). A point is chosen by aim direction (±40°) or
   by having the cursor near it. Clicks are buffered for 0.15 s. Zip pulls straight at the
