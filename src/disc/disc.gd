@@ -446,17 +446,35 @@ func _ground_probe() -> KinematicCollision2D:
 	return null
 
 
+## Rolling resistance (px/s^2) and the extra pull a slope gives a rolling
+## disc on top of its flight gravity: a wheel runs downhill, so a roller
+## speeds up down a slope and keeps going instead of stalling on it.
+const ROLL_FRICTION := 420.0
+const ROLL_SLOPE_G := 1500.0
+const ROLL_MAX := 2600.0
+
+
 func _roll(dt: float) -> void:
 	velocity.y += t.grav * dt
+	var pre := velocity
 	move_and_slide()
 	var g := _ground_probe()
 	if g:
 		var n := g.get_normal()
 		var tangent := Vector2(-n.y, n.x)
-		var along := velocity.dot(tangent)
-		along = move_toward(along, 0.0, 420.0 * dt)
+		# the contact normal wobbles ~0.1 even on flat ground; the slope comes
+		# from the surface under the disc
+		var fn := _floor_normal()
+		var slope := absf(fn.x) > 0.02
+		# on a slope, speed along the ground from before the move:
+		# move_and_slide bleeds ~10% a tick off a body running down one
+		var along := (pre if slope else velocity).dot(tangent)
+		if slope:
+			var down_slope := Vector2.DOWN - fn * fn.dot(Vector2.DOWN)   # gravity along the surface
+			along += ROLL_SLOPE_G * down_slope.dot(tangent) * dt
+		along = clampf(move_toward(along, 0.0, ROLL_FRICTION * dt), -ROLL_MAX, ROLL_MAX)
 		velocity = tangent * along
-		if absf(along) < 55.0:
+		if absf(along) < 55.0 and not _downhill(fn):
 			_set_state(SLIDE)
 	if is_on_wall():
 		velocity.x = -velocity.x * 0.45
@@ -465,10 +483,25 @@ func _roll(dt: float) -> void:
 	spin_angle += velocity.x * dt * 0.08
 
 
+## Surface normal straight below the disc (UP when there's nothing there).
+func _floor_normal() -> Vector2:
+	var q := PhysicsRayQueryParameters2D.create(global_position, global_position + Vector2(0, 48), collision_mask, [get_rid()])
+	var hit := get_world_2d().direct_space_state.intersect_ray(q)
+	return hit.normal if not hit.is_empty() else Vector2.UP
+
+
+## Steep enough that gravity beats rolling resistance.
+func _downhill(n: Vector2) -> bool:
+	return (t.grav + ROLL_SLOPE_G) * absf(n.x) > ROLL_FRICTION * 1.2
+
+
 func _slide(dt: float) -> void:
 	velocity.y += 1800.0 * dt
 	move_and_slide()
 	var g := _ground_probe()
+	if g and t.roll and _downhill(_floor_normal()):
+		_set_state(ROLL)   # a roller set down on a slope sets off down it
+		return
 	if g:
 		var friction := 1600.0
 		if g.get_collider() and g.get_collider().has_meta("ice"):

@@ -94,7 +94,7 @@ reticle reads the screen behind it and switches to dark ink over bright skies.
   pivot within 0.3 s after the throw for a **PIVOT LAUNCH** that gives the stored momentum
   back. There is also an air pivot (up to ~1 s, once per airtime).
 - **Six throws.** Backhand (glider), forehand (fast, dips late), hammer (flips, drops over
-  walls), roller (rolls along floors and up ramps), scoober (short, half the moving penalty)
+  walls), roller (rolls along floors, up ramps and runs away down slopes), scoober (short, half the moving penalty)
   and thumber (fast, cuts down hard).
 - **Smooth jumps.** Letting go of jump early eases into a short hop (extra gravity rather
   than a sudden stop), held jumps hang briefly at the top, coyote time is 0.12 s and jump
@@ -159,8 +159,9 @@ saves a replay which, when watched, finishes in the same time.
 
 A seeded, deterministic walker places segments from a weighted grammar. There are 27 segment
 types: gaps, stairs, wall-jump chimneys, swing chains, zip ledges, zip towers, slide tunnels,
-moving platforms, bounce pads, disc gates (throw through a ring to open a door), disc bridges,
-updrafts, crosswinds, laser gauntlets, saws, breakable glass (only a disc breaks it), drop shafts, hammer walls, ramp
+moving platforms, bounce pads, disc gates (throw through a ring to open a door), disc bridges
+(about half are 52-66 tiles long, beyond any double jump), updrafts, crosswinds, laser
+gauntlets, saws, breakable glass (only a disc breaks it), drop shafts, hammer walls, ramp
 jumps, grip ceilings, pillar hops, booster gaps, rope-wrap blocks, fairways (open field,
 valley, or high tailwind lane), tunnels and slope runs.
 

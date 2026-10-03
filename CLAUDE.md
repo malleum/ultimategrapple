@@ -18,6 +18,7 @@
   - `godot4 --headless --fixed-fps 120 -s tools/test_match.gd` (couch round saved as a match recording, plays back on the recorded paths)
   - `godot4 --headless --fixed-fps 120 -s tools/test_splits.gd` (split lines along the route, PB splits + gold segments)
   - `godot4 --headless --fixed-fps 120 -s tools/test_rival.gd` (share a run file, import it, race the friend's ghost)
+  - `godot4 --headless --fixed-fps 120 -s tools/test_roll.gd` (rollers run down slopes, set off when set down on one, still stop on the flat)
   - `nix build .#default` (pck export + wrapper)
 - Avoid `:=` on Variant values (Dictionary/Array element access) — Godot treats failed inference as a parse error.
 - Course fairness checks live in `src/level/validator.gd` (used by test_gen on generated + `levels/*.json`). Changing generator geometry: bump `Gen.VERSION` and add a `Validator.repair()` step so old pinned saves get fixed on load.

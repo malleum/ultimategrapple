@@ -127,6 +127,7 @@ static func _check_spikes(solids: Array, hr: Rect2, dir: String) -> Array:
 
 
 ## Bring a saved course up to the current generator version. Idempotent.
+## v2 -> v3 only added long disc bridges to new courses: nothing to fix.
 static func repair(d: Dictionary) -> void:
 	if int(d.get("version", 1)) >= Gen.VERSION:
 		return

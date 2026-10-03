@@ -15,7 +15,9 @@ const Themes = preload("res://src/core/theme_db.gd")
 const T := 32                 # tile size in px
 const RUN_TILES_PER_SEC := 17.0
 ## 2: slide tunnels got a 48px ceiling (older saves are repaired on load)
-const VERSION := 2
+const VERSION := 3            # 3: long disc bridges
+## Long disc bridges span at least this many tiles (> max double-jump reach).
+const LONG_BRIDGE_MIN := 52
 const SLIDE_CEIL := 1.5        # slide tunnel ceiling height, tiles
 
 # Player movement envelope, in tiles (kept conservative so levels are fair).
@@ -618,15 +620,20 @@ func seg_disc_gate(x: int, y: int) -> Vector2i:
 	return Vector2i(cx, y)
 
 
+## Throw through the ring to materialise a bridge over the pit. Half of them
+## (more on harder courses) are long: wider than any double jump, even off a
+## slide boost (~1430 px), so the throw is the only way over; their ring
+## hangs over the near half of the gap.
 func seg_disc_bridge(x: int, y: int) -> Vector2i:
 	var cx := x
 	ground(cx, cx + 6, y)
 	cx += 6
-	var gap := ri(14, 18)
+	var wide := chance(0.4 + 0.3 * d)
+	var gap := ri(LONG_BRIDGE_MIN, LONG_BRIDGE_MIN + 14) if wide else ri(14, 18)
 	pit(cx, cx + gap, y)
 	var gid := rng.randi()
-	var ring_x := cx + gap - ri(2, 5)
-	var ring_y := y - ri(6, 9)
+	var ring_x := cx + ri(7, 14) if wide else cx + gap - ri(2, 5)
+	var ring_y := y - (ri(5, 8) if wide else ri(6, 9))
 	_ent({"t": "gate", "ring": _p(ring_x, ring_y), "door": [int(cx * T), int(y * T), gap * T, T / 2], "mode": "bridge", "id": gid},
 		cx, ring_y - 1, gap, y - ring_y + 1)
 	cx += gap
