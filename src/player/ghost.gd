@@ -234,9 +234,29 @@ func _remote_frame() -> Array:
 
 func _lerp_frame(a: Array, b: Array, k: float) -> Array:
 	var out := a.duplicate()
-	for j in [0, 1, 2, 3, 6, 7, 8, 9]:
+	for j in [0, 1, 2, 3, 8, 9]:
 		if j < a.size() and j < b.size():
 			out[j] = lerpf(a[j], b[j], k)
+	# rope anchor: only slide it while both frames hang on the same point
+	# (a moving one); a grab, a release or a wrap onto a new corner jumps.
+	# Blending those swept the rope in from (0, 0) / across the screen.
+	if a.size() > 7 and b.size() > 7:
+		var swing_a := int(a[5]) & 4 != 0
+		var swing_b := int(b[5]) & 4 != 0
+		var aa := Vector2(a[6], a[7])
+		var ab := Vector2(b[6], b[7])
+		if swing_a and swing_b and aa.distance_to(ab) < 40.0:
+			var m := aa.lerp(ab, k)
+			out[6] = m.x
+			out[7] = m.y
+		elif k >= 0.5 or not swing_a:
+			out[5] = (int(a[5]) & ~4) | (int(b[5]) & 4)
+			out[6] = b[6]
+			out[7] = b[7]
+	# a recall / respawn teleports the disc: don't streak it across the map
+	if a.size() > 9 and b.size() > 9 and Vector2(a[8], a[9]).distance_to(Vector2(b[8], b[9])) > 300.0:
+		out[8] = a[8] if k < 0.5 else b[8]
+		out[9] = a[9] if k < 0.5 else b[9]
 	return out
 
 

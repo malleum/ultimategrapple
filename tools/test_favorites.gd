@@ -1,5 +1,5 @@
 extends SceneTree
-## Favorites + ghost clock:
+## Favorites + ghost clock (+ ghost rope blending between frames):
 ##   pbghost   a recall in the PB run is recorded as the ghost standing still,
 ##             and the ghost plays on the run clock (penalties included)
 ##   fav       a finished run that is not a PB can still be kept as a favorite
@@ -101,6 +101,19 @@ func _physics_process(_dt: float) -> bool:
 				for e in G.list_favorites():
 					gone = gone and str(e.id) != str(d.fav)
 				_check("delete", gone, "favorite deleted")
+				# ghost rope between frames: a grab doesn't sweep in from (0, 0), a
+				# wrap onto a new corner jumps, a moving point slides
+				var gh = load("res://src/player/ghost.gd").new()
+				var free := [100.0, 0.0, 0.0, 0.0, 1, 0, 0.0, 0.0, 0.0, 0.0, 0]
+				var hang := [110.0, 0.0, 0.0, 0.0, 1, 4, 500.0, -300.0, 0.0, 0.0, 0]
+				var wrap := [120.0, 0.0, 0.0, 0.0, 1, 4, 300.0, -100.0, 0.0, 0.0, 0]
+				var mv := [120.0, 0.0, 0.0, 0.0, 1, 4, 520.0, -300.0, 0.0, 0.0, 0]
+				var g1: Array = gh._lerp_frame(free, hang, 0.3)
+				var g2: Array = gh._lerp_frame(hang, wrap, 0.3)
+				var g3: Array = gh._lerp_frame(hang, mv, 0.5)
+				_check("rope", Vector2(g1[6], g1[7]) == Vector2(500, -300) and int(g1[5]) & 4 != 0 and Vector2(g2[6], g2[7]) == Vector2(500, -300)
+					and Vector2(g3[6], g3[7]) == Vector2(510, -300), "grab %s, wrap %s, moving point %s" % [Vector2(g1[6], g1[7]), Vector2(g2[6], g2[7]), Vector2(g3[6], g3[7])])
+				gh.free()
 				G.records.erase(ID)
 				G.save_ghost(ID, [])
 				G.delete_replay(ID)
