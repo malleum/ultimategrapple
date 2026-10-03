@@ -560,7 +560,7 @@ func _page_replays() -> void:
 	var v := UI.vbox(10)
 	panel.add_child(v)
 	v.add_child(UI.label("REPLAYS", 48, UI.NEON))
-	v.add_child(UI.label("Your personal-best run on each course, most recently played first. Watch it with the keystroke overlay, or export an MP4 to send to friends. Couch and online rounds are below.", 18, UI.DIM))
+	v.add_child(UI.label("Favorites first (★ FAVORITE on any results card keeps that run, PB or not), then your personal-best run on each course, most recently played first. Watch with the keystroke overlay, or export an MP4 to send to friends. Couch and online rounds are below.", 18, UI.DIM))
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = Vector2(1120, 560)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -568,6 +568,39 @@ func _page_replays() -> void:
 	var rows := UI.vbox(6)
 	rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(rows)
+	# favorites: runs kept on purpose, plus starred matches
+	var favs := Game.list_favorites()
+	var fav_matches := Game.list_matches().filter(func(e): return bool(e.get("fav", false)))
+	rows.add_child(UI.label("★ FAVORITES", 28, UI.GOLD))
+	if favs.is_empty() and fav_matches.is_empty():
+		rows.add_child(UI.label("Press ★ FAVORITE on a results card (PB or not), or ★ a replay or match below, to keep it here.", 18, UI.DIM))
+	for e in favs:
+		var fid: String = str(e.id)
+		var key := "fav:" + fid
+		var fh := UI.hbox(14)
+		fh.add_child(UI.label("★", 22, UI.medal_color(str(e.get("medal", "")))))
+		var fn := UI.label(str(e.get("name", "Course")), 22)
+		fn.custom_minimum_size = Vector2(360, 0)
+		fn.clip_text = true
+		fh.add_child(fn)
+		var fp := UI.label(str(e.get("player", "")), 18, UI.DIM)
+		fp.custom_minimum_size = Vector2(190, 0)
+		fp.clip_text = true
+		fh.add_child(fp)
+		var ft := UI.label(Game.format_time(float(e.get("time", 0.0))), 22, UI.GOLD)
+		ft.custom_minimum_size = Vector2(150, 0)
+		fh.add_child(ft)
+		if bool(e.get("old", false)):
+			fh.add_child(UI.label("older game version: can't play back", 17, UI.DIM))
+		else:
+			fh.add_child(UI.button("WATCH", func(): Game.play_replay(key), 20))
+			fh.add_child(UI.button("EXPORT MP4", func(): Game.export_replay_mp4(key), 20))
+			fh.add_child(UI.button("SHARE FILE", func(): Game.export_run_file(key), 20))
+		fh.add_child(UI.button("DELETE", func(): Game.delete_favorite(fid); show_page("replays"), 20))
+		rows.add_child(fh)
+	for e in fav_matches:
+		rows.add_child(_match_row(e))
+	rows.add_child(UI.label("PERSONAL BESTS", 28, UI.NEON))
 	var list := Game.list_replays()
 	if list.is_empty():
 		rows.add_child(UI.label("No replays yet. Finish a course and every new personal best is saved here.", 20, UI.DIM))
@@ -590,6 +623,11 @@ func _page_replays() -> void:
 		h.add_child(UI.button("WATCH", func(): Game.play_replay(id), 20))
 		h.add_child(UI.button("EXPORT MP4", func(): Game.export_replay_mp4(id), 20))
 		h.add_child(UI.button("SHARE FILE", func(): Game.export_run_file(id), 20))
+		var pb_rep := {"level_id": id, "date": e.get("date", 0), "time": e.get("time", 0.0)}
+		if Game.favorite_id_of(pb_rep) == "":
+			h.add_child(UI.button("★", func():
+				Game.save_favorite(Game.load_replay(id))
+				show_page("replays"), 20))
 		rows.add_child(h)
 	# friends' runs (imported .ugr files)
 	var rivals := Game.list_rivals()
@@ -623,25 +661,8 @@ func _page_replays() -> void:
 	if matches.is_empty():
 		rows.add_child(UI.label("Every couch and online round you play is recorded here (the last %d)." % Game.MATCH_MAX, 18, UI.DIM))
 	for e in matches:
-		var mid: String = str(e.get("id", ""))
-		var mh := UI.hbox(14)
-		mh.add_child(UI.label("⚑", 22, UI.GOLD))
-		var mn := UI.label(str(e.get("name", "Course")), 22)
-		mn.custom_minimum_size = Vector2(300, 0)
-		mn.clip_text = true
-		mh.add_child(mn)
-		var who: Array = e.get("players", [])
-		var pl := UI.label("%s  ·  %s" % ["COUCH" if e.get("mode", "") == "couch" else "ONLINE", ", ".join(PackedStringArray(who.map(func(x): return str(x))))], 17, UI.DIM)
-		pl.custom_minimum_size = Vector2(330, 0)
-		pl.clip_text = true
-		mh.add_child(pl)
-		var wl := UI.label(("won by " + str(e.winner)) if str(e.get("winner", "")) != "" else "no finish", 17, UI.GOLD)
-		wl.custom_minimum_size = Vector2(190, 0)
-		wl.clip_text = true
-		mh.add_child(wl)
-		mh.add_child(UI.button("WATCH", func(): Game.play_match(mid), 20))
-		mh.add_child(UI.button("DELETE", func(): Game.delete_match(mid); show_page("replays"), 20))
-		rows.add_child(mh)
+		if not bool(e.get("fav", false)):
+			rows.add_child(_match_row(e))
 	replay_status = UI.label("", 18, UI.PINK)
 	replay_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(replay_status)
@@ -657,6 +678,32 @@ func _page_replays() -> void:
 	v.add_child(b)
 	if not Game.export_status.is_connected(_on_export_status):
 		Game.export_status.connect(_on_export_status)
+
+
+## One match recording row; ★ / ☆ stars it (starred ones are kept for good
+## and listed under favorites).
+func _match_row(e: Dictionary) -> Control:
+	var mid: String = str(e.get("id", ""))
+	var fav := bool(e.get("fav", false))
+	var mh := UI.hbox(14)
+	mh.add_child(UI.label("⚑", 22, UI.GOLD))
+	var mn := UI.label(str(e.get("name", "Course")), 22)
+	mn.custom_minimum_size = Vector2(300, 0)
+	mn.clip_text = true
+	mh.add_child(mn)
+	var who: Array = e.get("players", [])
+	var pl := UI.label("%s  ·  %s" % ["COUCH" if e.get("mode", "") == "couch" else "ONLINE", ", ".join(PackedStringArray(who.map(func(x): return str(x))))], 17, UI.DIM)
+	pl.custom_minimum_size = Vector2(330, 0)
+	pl.clip_text = true
+	mh.add_child(pl)
+	var wl := UI.label(("won by " + str(e.winner)) if str(e.get("winner", "")) != "" else "no finish", 17, UI.GOLD)
+	wl.custom_minimum_size = Vector2(190, 0)
+	wl.clip_text = true
+	mh.add_child(wl)
+	mh.add_child(UI.button("WATCH", func(): Game.play_match(mid), 20))
+	mh.add_child(UI.button("★ UNSTAR" if fav else "★", func(): Game.set_match_favorite(mid, not fav); show_page("replays"), 20))
+	mh.add_child(UI.button("DELETE", func(): Game.delete_match(mid); show_page("replays"), 20))
+	return mh
 
 
 func _import_dialog() -> void:

@@ -66,6 +66,7 @@ var flow_best := 0
 var flow_label := ""
 var medal_flash := {}
 var medal_prev := ""
+var pb_mark := -1.0   # the PB this run is chasing (taken at the start, so a new PB doesn't move it)
 var last_count := -1
 var count_pop := 0.0
 var go_t := -1.0
@@ -119,6 +120,7 @@ func on_restart() -> void:
 	medal_flash.clear()
 	medal_prev = ""
 	go_t = -1.0
+	pb_mark = -1.0
 
 
 # ================================================================== events
@@ -496,6 +498,16 @@ func _draw_timer(ci: Control, vs: Vector2) -> void:
 			ci.draw_line(Vector2(mx, by - 4), Vector2(mx, by + 10), Color(col, 0.35 if gone else 1.0), 3.0)
 			if key == cur and not runner.done:
 				ci.draw_circle(Vector2(mx, by + 3), 5.0 + sin(t * 6.0) * 1.0, col)
+		# your PB: a white tick + label under the bar
+		if pb_mark < 0.0 and level.mode == "solo" and not runner.done:
+			var rec = Game.get_record(level.level_id)
+			pb_mark = float(rec.time) if rec else 0.0
+		if pb_mark > 0.0 and level.mode == "solo":
+			var pbx := bx + bwid * clampf(pb_mark / top, 0.0, 1.0)
+			var pgone := tm > pb_mark
+			ci.draw_line(Vector2(pbx, by - 7), Vector2(pbx, by + 13), Color(0.02, 0.0, 0.06, 0.8), 6.0)
+			ci.draw_line(Vector2(pbx, by - 7), Vector2(pbx, by + 13), Color(0.55, 1.0, 0.75, 0.35 if pgone else 1.0), 3.0)
+			_text(ci, Vector2(pbx - 30, by - 10), "PB", 11, Color(0.55, 1.0, 0.75, 0.4 if pgone else 0.95), HORIZONTAL_ALIGNMENT_CENTER, 60, _bold, 3)
 		if m.has("par"):
 			var px := bx + bwid * clampf(float(m.par) / top, 0.0, 1.0)
 			_text(ci, Vector2(px - 30, by + 22), "PAR", 11, Color(1, 1, 1, 0.5), HORIZONTAL_ALIGNMENT_CENTER, 60, _bold, 0)
@@ -582,6 +594,14 @@ func _draw_medal_ladder(ci: Control, vs: Vector2) -> void:
 		y += 34.0
 	if m.has("par"):
 		_text(ci, Vector2(x + 24, r.end.y - 9), "PAR  " + Game.format_time(float(m.par)), 12, Color(1, 1, 1, 0.5), HORIZONTAL_ALIGNMENT_LEFT, -1, _bold, 0)
+	# your PB beside par, struck through once the clock is past it
+	if pb_mark > 0.0 and level.mode == "solo":
+		var plit: bool = tm <= pb_mark
+		var pc := Color(0.55, 1.0, 0.75, 0.95 if plit else 0.4)
+		var ptxt := "PB  " + Game.format_time(pb_mark)
+		_text(ci, Vector2(x + 140, r.end.y - 9), ptxt, 12, pc, HORIZONTAL_ALIGNMENT_LEFT, -1, _bold, 0)
+		if not plit:
+			ci.draw_line(Vector2(x + 138, r.end.y - 13), Vector2(x + 142 + _text_w(ptxt, 12, _bold), r.end.y - 13), Color(1, 0.4, 0.4, 0.5), 1.5)
 
 
 # ---------------------------------------------------------------- splits
@@ -1170,6 +1190,21 @@ class MedalBadge:
 		draw_string(f, c + Vector2(-r, r * 0.38), letter, HORIZONTAL_ALIGNMENT_CENTER, r * 2.0, int(r * 1.1), Color(1, 1, 1))
 
 
+## ★ FAVORITE: keep this run in the replays menu's favorites (any run, PB
+## or not). Shows ★ SAVED once it's in there.
+func _fav_button(rep: Dictionary) -> Button:
+	var b := UI.button("★ FAVORITE", func(): pass)
+	var mark := func():
+		b.text = "★ SAVED"
+		b.disabled = true
+	if Game.favorite_id_of(rep) != "":
+		mark.call()
+	b.pressed.connect(func():
+		if Game.save_favorite(rep) != "":
+			mark.call())
+	return b
+
+
 ## old_pb: the personal best this run beat (-1 for a first clear / no PB).
 func show_results(tm: float, medal: String, is_pb: bool, old_pb := -1.0) -> void:
 	await get_tree().create_timer(0.9).timeout
@@ -1254,7 +1289,8 @@ func show_results(tm: float, medal: String, is_pb: bool, old_pb := -1.0) -> void
 	if replaying:
 		if not Game.render_mode:
 			h.add_child(UI.button("WATCH AGAIN  [R]", func(): level.restart()))
-			h.add_child(UI.button("EXPORT MP4", func(): Game.export_replay_mp4(level.level_id)))
+			h.add_child(_fav_button(level.replay))
+			h.add_child(UI.button("EXPORT MP4", func(): Game.export_replay_mp4(str(level.replay.get("key", level.level_id)))))
 			h.add_child(UI.button("REPLAYS", func(): Game.goto_menu("replays")))
 	else:
 		h.add_child(UI.button("RETRY  [R]", func(): level.restart()))
@@ -1263,6 +1299,8 @@ func show_results(tm: float, medal: String, is_pb: bool, old_pb := -1.0) -> void
 			h.add_child(UI.button("PIN  [P]", func(): level.pin_current()))
 		if Game.has_replay(level.level_id):
 			h.add_child(UI.button("REPLAY", func(): Game.play_replay(level.level_id)))
+		if not runner.last_replay.is_empty():
+			h.add_child(_fav_button(runner.last_replay))
 		h.add_child(UI.button("MENU", func(): Game.goto_menu()))
 	v.add_child(h)
 	if replaying and not Game.render_mode:
@@ -1331,7 +1369,7 @@ func toggle_pause() -> void:
 		v.add_child(UI.button("RESUME", toggle_pause))
 		if level.mode == "replay":
 			v.add_child(UI.button("WATCH AGAIN", func(): toggle_pause(); level.restart()))
-			v.add_child(UI.button("EXPORT MP4", func(): Game.export_replay_mp4(level.level_id)))
+			v.add_child(UI.button("EXPORT MP4", func(): Game.export_replay_mp4(str(level.replay.get("key", level.level_id)))))
 			v.add_child(UI.button("REPLAYS", func(): Game.goto_menu("replays")))
 		elif level.mode == "solo":
 			v.add_child(UI.button("RESTART", func(): toggle_pause(); level.restart()))

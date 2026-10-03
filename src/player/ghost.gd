@@ -12,6 +12,9 @@ const REC_INTERVAL := 4.0 / 120.0   # seconds between recorded frames
 var visual: Node2D
 var frames: Array = []
 var play_t := 0.0
+## Optional: returns the playback time (the runner's clock, so penalties line
+## up); without it the ghost just plays in real time.
+var clock := Callable()
 var playing := false
 var remote := false
 var buffer: Array = []      # remote: [[time, frame], ...]
@@ -176,7 +179,7 @@ func _process(dt: float) -> void:
 	if remote:
 		f = _remote_frame()
 	elif playing and frames.size() > 1:
-		play_t += dt
+		play_t = clock.call() if clock.is_valid() else play_t + dt
 		var idx := play_t / REC_INTERVAL
 		var i := int(idx)
 		if i >= frames.size() - 1:

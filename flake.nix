@@ -64,6 +64,9 @@
               done
               # ffmpeg turns exported replays (Godot movie maker AVI) into MP4
               export PATH="${pkgs.ffmpeg-headless}/bin:\$PATH"
+              # Godot doesn't list --main-pack in OS.get_cmdline_args(); the MP4
+              # export relaunches the game and finds the pack here
+              export UG_MAIN_PACK="$out/share/ultimate-grapple/ultimate-grapple.pck"
               exec ${godot}/bin/godot4 --main-pack $out/share/ultimate-grapple/ultimate-grapple.pck "\''${engine[@]}" -- "\''${game[@]}"
               SH
               chmod +x $out/bin/ultimate-grapple

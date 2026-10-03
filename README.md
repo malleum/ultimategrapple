@@ -37,8 +37,10 @@ Carry the disc, throw it, chase it, catch it, and chain your movement until it h
 - **Instant restart** with `R`. Recall the disc with `T` for a +3s penalty. Out of bounds
   costs +2s. In multiplayer these freeze you for that long instead, so everyone's clock
   stays comparable.
-- **Medals** are based on a par time (ACE, GOLD = par, SILVER, BRONZE). Personal-best
-  ghosts replay against you.
+- **Medals** are based on a par time (ACE, GOLD = par, SILVER, BRONZE), ticked on the
+  timer's progress bar along with your PB. Personal-best ghosts replay against you on the
+  run clock: a recall or out-of-bounds in the PB run shows as the ghost standing still for
+  the penalty, and one in your run jumps the ghost ahead with your timer.
 - **Splits.** Each course is cut into 3-8 splits along its route (a long throw carries you
   through split lines too). The column under the medals shows your PB splits and, as you
   cross each line, how far ahead (green) or behind (red) you are, gold for a best-ever
@@ -143,7 +145,9 @@ clients streamed to you (30 Hz). Recordings show runners and discs only, not eac
 player's personal gates or glass. `tools/test_match.gd` covers it.
 
 Every new personal best saves a replay of that run. **REPLAYS** on the title screen lists
-them, most recently played course first.
+them, most recently played course first. **★ FAVORITE** on any results card keeps that run
+too, PB or not (a later PB never overwrites it); ★ on a PB replay or a match recording adds
+it to the **FAVORITES** section at the top (starred matches are never rotated out).
 - **WATCH** plays the run back looking exactly as it did live (HUD, particles, sound),
   with a keystroke overlay of the keys the runner actually had bound.
 - **EXPORT MP4** renders the replay at 60 fps with game audio and saves it to

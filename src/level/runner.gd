@@ -52,6 +52,7 @@ var split_gold: Array = []    # per split: that segment was a best-ever
 ## PB splits this run is compared against. Kept after a new PB is saved so the
 ## column keeps showing what you beat (not all zeros against yourself).
 var split_ref: Array = []
+var last_replay: Dictionary = {}   # solo: the finished run as a replay (see _on_scored)
 var zoom_override := 0.0      # photo mode / tools: fixed camera zoom
 var follow_fn := Callable()   # match playback: [pos, vel] the camera follows instead
 var background: Node2D
@@ -230,6 +231,7 @@ func restart() -> void:
 	split_times.clear()
 	split_gold.clear()
 	split_ref = []
+	last_replay = {}
 	if level.mode == "solo":
 		Game.save_splits()
 	pov_clip.clear()
@@ -260,6 +262,7 @@ func _setup_pb_ghost() -> void:
 		rival_ghost.setup_replay(level.rival.frames, level.rival.color)
 		rival_ghost.visual.name_tag = str(level.rival.name)
 		rival_ghost.visual.alpha = 0.6
+		rival_ghost.clock = _ghost_clock
 		rival_ghost.rewind()
 	pb_ghost.stop()
 	pb_ghost.visible = false
@@ -268,12 +271,22 @@ func _setup_pb_ghost() -> void:
 	var frames := Game.load_ghost(level.level_id)
 	if frames.size() > 2:
 		pb_ghost.setup_replay(frames, Color(1, 1, 1))
+		pb_ghost.clock = _ghost_clock
 		pb_ghost.rewind()
 		pb_ghost.visible = true
 
 
 func total_time() -> float:
 	return time + penalty
+
+
+## Where the PB / rival ghosts are: the run clock (penalties included, so a
+## recall jumps them ahead with your timer), smoothed between physics ticks.
+func _ghost_clock() -> float:
+	var t := total_time()
+	if running and not done and not get_tree().paused:
+		t += Engine.get_physics_interpolation_fraction() / Engine.physics_ticks_per_second
+	return t
 
 
 func lock_input(locked: bool) -> void:
@@ -508,6 +521,12 @@ func _penalize(seconds: float, what: String, c: Color) -> void:
 	if level.is_timetrial():
 		penalty += seconds
 		hud.popup("%s  +%.0fs" % [what, seconds], c)
+		# the ghost recording follows the clock: it stands still for the
+		# penalty, so a PB ghost with a recall in it stays level with your timer
+		if running and not done:
+			var hold := _frame()
+			for k in int(round(seconds / Ghost.REC_INTERVAL)):
+				rec_frames.append(hold)
 	else:
 		player.freeze(seconds)
 		hud.popup("%s  FROZEN %.0fs" % [what, seconds], c)
@@ -566,10 +585,11 @@ func _on_scored() -> void:
 			split_ref = (Game.get_splits(level.level_id, split_count()).pb as Array).duplicate()
 			Game.set_pb_splits(level.level_id, split_count(), split_times)
 		Game.save_splits()
+		_record(true)
+		last_replay = _make_replay(medal)   # kept for ★ FAVORITE on the results card, PB or not
 		if is_pb:
-			_record(true)
 			Game.save_ghost(level.level_id, rec_frames)
-			Game.save_replay(_make_replay(medal))
+			Game.save_replay(last_replay)
 		hud.show_results(finish_time, medal, is_pb, old_pb if is_pb else -1.0)
 	elif level.mode == "replay":
 		hud.show_results(finish_time, level.medal_for(finish_time), false)

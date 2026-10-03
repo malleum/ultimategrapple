@@ -381,13 +381,106 @@ func _note_recent(level_id: String) -> void:
 	_save_json(RECENT_PATH, recent)
 
 
-func play_replay(level_id: String) -> bool:
-	var rep := load_replay(level_id)
+## A replay by key: a course id (its PB replay) or "fav:<id>" (a favorite).
+## The key rides along in rep.key so the replay screen can export it.
+func load_any_replay(key: String) -> Dictionary:
+	var rep := load_favorite(key.substr(4)) if key.begins_with("fav:") else load_replay(key)
+	if not rep.is_empty():
+		rep["key"] = key
+	return rep
+
+
+func play_replay(key: String) -> bool:
+	var rep := load_any_replay(key)
 	if rep.is_empty():
 		return false
 	var who := {"input": ReplayInput.new(rep.input), "name": str(rep.get("player", "Runner")), "color": rep.get("color", player_color())}
 	play_level(rep.level, "replay", [who], rep)
 	return true
+
+
+# ---------------------------------------------------------------- favorites
+# Runs you chose to keep: any finished solo run (★ on the results card, PB
+# or not) or a PB replay starred in the menu. Each is its own full replay
+# file, so a later PB never overwrites it. Newest first.
+
+const FAV_DIR := "user://replays/favorites"
+const FAV_INDEX := "user://replays/favorites.json"
+
+
+func _fav_path(id: String) -> String:
+	return FAV_DIR + "/" + id.validate_filename() + ".rep"
+
+
+func _fav_index() -> Array:
+	var idx = _load_json(FAV_INDEX, [])
+	return idx if idx is Array else []
+
+
+## Keep a replay as a favorite. Returns its id ("" if not saved).
+func save_favorite(rep: Dictionary) -> String:
+	if render_mode or rep.is_empty() or not rep.has("input"):
+		return ""
+	var have := favorite_id_of(rep)
+	if have != "":
+		return have
+	DirAccess.make_dir_recursive_absolute(FAV_DIR)
+	var idx := _fav_index()
+	var id := "f%d" % int(Time.get_unix_time_from_system() * 1000.0)
+	while _has_match_id(idx, id):
+		id += "b"
+	var data := rep.duplicate()
+	data.erase("key")
+	var f := FileAccess.open_compressed(_fav_path(id), FileAccess.WRITE, FileAccess.COMPRESSION_ZSTD)
+	if f == null:
+		push_warning("could not save favorite replay")
+		return ""
+	f.store_var(data)
+	f.close()
+	idx.push_front({"id": id, "level_id": str(rep.level_id), "name": str(rep.get("name", "Course")), "theme": str(rep.get("theme", "")),
+		"time": float(rep.time), "medal": str(rep.get("medal", "")), "date": int(rep.get("date", 0)), "v": int(rep.get("v", 1)),
+		"player": str(rep.get("player", "Runner"))})
+	_save_json(FAV_INDEX, idx)
+	return id
+
+
+## The favorite holding this very run (same course, date and time), or "".
+func favorite_id_of(rep: Dictionary) -> String:
+	for e in _fav_index():
+		if str(e.get("level_id", "")) == str(rep.get("level_id", "")) and int(e.get("date", -1)) == int(rep.get("date", -2)) \
+				and absf(float(e.get("time", -1.0)) - float(rep.get("time", -2.0))) < 0.0005:
+			return str(e.id)
+	return ""
+
+
+## [{id, level_id, name, theme, time, medal, date, player, old}] newest first;
+## old = made by another game version (can't be re-simulated any more).
+func list_favorites() -> Array:
+	var out: Array = []
+	for e in _fav_index():
+		if e is Dictionary and FileAccess.file_exists(_fav_path(str(e.get("id", "")))):
+			var c: Dictionary = e.duplicate()
+			c["old"] = int(e.get("v", 1)) != REPLAY_VERSION
+			out.append(c)
+	return out
+
+
+func load_favorite(id: String) -> Dictionary:
+	var path := _fav_path(id)
+	if not FileAccess.file_exists(path):
+		return {}
+	var f := FileAccess.open_compressed(path, FileAccess.READ, FileAccess.COMPRESSION_ZSTD)
+	if f == null:
+		return {}
+	var v = f.get_var()
+	if not (v is Dictionary and v.has("input")) or int(v.get("v", 1)) != REPLAY_VERSION:
+		return {}
+	return v
+
+
+func delete_favorite(id: String) -> void:
+	DirAccess.remove_absolute(_fav_path(id))
+	_save_json(FAV_INDEX, _fav_index().filter(func(e): return str(e.get("id", "")) != id))
 
 
 # ---------------------------------------------------------------- friends' runs
@@ -406,13 +499,14 @@ func share_dir() -> String:
 	return d.path_join("Ultimate Grapple")
 
 
-func export_run_file(level_id: String) -> String:
-	var rep := load_replay(level_id)
+func export_run_file(key: String) -> String:
+	var rep := load_any_replay(key)
 	if rep.is_empty():
 		export_status.emit("No replay saved for this course", true)
 		return ""
+	rep.erase("key")
 	if not rep.has("ghost"):
-		rep["ghost"] = load_ghost(level_id)
+		rep["ghost"] = load_ghost(str(rep.level_id))
 	DirAccess.make_dir_recursive_absolute(share_dir())
 	var base := "%s %s %s" % [str(rep.name), format_time(float(rep.time)).replace(":", "m"), str(rep.get("player", "Runner"))]
 	var path := share_dir().path_join(base.validate_filename().replace(" ", "_") + ".ugr")
@@ -568,9 +662,29 @@ func save_match(rec: Dictionary) -> void:
 		names.append(str(r.name))
 	idx.push_front({"id": id, "name": rec.name, "theme": rec.theme, "mode": rec.mode, "date": rec.date,
 		"winner": rec.winner, "players": names})
-	while idx.size() > MATCH_MAX:
-		var old: Dictionary = idx.pop_back()
-		DirAccess.remove_absolute(MATCH_DIR + "/" + str(old.id) + ".rep")
+	# drop the oldest beyond MATCH_MAX, never a favorite
+	var plain := 0
+	for i in idx.size():
+		if not bool(idx[i].get("fav", false)):
+			plain += 1
+	var k: int = idx.size() - 1
+	while plain > MATCH_MAX and k >= 0:
+		if not bool(idx[k].get("fav", false)):
+			DirAccess.remove_absolute(MATCH_DIR + "/" + str(idx[k].id) + ".rep")
+			idx.remove_at(k)
+			plain -= 1
+		k -= 1
+	_save_json(MATCH_INDEX, idx)
+
+
+## Star / unstar a match recording: starred ones are never rotated out.
+func set_match_favorite(id: String, fav: bool) -> void:
+	var idx = _load_json(MATCH_INDEX, [])
+	if not idx is Array:
+		return
+	for e in idx:
+		if str(e.get("id", "")) == id:
+			e["fav"] = fav
 	_save_json(MATCH_INDEX, idx)
 
 
@@ -646,7 +760,7 @@ func export_replay_mp4(level_id: String) -> void:
 	if is_exporting():
 		export_status.emit("Already exporting a replay...", false)
 		return
-	var rep := load_replay(level_id)
+	var rep := load_any_replay(level_id)
 	if rep.is_empty():
 		export_status.emit("No replay saved for this course", true)
 		return
@@ -661,11 +775,19 @@ func export_replay_mp4(level_id: String) -> void:
 	var args := PackedStringArray()
 	var cl := OS.get_cmdline_args()
 	for i in cl.size():
-		if cl[i] in ["--main-pack", "--path"] and i + 1 < cl.size():
+		if cl[i] in ["--main-pack", "--path"] and i + 1 < cl.size() and cl[i + 1] != "":
 			args.append(cl[i])
 			args.append(cl[i + 1])
+	# Godot keeps --main-pack out of get_cmdline_args(): the nix wrapper says
+	# where the pack is
+	if args.is_empty() and OS.get_environment("UG_MAIN_PACK") != "":
+		args.append_array(["--main-pack", OS.get_environment("UG_MAIN_PACK")])
 	if args.is_empty() and not OS.has_feature("template"):
-		args.append_array(["--path", ProjectSettings.globalize_path("res://")])
+		var proj := ProjectSettings.globalize_path("res://")
+		if proj == "":   # running from a pack we can't locate
+			export_status.emit("Can't find the game files to render with (launch through nix run, or godot4 --path .)", true)
+			return
+		args.append_array(["--path", proj])
 	args.append_array(["--write-movie", avi, "--fixed-fps", "60", "--resolution", "1920x1080", "--", "--render-replay=" + level_id])
 	var pid := OS.create_process(OS.get_executable_path(), args)
 	if pid <= 0:
