@@ -94,7 +94,8 @@ func _physics_process(_dt: float) -> bool:
 				f = 0
 		"watch":
 			if f == 5:
-				_check("watch", lvl.mode == "replay" and str(lvl.replay.get("key", "")) == "fav:" + str(d.fav), "favorite plays back as a replay")
+				_check("watch", lvl.mode == "replay" and str(lvl.replay.get("key", "")) == "fav:" + str(d.fav) and lvl.runners[0].pb_ghost.visible,
+					"favorite (not the PB) plays back as a replay, with the PB ghost alongside")
 				G.delete_favorite(str(d.fav))
 				var gone := true
 				for e in G.list_favorites():

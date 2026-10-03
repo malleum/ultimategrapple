@@ -562,13 +562,15 @@ func _draw_course_card(ci: Control, vs: Vector2) -> void:
 		_slab(ci, lr, 8.0, Color(0.02, 0.015, 0.06, 0.6), Color(1, 1, 1, 0.1))
 		ci.draw_circle(lr.position + Vector2(20, 13), 6, MEDAL_LDR.get(rm, MEDAL_LDR[""]))
 		_text(ci, lr.position + Vector2(34, 18), line, 14, Color(0.9, 0.92, 1.0), HORIZONTAL_ALIGNMENT_LEFT, -1, _bold, 0)
-	if not level.rival.is_empty() and level.mode == "solo":
+	if level.mode == "solo":
 		var vy: float = r.end.y + (38.0 if rec else 6.0)
-		var vline := "VS %s  %s" % [str(level.rival.name).to_upper(), Game.format_time(float(level.rival.time))]
-		var vr := Rect2(12, vy, _text_w(vline, 14, _bold) + 50, 26)
-		_slab(ci, vr, 8.0, Color(0.02, 0.015, 0.06, 0.6), Color(level.rival.color, 0.4))
-		ci.draw_circle(vr.position + Vector2(20, 13), 6, level.rival.color)
-		_text(ci, vr.position + Vector2(34, 18), vline, 14, Color(1.0, 0.92, 0.85), HORIZONTAL_ALIGNMENT_LEFT, -1, _bold, 0)
+		for rv in level.rival_list().slice(0, 6):
+			var vline := "VS %s  %s" % [str(rv.name).to_upper(), Game.format_time(float(rv.time))]
+			var vr := Rect2(12, vy, _text_w(vline, 14, _bold) + 50, 26)
+			_slab(ci, vr, 8.0, Color(0.02, 0.015, 0.06, 0.6), Color(rv.color, 0.4))
+			ci.draw_circle(vr.position + Vector2(20, 13), 6, rv.color)
+			_text(ci, vr.position + Vector2(34, 18), vline, 14, Color(1.0, 0.92, 0.85), HORIZONTAL_ALIGNMENT_LEFT, -1, _bold, 0)
+			vy += 30.0
 
 
 func _draw_medal_ladder(ci: Control, vs: Vector2) -> void:
@@ -1274,12 +1276,35 @@ func show_results(tm: float, medal: String, is_pb: bool, old_pb := -1.0) -> void
 	if flow_best >= 2:
 		chips.add_child(UI.label("FLOW ×%d" % flow_best, 20, Color(1, 0.5, 0.9)))
 	v.add_child(chips)
-	if not level.rival.is_empty() and not replaying:
+	# online leaderboard rank (built-in courses, filled in when the server answers)
+	if level.mode == "solo" and Online.course_key(level.level_id) != "" and Online.is_online():
+		var ol := UI.label("", 20, Color(0.5, 0.9, 1.0), HORIZONTAL_ALIGNMENT_CENTER)
+		v.add_child(ol)
+		var ck := Online.course_key(level.level_id)
+		var show_rank := func(course: String, rank: int, total: int, improved: bool):
+			if course == ck and is_instance_valid(ol):
+				ol.text = ("ONLINE  #%d OF %d" % [rank, total]) + ("" if improved else "  (your online best)")
+		var ls: Dictionary = Online.last_submit
+		if str(ls.get("course", "")) == ck and Time.get_ticks_msec() - int(ls.get("ms", 0)) < 5000:
+			show_rank.call(ck, int(ls.rank), int(ls.total), bool(ls.improved))
+		else:
+			Online.submitted.connect(show_rank, CONNECT_ONE_SHOT)
+		if not is_pb:
+			ol.text = "Leaderboards: Menu → LEADERBOARDS"
+	var rivals: Array = level.rival_list()
+	if rivals.size() == 1 and not replaying:
 		var rt: float = level.rival.time
 		var who := str(level.rival.name)
 		var beat := tm < rt
 		var vs_txt := ("YOU BEAT %s BY %.2fs" % [who.to_upper(), rt - tm]) if beat else ("%s WAS %.2fs FASTER" % [who.to_upper(), tm - rt])
 		v.add_child(UI.label(vs_txt, 22, Color(0.5, 1, 0.7) if beat else Color(1, 0.6, 0.45), HORIZONTAL_ALIGNMENT_CENTER))
+	elif rivals.size() > 1 and not replaying:
+		var place := 1
+		for rv in rivals:
+			if float(rv.time) < tm:
+				place += 1
+		v.add_child(UI.label("%s OF %d AGAINST THE GHOSTS" % [ordinal(place), rivals.size() + 1], 22,
+			Color(0.5, 1, 0.7) if place == 1 else Color(1, 0.8, 0.5), HORIZONTAL_ALIGNMENT_CENTER))
 	for m in ["bronze", "silver", "gold", "ace"]:
 		if level.medals.has(m) and tm > float(level.medals[m]):
 			v.add_child(UI.label("Next: %s at %s  (−%.2fs)" % [m.to_upper(), Game.format_time(float(level.medals[m])), tm - float(level.medals[m])], 18, UI.DIM, HORIZONTAL_ALIGNMENT_CENTER))
@@ -1290,14 +1315,17 @@ func show_results(tm: float, medal: String, is_pb: bool, old_pb := -1.0) -> void
 		if not Game.render_mode:
 			h.add_child(UI.button("WATCH AGAIN  [R]", func(): level.restart()))
 			h.add_child(_fav_button(level.replay))
-			h.add_child(UI.button("EXPORT MP4", func(): Game.export_replay_mp4(str(level.replay.get("key", level.level_id)))))
+			h.add_child(UI.button("EXPORT MP4", func(): Game.export_replay_mp4(Game.replay_key_for(level.replay))))
 			h.add_child(UI.button("REPLAYS", func(): Game.goto_menu("replays")))
 	else:
 		h.add_child(UI.button("RETRY  [R]", func(): level.restart()))
 		h.add_child(UI.button("NEXT  [N]", _next))
 		if not Game.is_pinned(level.level_id):
 			h.add_child(UI.button("PIN  [P]", func(): level.pin_current()))
-		if Game.has_replay(level.level_id):
+		if not runner.last_replay.is_empty():
+			# this run (PB or not), with your PB ghost alongside
+			h.add_child(UI.button("REPLAY", func(): Game.play_replay_data(runner.last_replay)))
+		elif Game.has_replay(level.level_id):
 			h.add_child(UI.button("REPLAY", func(): Game.play_replay(level.level_id)))
 		if not runner.last_replay.is_empty():
 			h.add_child(_fav_button(runner.last_replay))
@@ -1369,7 +1397,7 @@ func toggle_pause() -> void:
 		v.add_child(UI.button("RESUME", toggle_pause))
 		if level.mode == "replay":
 			v.add_child(UI.button("WATCH AGAIN", func(): toggle_pause(); level.restart()))
-			v.add_child(UI.button("EXPORT MP4", func(): Game.export_replay_mp4(str(level.replay.get("key", level.level_id)))))
+			v.add_child(UI.button("EXPORT MP4", func(): Game.export_replay_mp4(Game.replay_key_for(level.replay))))
 			v.add_child(UI.button("REPLAYS", func(): Game.goto_menu("replays")))
 		elif level.mode == "solo":
 			v.add_child(UI.button("RESTART", func(): toggle_pause(); level.restart()))

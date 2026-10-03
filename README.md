@@ -129,10 +129,30 @@ reticle reads the screen behind it and switches to dark ink over bright skies.
 
 ## Replays
 
-**Race a friend.** SHARE FILE on a replay saves it as a `.ugr` file in
-`~/Documents/Ultimate Grapple/`. Your friend drops it on the game window (or uses IMPORT
-FRIEND'S RUN on the REPLAYS page) and races your ghost, name and all, on the same course;
-the results card says who won and by how much.
+**Race a friend.** SEND on a replay (PB or favorite) or a match recording relays it
+through the online server to anyone online right now; it lands in their Friends' runs (or
+Matches) with a notice, and they race your ghost, name and all, on the same course. The
+results card says who won and by how much. Older `.ugr` files can still be dropped on the
+window or loaded with IMPORT FRIEND'S RUN.
+
+## Online services
+
+The game keeps a second, lobby-independent connection to the online server (Settings →
+online services; same host as PLAY ONLINE, UDP port 24682) for:
+
+- **LEADERBOARDS** (title screen): the built-in courses' boards. Your PB on a built-in
+  course is posted automatically (Settings → post my PBs) with its splits and ghost; the
+  results card shows your online rank. Tick any number of runs to compare their splits side
+  by side (fastest per split in gold), **RACE TICKED** to run the course against all of them
+  as named ghosts, or **WATCH TICKED** to watch them run together.
+- **Who's online**, and **SEND** (above): the server only relays, it keeps nothing.
+
+The server stores only the boards: per built-in course and runner, the best time, splits
+and 30 Hz ghost frames (top 100), in its state directory. A board is keyed by the course
+file's hash and the physics version, so an edited course or a physics change starts a fresh
+board. Each install makes a random online id and secret (`user://online_id.json`); the
+server keeps the secret's hash so nobody else can post as you. `tools/test_services.gd`
+runs the whole protocol over loopback.
 
 **Disc cam.** The results card plays the last 10 seconds of the run from the disc's
 point of view: carried in your hand, thrown, and into the chains (with a slow-mo moment as

@@ -40,6 +40,8 @@ var settings := {
 	"player_color": 0,
 	"bindings": {},
 	"online_server": "joshammer.com",
+	"online_services": true,  # stay connected for leaderboards, who's online and sending runs
+	"share_records": true,    # post PBs on the built-in courses to the online leaderboard
 	"disc_cam_lock": true,
 	"rumble": 1.0,           # controller vibration strength (0 = off)   # finish replay: the disc stays level and the world turns
 }
@@ -172,6 +174,15 @@ func get_splits(level_id: String, n: int) -> Dictionary:
 		e = {"n": n, "pb": [], "gold": []}
 		_splits[level_id] = e
 	return e
+
+
+## The stored splits of a course whatever its split count ({} if none).
+func get_splits_any(level_id: String) -> Dictionary:
+	if not _splits_loaded:
+		get_splits(level_id, 0)
+		_splits.erase(level_id)
+	var e = _splits.get(level_id)
+	return e if e is Dictionary else {}
 
 
 ## A segment was completed in `seg` seconds: keep it if it's the best yet.
@@ -384,15 +395,54 @@ func _note_recent(level_id: String) -> void:
 ## A replay by key: a course id (its PB replay) or "fav:<id>" (a favorite).
 ## The key rides along in rep.key so the replay screen can export it.
 func load_any_replay(key: String) -> Dictionary:
-	var rep := load_favorite(key.substr(4)) if key.begins_with("fav:") else load_replay(key)
+	var rep: Dictionary
+	if key.begins_with("fav:"):
+		rep = load_favorite(key.substr(4))
+	elif key == "tmp:last":
+		rep = _read_rep(TMP_REPLAY)
+	else:
+		rep = load_replay(key)
 	if not rep.is_empty():
 		rep["key"] = key
 	return rep
 
 
+const TMP_REPLAY := "user://replays/_last_run.rep"
+
+
+func _read_rep(path: String) -> Dictionary:
+	if not FileAccess.file_exists(path):
+		return {}
+	var f := FileAccess.open_compressed(path, FileAccess.READ, FileAccess.COMPRESSION_ZSTD)
+	if f == null:
+		return {}
+	var v = f.get_var()
+	return v if v is Dictionary and v.has("input") and int(v.get("v", 1)) == REPLAY_VERSION else {}
+
+
+## A key the MP4 renderer can load for any replay: its own, or (a run that
+## isn't saved anywhere, like a non-PB run just finished) "tmp:last".
+func replay_key_for(rep: Dictionary) -> String:
+	if rep.has("key"):
+		return str(rep.key)
+	var f := FileAccess.open_compressed(TMP_REPLAY, FileAccess.WRITE, FileAccess.COMPRESSION_ZSTD)
+	if f == null:
+		return ""
+	var c := rep.duplicate()
+	c.erase("key")
+	f.store_var(c)
+	f.close()
+	return "tmp:last"
+
+
 func play_replay(key: String) -> bool:
-	var rep := load_any_replay(key)
-	if rep.is_empty():
+	return play_replay_data(load_any_replay(key))
+
+
+## Watch a replay held in memory (e.g. the run just finished, PB or not).
+## Your PB ghost runs alongside as usual.
+func play_replay_data(rep: Dictionary) -> bool:
+	if rep.is_empty() or not rep.has("input") or int(rep.get("v", 0)) != REPLAY_VERSION:
 		return false
 	var who := {"input": ReplayInput.new(rep.input), "name": str(rep.get("player", "Runner")), "color": rep.get("color", player_color())}
 	play_level(rep.level, "replay", [who], rep)
@@ -521,6 +571,19 @@ func export_run_file(key: String) -> String:
 	return path
 
 
+## A replay (PB "<course id>" or favorite "fav:<id>") ready to send to a
+## friend: with its ghost frames, without local bookkeeping.
+func run_for_sending(key: String) -> Dictionary:
+	var rep := load_any_replay(key)
+	if rep.is_empty():
+		return {}
+	rep.erase("key")
+	if not rep.get("ghost") is Array or (rep.ghost as Array).size() < 3:
+		rep["ghost"] = load_ghost(str(rep.level_id))
+	rep["player"] = str(rep.get("player", settings.player_name))
+	return rep
+
+
 ## Import a friend's .ugr. Returns "" on success, else what went wrong.
 func import_rival(path: String) -> String:
 	var f := FileAccess.open_compressed(path, FileAccess.READ, FileAccess.COMPRESSION_ZSTD)
@@ -528,13 +591,22 @@ func import_rival(path: String) -> String:
 		return "Could not open %s" % path.get_file()
 	var v = f.get_var()   # no objects: plain data only
 	f.close()
-	if not (v is Dictionary and v.get("level") is Dictionary and v.has("time")):
+	if not v is Dictionary:
 		return "%s is not an Ultimate Grapple run" % path.get_file()
+	var err := import_rival_data(v)
+	return ("%s: %s" % [path.get_file(), err]) if err != "" else ""
+
+
+## Keep a friend's run (from a file or sent over the server) under Friends'
+## runs. Returns "" on success, else what went wrong.
+func import_rival_data(v: Dictionary) -> String:
+	if not (v.get("level") is Dictionary and v.has("time")):
+		return "not an Ultimate Grapple run"
 	var frames: Array = v.get("ghost", []) if v.get("ghost") is Array else []
 	if frames.size() < 3:
 		frames = ghost_from_track(v.get("track", PackedVector2Array()))
 	if frames.size() < 3:
-		return "%s has no ghost in it" % path.get_file()
+		return "no ghost in it"
 	v["ghost"] = frames
 	var lid := str(v.get("level_id", v.level.get("id", "course")))
 	var who := str(v.get("player", "Friend"))
@@ -729,8 +801,12 @@ func delete_match(id: String) -> void:
 
 
 func play_match(id: String) -> bool:
-	var rec := load_match(id)
-	if rec.is_empty():
+	return play_match_data(load_match(id))
+
+
+## Play a match recording held in memory (also leaderboard runs watched together).
+func play_match_data(rec: Dictionary) -> bool:
+	if rec.is_empty() or not rec.get("runners") is Array:
 		return false
 	Net.leave_if_solo()
 	play_level(rec.level, "match", [], rec)

@@ -9,6 +9,31 @@ var show_fps := false
 ## and quit when it is over. Used by the MP4 export.
 var render_id := ""
 var render_end_t := -1.0
+var _toast_box: VBoxContainer
+
+
+## A short note in the top-right corner for a few seconds (online news).
+func toast(text: String) -> void:
+	var p := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.03, 0.02, 0.08, 0.92)
+	sb.border_color = Color(0.4, 0.9, 1.0, 0.8)
+	sb.set_border_width_all(2)
+	sb.set_corner_radius_all(6)
+	sb.set_content_margin_all(12)
+	p.add_theme_stylebox_override("panel", sb)
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var l := Label.new()
+	l.text = text
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.custom_minimum_size = Vector2(420, 0)
+	l.add_theme_font_size_override("font_size", 18)
+	p.add_child(l)
+	_toast_box.add_child(p)
+	var tw := create_tween().bind_node(p)
+	tw.tween_interval(6.0)
+	tw.tween_property(p, "modulate:a", 0.0, 0.6)
+	tw.tween_callback(p.queue_free)
 
 
 func _ready() -> void:
@@ -23,11 +48,21 @@ func _ready() -> void:
 	fps_label.add_theme_color_override("font_color", Color(0.6, 1, 0.6))
 	fps_label.visible = false
 	overlay.add_child(fps_label)
+	_toast_box = VBoxContainer.new()
+	_toast_box.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_MINSIZE, 16)
+	_toast_box.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	_toast_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.add_child(_toast_box)
 	# --perf-log (nix run . -- --perf-log): frame timing log, see src/core/perf.gd
 	if "--perf-log" in OS.get_cmdline_user_args() or "--perf-log" in OS.get_cmdline_args() or OS.get_environment("UG_PERF_LOG") != "":
 		add_child(PerfScript.new())
 	if Game.server_mode:
 		Net.start_dedicated_server()
+		var sp := Online.SERVICE_PORT
+		for a in OS.get_cmdline_user_args():
+			if a.begins_with("--service-port="):
+				sp = int(a.get_slice("=", 1))
+		Online.start_server(sp)
 		return
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--render-replay="):
@@ -38,6 +73,9 @@ func _ready() -> void:
 			push_error("no replay for %s" % render_id)
 			get_tree().quit(1)
 		return
+	if bool(Game.settings.get("online_services", true)):
+		Online.connect_to(str(Game.settings.get("online_server", "joshammer.com")))
+	Online.notice.connect(toast)
 	Game.goto_menu()
 
 

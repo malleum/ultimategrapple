@@ -99,6 +99,7 @@ func show_page(p: String) -> void:
 		"multi": _page_multi()
 		"controls": _page_controls()
 		"replays": _page_replays()
+		"leaderboards": _page_leaderboards()
 		"bindings": _page_bindings()
 		"settings": _page_settings()
 		_: _page_title()
@@ -127,6 +128,7 @@ func _page_title() -> void:
 	col.add_child(UI.button("COURSES", func(): show_page("courses"), 30))
 	col.add_child(UI.button("RANDOM COURSE", func(): show_page("random"), 30))
 	col.add_child(UI.button("QUICK RANDOM", func(): Game.start_random(randi() % 1000000, "", 0.5, 12), 30))
+	col.add_child(UI.button("LEADERBOARDS", func(): show_page("leaderboards"), 30))
 	col.add_child(UI.button("REPLAYS", func(): show_page("replays"), 30))
 	col.add_child(UI.button("COUCH VERSUS", func(): show_page("couch"), 30))
 	col.add_child(UI.button("ONLINE / LAN", func(): show_page("multi"), 30))
@@ -239,6 +241,7 @@ func _page_multi() -> void:
 	ne.custom_minimum_size = Vector2(240, 0)
 	ne.max_length = 16
 	ne.text_changed.connect(func(tx): Game.settings.player_name = tx; Game.save_settings())
+	ne.focus_exited.connect(func(): Online.update_profile())
 	who.add_child(ne)
 	var colb := UI.button("COLOR", func(): pass, 20)
 	colb.add_theme_color_override("font_color", Game.player_color())
@@ -595,7 +598,7 @@ func _page_replays() -> void:
 		else:
 			fh.add_child(UI.button("WATCH", func(): Game.play_replay(key), 20))
 			fh.add_child(UI.button("EXPORT MP4", func(): Game.export_replay_mp4(key), 20))
-			fh.add_child(UI.button("SHARE FILE", func(): Game.export_run_file(key), 20))
+			fh.add_child(_send_button("run", "%s %s" % [str(e.get("name", "Course")), Game.format_time(float(e.get("time", 0.0)))], func(): return Game.run_for_sending(key)))
 		fh.add_child(UI.button("DELETE", func(): Game.delete_favorite(fid); show_page("replays"), 20))
 		rows.add_child(fh)
 	for e in fav_matches:
@@ -622,7 +625,7 @@ func _page_replays() -> void:
 		h.add_child(tm)
 		h.add_child(UI.button("WATCH", func(): Game.play_replay(id), 20))
 		h.add_child(UI.button("EXPORT MP4", func(): Game.export_replay_mp4(id), 20))
-		h.add_child(UI.button("SHARE FILE", func(): Game.export_run_file(id), 20))
+		h.add_child(_send_button("run", "%s %s" % [str(e.get("name", id)), Game.format_time(float(e.get("time", 0.0)))], func(): return Game.run_for_sending(id)))
 		var pb_rep := {"level_id": id, "date": e.get("date", 0), "time": e.get("time", 0.0)}
 		if Game.favorite_id_of(pb_rep) == "":
 			h.add_child(UI.button("★", func():
@@ -678,6 +681,8 @@ func _page_replays() -> void:
 	v.add_child(b)
 	if not Game.export_status.is_connected(_on_export_status):
 		Game.export_status.connect(_on_export_status)
+	if not Online.send_result.is_connected(_on_send_result):
+		Online.send_result.connect(_on_send_result)
 
 
 ## One match recording row; ★ / ☆ stars it (starred ones are kept for good
@@ -701,9 +706,60 @@ func _match_row(e: Dictionary) -> Control:
 	wl.clip_text = true
 	mh.add_child(wl)
 	mh.add_child(UI.button("WATCH", func(): Game.play_match(mid), 20))
+	mh.add_child(_send_button("match", str(e.get("name", "Course")), func(): return Game.load_match(mid)))
 	mh.add_child(UI.button("★ UNSTAR" if fav else "★", func(): Game.set_match_favorite(mid, not fav); show_page("replays"), 20))
 	mh.add_child(UI.button("DELETE", func(): Game.delete_match(mid); show_page("replays"), 20))
 	return mh
+
+
+# ------------------------------------------------------------------ leaderboards
+
+const LeaderboardPage = preload("res://src/ui/leaderboard_page.gd")
+
+
+func _page_leaderboards() -> void:
+	var c := _clear()
+	var lp := LeaderboardPage.new()
+	lp.back_fn = func(): show_page("title")
+	c.add_child(lp)
+
+
+## SEND: pick someone online and relay this replay / match through the server.
+func _send_button(kind: String, title: String, data_fn: Callable) -> Button:
+	return UI.button("SEND", func(): _send_dialog(kind, title, data_fn), 20)
+
+
+func _send_dialog(kind: String, title: String, data_fn: Callable) -> void:
+	if not Online.is_online():
+		_on_export_status("Not connected to the online server (Settings → online services).", true)
+		return
+	var others: Array = Online.presence.filter(func(p): return str(p.uid) != Online.uid)
+	if others.is_empty():
+		_on_export_status("Nobody else is online right now.", true)
+		return
+	var pop := PopupPanel.new()
+	var v := UI.vbox(8)
+	pop.add_child(v)
+	v.add_child(UI.label("Send %s to:" % title, 20, UI.NEON))
+	for p in others:
+		var who: Dictionary = p
+		var b := UI.button(str(who.name), func():
+			var d: Dictionary = data_fn.call()
+			if d.is_empty():
+				_on_export_status("Couldn't load that recording.", true)
+			else:
+				_on_export_status("Sending to %s..." % who.name, false)
+				Online.send_to(str(who.uid), kind, title, d)
+			pop.queue_free(), 20)
+		b.add_theme_color_override("font_color", Game.player_palette(int(who.get("color", 0))))
+		v.add_child(b)
+	v.add_child(UI.button("CANCEL", func(): pop.queue_free(), 18))
+	add_child(pop)
+	pop.popup_centered()
+
+
+func _on_send_result(ok: bool, text: String) -> void:
+	_on_export_status(text, true)
 
 
 func _import_dialog() -> void:
@@ -879,13 +935,24 @@ func _page_settings() -> void:
 		var k: String = key
 		v.add_child(UI.label(k.replace("_", " ").capitalize(), 20))
 		v.add_child(UI.slider(0, 1, float(Game.settings[k]), 0.05, func(x): Game.settings[k] = x; Game.save_settings()))
-	var names := {"disc_cam_lock": "Disc cam: lock to the disc (world turns)"}
-	for key in ["fullscreen", "vsync", "show_ghost", "disc_cam_lock"]:
+	var names := {"disc_cam_lock": "Disc cam: lock to the disc (world turns)",
+		"online_services": "Online services: leaderboards, who's online, sending runs",
+		"share_records": "Post my PBs on the built-in courses to the online leaderboard"}
+	for key in ["fullscreen", "vsync", "show_ghost", "disc_cam_lock", "online_services", "share_records"]:
 		var k2: String = key
 		var cb := CheckBox.new()
 		cb.text = names.get(k2, k2.replace("_", " ").capitalize())
 		cb.button_pressed = bool(Game.settings[k2])
-		cb.toggled.connect(func(on): Game.settings[k2] = on; Game.save_settings())
+		cb.toggled.connect(func(on):
+			Game.settings[k2] = on
+			Game.save_settings()
+			if k2 == "online_services":
+				if on:
+					Online.connect_to(str(Game.settings.online_server))
+				else:
+					Online.disconnect_services()
+			elif k2 == "share_records" and on:
+				Online.sync_local_records())
 		v.add_child(cb)
 	var fh := UI.hbox()
 	fh.add_child(UI.label("Max FPS", 20))

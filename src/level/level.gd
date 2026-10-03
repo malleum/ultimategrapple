@@ -132,7 +132,17 @@ func _make_splits() -> Array:
 	return xs
 
 
-var rival := {}              # solo: a friend's run raced as a ghost {frames, name, time, color}
+var rival := {}              # solo: a friend's run raced as a ghost {frames, name, time, color, more?: [same]}
+
+
+## Every ghost being raced: the rival plus any extra ones (leaderboard picks).
+func rival_list() -> Array:
+	if rival.is_empty():
+		return []
+	var out: Array = [rival]
+	if rival.get("more") is Array:
+		out.append_array(rival.more)
+	return out
 var wind_zones: Array = []   # Zone nodes of kind "wind" (for the aim readout)
 
 

@@ -100,7 +100,7 @@ func _physics_process(dt: float) -> void:
 		follow = (follow + 1) % puppets.size()
 		_update_hint()
 	if Input.is_action_just_pressed("restart"):
-		Game.play_match(str(rec.get("id", "")))
+		Game.play_match_data(rec)
 		return
 	if t < 0.0:
 		return
@@ -155,7 +155,7 @@ func _show_card() -> void:
 	panel.add_theme_stylebox_override("panel", sb)
 	var v := UI.vbox(10)
 	panel.add_child(v)
-	v.add_child(UI.label("%s  ·  %s" % [str(rec.name).to_upper(), "COUCH" if rec.get("mode", "") == "couch" else "ONLINE"], 28, Color(1, 0.85, 0.35), HORIZONTAL_ALIGNMENT_CENTER))
+	v.add_child(UI.label("%s  ·  %s" % [str(rec.name).to_upper(), {"couch": "COUCH", "board": "LEADERBOARD"}.get(str(rec.get("mode", "")), "ONLINE")], 28, Color(1, 0.85, 0.35), HORIZONTAL_ALIGNMENT_CENTER))
 	var order := puppets.duplicate()
 	order.sort_custom(func(a, b):
 		var ta: float = a.time if a.time >= 0.0 else INF
@@ -168,8 +168,11 @@ func _show_card() -> void:
 		place += 1
 	var h := UI.hbox(14)
 	h.alignment = BoxContainer.ALIGNMENT_CENTER
-	h.add_child(UI.button("WATCH AGAIN", func(): Game.play_match(str(rec.get("id", ""))), 22))
-	h.add_child(UI.button("REPLAYS", func(): Game.goto_menu("replays"), 22))
+	h.add_child(UI.button("WATCH AGAIN", func(): Game.play_match_data(rec), 22))
+	if str(rec.get("mode", "")) == "board":
+		h.add_child(UI.button("LEADERBOARDS", func(): Game.goto_menu("leaderboards"), 22))
+	else:
+		h.add_child(UI.button("REPLAYS", func(): Game.goto_menu("replays"), 22))
 	h.add_child(UI.button("MENU", func(): Game.goto_menu(), 22))
 	v.add_child(h)
 	card = CenterContainer.new()

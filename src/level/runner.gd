@@ -43,7 +43,8 @@ var camera: Camera2D
 var hud: CanvasLayer
 var overlay: Node2D
 var pb_ghost: Node2D
-var rival_ghost: Node2D = null   # a friend's imported run (Game.race_rival)
+var rival_ghost: Node2D = null   # a friend's imported run (Game.race_rival); the first of rival_ghosts
+var rival_ghosts: Array = []     # every raced ghost (leaderboard races can have several)
 var speed_trail: Node2D
 var pov_clip: Array = []   # per tick: [frame, disc pos, disc pose] (see _record_pov)
 var pov_after := 0
@@ -139,9 +140,11 @@ func _ready() -> void:
 	# ---- actors
 	pb_ghost = Ghost.new()
 	add_child(pb_ghost)
-	if not level.rival.is_empty():
-		rival_ghost = Ghost.new()
-		add_child(rival_ghost)
+	for _rv in level.rival_list():
+		var rg := Ghost.new()
+		add_child(rg)
+		rival_ghosts.append(rg)
+	rival_ghost = rival_ghosts[0] if not rival_ghosts.is_empty() else null
 	disc = Disc.new()
 	disc.level = level
 	disc.runner = self
@@ -250,20 +253,29 @@ func restart() -> void:
 	cam_look = Vector2.ZERO
 	if hud:
 		hud.on_restart()
-	if level.mode == "solo":
+	if level.mode == "solo" or (level.mode == "replay" and not _replay_is_pb()):
 		_setup_pb_ghost()
 	if not level.is_timetrial() and level.race_live:
 		running = true
 
 
+## Watching your PB run itself: no ghost of it on top of it.
+func _replay_is_pb() -> bool:
+	var rec = Game.get_record(level.level_id)
+	return rec == null or absf(float(rec.time) - float(level.replay.get("time", -1.0))) < 0.0005
+
+
 func _setup_pb_ghost() -> void:
-	if rival_ghost:
-		rival_ghost.stop()
-		rival_ghost.setup_replay(level.rival.frames, level.rival.color)
-		rival_ghost.visual.name_tag = str(level.rival.name)
-		rival_ghost.visual.alpha = 0.6
-		rival_ghost.clock = _ghost_clock
-		rival_ghost.rewind()
+	var rl: Array = level.rival_list()
+	for i in rival_ghosts.size():
+		var rg = rival_ghosts[i]
+		var rv: Dictionary = rl[i]
+		rg.stop()
+		rg.setup_replay(rv.frames, rv.color)
+		rg.visual.name_tag = str(rv.name)
+		rg.visual.alpha = 0.6
+		rg.clock = _ghost_clock
+		rg.rewind()
 	pb_ghost.stop()
 	pb_ghost.visible = false
 	if not Game.settings.get("show_ghost", true):
@@ -317,8 +329,8 @@ func _physics_process_timed(dt: float) -> void:
 		running = true
 		if pb_ghost.visible:
 			pb_ghost.start()
-		if rival_ghost:
-			rival_ghost.start()
+		for rg in rival_ghosts:
+			rg.start()
 	# disc cam clip; online, keep sending a moment after the chains too so the
 	# others' disc cam sees it go in
 	var post := done and pov_after < POV_AFTER
@@ -569,8 +581,8 @@ func _on_scored() -> void:
 	play_sfx("fanfare", level.basket_pos)
 	shake(12.0)
 	pb_ghost.stop()
-	if rival_ghost:
-		rival_ghost.stop()
+	for rg in rival_ghosts:
+		rg.stop()
 	if split_count() > 0:
 		while split_times.size() < split_count() - 1:   # finished past a split line we never crossed
 			_split(finish_time)
@@ -590,6 +602,9 @@ func _on_scored() -> void:
 		if is_pb:
 			Game.save_ghost(level.level_id, rec_frames)
 			Game.save_replay(last_replay)
+			# built-in course: post it to the online leaderboard
+			if bool(Game.settings.get("share_records", true)):
+				Online.submit_run(level.level_id, finish_time, player.throws, medal, rec_frames, split_times)
 		hud.show_results(finish_time, medal, is_pb, old_pb if is_pb else -1.0)
 	elif level.mode == "replay":
 		hud.show_results(finish_time, level.medal_for(finish_time), false)

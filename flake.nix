@@ -101,7 +101,9 @@
       #   imports = [ ultimate-grapple.nixosModules.server ];
       #   services.ultimate-grapple-server = { enable = true; openFirewall = true; };
       # Players reach it with PLAY ONLINE (host[:port]); no port forwarding on
-      # their side. Cloud firewalls (e.g. Oracle VCN) need UDP <port> too.
+      # their side. Cloud firewalls (e.g. Oracle VCN) need UDP <port> and
+      # <servicePort> too. The server keeps only the built-in courses'
+      # leaderboards (in its StateDirectory); everything else is relayed.
       nixosModules.server = { config, lib, pkgs, ... }:
         let cfg = config.services.ultimate-grapple-server;
         in {
@@ -112,10 +114,15 @@
               default = 24680;
               description = "UDP port the server listens on.";
             };
+            servicePort = lib.mkOption {
+              type = lib.types.port;
+              default = 24682;
+              description = "UDP port for online services (leaderboards of the built-in courses, who's online, relaying runs between players).";
+            };
             openFirewall = lib.mkOption {
               type = lib.types.bool;
               default = false;
-              description = "Open the server's UDP port in the NixOS firewall.";
+              description = "Open the server's UDP ports (game + services) in the NixOS firewall.";
             };
             wins = lib.mkOption {
               type = lib.types.ints.between 1 15;
@@ -148,6 +155,7 @@
                 ExecStart = lib.concatStringsSep " " [
                   "${cfg.package}/bin/ultimate-grapple --server"
                   "--port=${toString cfg.port}"
+                  "--service-port=${toString cfg.servicePort}"
                   "--wins=${toString cfg.wins}"
                   "--source=${cfg.source}"
                   "--difficulty=${toString cfg.difficulty}"
@@ -167,7 +175,7 @@
                 MemoryMax = "512M";
               };
             };
-            networking.firewall.allowedUDPPorts = lib.mkIf cfg.openFirewall [ cfg.port ];
+            networking.firewall.allowedUDPPorts = lib.mkIf cfg.openFirewall [ cfg.port cfg.servicePort ];
           };
         };
 
