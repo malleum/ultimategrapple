@@ -8,7 +8,7 @@ const Perf = preload("res://src/core/perf.gd")
 const S = preload("res://src/audio/synth.gd")
 const Themes = preload("res://src/core/theme_db.gd")
 const SR := 32000
-const CACHE_VERSION := 4
+const CACHE_VERSION := 5
 
 const SCALES := {
 	"major": [0, 2, 4, 5, 7, 9, 11],
@@ -22,7 +22,7 @@ const STYLES := {
 	"indie": {"kick": "x.....x.x.......", "snare": "....x.......x...", "hat": "x.x.x.x.x.x.x.x.", "bass": "x.x.x.x.x.x.x.x.", "bass_i": "saw",
 		"arp_i": "pluck_sq", "arp_rate": 2, "lead_i": "lead_sq", "pad_i": "pad_soft", "hat_vol": 0.25},
 	"darksynth": {"kick": "x...x...x...x...", "snare": "....x.......x...", "hat": "..x...x...x...x.", "hat16": true, "bass": "xxxxxxxxxxxxxxxx", "bass_i": "saw",
-		"arp_i": "saw_arp", "arp_rate": 1, "lead_i": "lead_saw", "pad_i": "pad_saw", "hat_vol": 0.3},
+		"arp_i": "saw_arp", "arp_rate": 1, "lead_i": "lead_saw", "pad_i": "pad_saw", "hat_vol": 0.2},
 	"harp": {"kick": "x.......x.......", "snare": "", "hat": "..x...x...x...x.", "bass": "x.......x.......", "bass_i": "sub",
 		"arp_i": "ks", "arp_rate": 1, "lead_i": "flute", "pad_i": "pad_soft", "hat_vol": 0.12},
 	"breakbeat": {"kick": "x.x.......x.....", "snare": "....x..x.x..x..x", "hat": "xxxxxxxxxxxxxxxx", "bass": "x..x..x...x.x...", "bass_i": "saw",
@@ -284,7 +284,7 @@ func _note(inst: String, midi: int, dur: float) -> PackedFloat32Array:
 		"pluck_sq":
 			buf = S.svf(S.tone(SR, dur + 0.05, 2, f, f, 0.09, 0.002), SR, 3500, 900, 0.9, 0)
 		"saw_arp":
-			buf = S.svf(S.tone(SR, dur + 0.05, 1, f, f, 0.12, 0.002), SR, 4000, 1200, 1.4, 0)
+			buf = S.svf(S.tone(SR, dur + 0.05, 1, f, f, 0.12, 0.002), SR, 2600, 900, 0.9, 0)
 		"ks":
 			buf = S.pluck(SR, f, dur + 0.4, 0.995, 1.0, midi)
 		"bell":

@@ -49,23 +49,35 @@ static func noise(sr: int, dur: float, decay: float, vol := 1.0, seed := 1, atta
 
 
 ## State-variable filter with linear cutoff sweep. mode: 0 lp, 1 bp, 2 hp
+## Trapezoidal (zero-delay feedback) form: stable at any cutoff below
+## Nyquist. The old Chamberlin form blew up near a quarter of the sample rate
+## (the 8 kHz hat high-pass at the music's 32 kHz went to inf: a screech, or
+## NaN and silence once it reached the master normalise).
 static func svf(buf: PackedFloat32Array, sr: int, fc0: float, fc1: float, q := 0.7, mode := 0) -> PackedFloat32Array:
-	var low := 0.0
-	var band := 0.0
+	var ic1 := 0.0
+	var ic2 := 0.0
 	var n := buf.size()
-	var damp := 1.0 / maxf(q, 0.1)
+	var k := 1.0 / maxf(q, 0.1)
 	var out := PackedFloat32Array()
 	out.resize(n)
+	var sweep := fc0 != fc1
+	var g := tan(PI * minf(fc0, sr * 0.45) / sr)
+	var a1 := 1.0 / (1.0 + g * (g + k))
 	for i in n:
-		var fc := lerpf(fc0, fc1, float(i) / maxf(1.0, n - 1))
-		var f := 2.0 * sin(PI * minf(fc, sr * 0.22) / sr)
-		low += f * band
-		var high := buf[i] - low - damp * band
-		band += f * high
+		if sweep:
+			var fc := lerpf(fc0, fc1, float(i) / maxf(1.0, n - 1))
+			g = tan(PI * minf(fc, sr * 0.45) / sr)
+			a1 = 1.0 / (1.0 + g * (g + k))
+		var v0 := buf[i]
+		var v3 := v0 - ic2
+		var v1 := a1 * ic1 + g * a1 * v3
+		var v2 := ic2 + g * v1
+		ic1 = 2.0 * v1 - ic1
+		ic2 = 2.0 * v2 - ic2
 		match mode:
-			0: out[i] = low
-			1: out[i] = band
-			_: out[i] = high
+			0: out[i] = v2
+			1: out[i] = v1
+			_: out[i] = v0 - k * v1 - v2
 	return out
 
 

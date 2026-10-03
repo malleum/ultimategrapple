@@ -11,7 +11,9 @@ extends SceneTree
 ##   hit_arm   couch: a disc to the arm makes them drop theirs
 ##   hit_leg   couch: a disc to the legs trips them into a slide
 ##   hit_slow  couch: a slow disc just bounces off
-##   couchcam  couch: the round winner's disc cam shows in the corner
+##   couchcam  couch: the round winner's disc cam shows in the corner;
+##             clicking it goes full screen and holds the next course until
+##             it has played through
 ## godot --headless --fixed-fps 120 -s tools/test_versus.gd
 
 const PI_ = preload("res://src/core/player_input.gd")
@@ -24,6 +26,9 @@ var f := 0
 var fails := 0
 var d := {}
 var started := false
+
+
+const CAM_HOLD := 1.2   # DiscCam.HOLD (it can't be preloaded here: it uses the Game autoload)
 
 
 func _level() -> Dictionary:
@@ -168,15 +173,35 @@ func _physics_process(_dt: float) -> bool:
 				a._on_scored()   # A sinks it
 				if _game().couch.is_empty():   # no couch set running in this test
 					lvl.show_couch_winner_cam(0)
+					# finishing place, from a stand-in couch set (restored before any draw)
+					_game().couch = {"results": {0: 5.0, 1: 3.0}, "players": [{}, {}, {}]}
+					var pl: Vector2i = a.hud.my_place()
+					_game().couch = {}
+					_check("place", pl == Vector2i(2, 3) and a.hud.ordinal(2) == "2ND" and a.hud.ordinal(11) == "11TH" and a.hud.ordinal(23) == "23RD",
+						"A finished %s of %d" % [a.hud.ordinal(pl.x), pl.y])
 			if f == 200 + 160:
 				var rc = lvl.round_cam
 				var cam = rc.get_child(0) if rc and is_instance_valid(rc) else null
 				var ok: bool = cam != null and cam.frames.size() > 150 and a.player.visibility_layer & 1 == 0 \
 					and b4.player.visibility_layer & 1 == 0
 				_check("couchcam", ok, "winner cam up: %s, %d frames, live bodies hidden from it" % [cam != null, cam.frames.size() if cam else 0])
-				if rc:
-					rc.queue_free()
-			if f == 200 + 165:
+				# click it: full screen, next course held until it has played
+				d["small_w"] = cam.sv.size.x
+				var ev := InputEventMouseButton.new()
+				ev.button_index = MOUSE_BUTTON_LEFT
+				ev.pressed = true
+				rc.gui_input.emit(ev)
+			if f == 200 + 162:
+				var rc2 = lvl.round_cam
+				var cam2 = rc2.get_child(0)
+				_check("camfull", lvl.cam_hold and lvl.holding_round() and cam2.sv.size.x > int(d.small_w) * 1.5 and cam2.t < 30.0,
+					"clicked: view %d px wide (was %d), restarted at tick %.0f, next course held" % [cam2.sv.size.x, d.small_w, cam2.t])
+				cam2.t = float(cam2.frames.size() - 1)   # skip to its end
+			if f == 200 + 162 + int(CAM_HOLD * 120.0) + 12:
+				var rc3 = lvl.round_cam
+				_check("camfull", not lvl.cam_hold, "hold released once the clip played through")
+				rc3.queue_free()
+			if f == 200 + 162 + int(CAM_HOLD * 120.0) + 17:
 				_check("couchcam", a.player.visibility_layer == 1 and b4.player.visibility_layer == 1, "layers back after the cam closes (A %d, B %d)" % [a.player.visibility_layer, b4.player.visibility_layer])
 				_next()
 		"netclash":

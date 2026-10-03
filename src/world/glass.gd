@@ -1,5 +1,5 @@
 extends Node2D
-## Breakable glass wall. Shatters from a dash, a fast body or a fast disc.
+## Breakable glass wall. Only a fast disc shatters it; runners bounce off.
 
 const Perf = preload("res://src/core/perf.gd")
 

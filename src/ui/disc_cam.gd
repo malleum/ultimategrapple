@@ -31,8 +31,12 @@ const SLOWMO_TICKS := 45    # ... for this many ticks either side
 const ZOOM_NEAR := 1.3      # disc in hand / slow
 const ZOOM_FAR := 0.8       # disc at full speed
 
+signal played   # the clip ran to its end once (after the hold), since setup / replay()
+
 var level: Node
 var view := VIEW
+var cont: SubViewportContainer
+var hint: Label
 var frames: Array = []
 var score_at := 0
 var sv: SubViewport
@@ -51,6 +55,7 @@ var roll_dir := 1.0
 var _main_vp: Viewport
 var _main_mask := 0
 var _hidden := {}           # CanvasItem -> its visibility_layer before the cam
+var _played := false
 
 
 ## The disc as seen in the cam (world space, on CAM_BIT) plus a short trail.
@@ -90,7 +95,7 @@ func setup(p_level: Node, clip: Dictionary, color: Color, disc_color: Color, tit
 
 	var title := UI.label(title_text, 16 if small else 18, Color(1, 0.85, 0.35), HORIZONTAL_ALIGNMENT_CENTER)
 	add_child(title)
-	var cont := SubViewportContainer.new()
+	cont = SubViewportContainer.new()
 	cont.stretch = true
 	cont.custom_minimum_size = Vector2(view)
 	cont.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -98,7 +103,11 @@ func setup(p_level: Node, clip: Dictionary, color: Color, disc_color: Color, tit
 	sv = SubViewport.new()
 	sv.size = view
 	sv.world_2d = level.get_world_2d()
-	sv.use_hdr_2d = true
+	# no level environment in here (its glow, sized for the full game view,
+	# blew the zoomed-in basket and disc out to white) and an LDR buffer, so
+	# the game view's glow doesn't bloom the card's pixels a second time
+	sv.own_world_3d = true
+	sv.use_hdr_2d = false
 	sv.physics_object_picking = false
 	sv.handle_input_locally = false
 	sv.audio_listener_enable_2d = false
@@ -130,7 +139,7 @@ func setup(p_level: Node, clip: Dictionary, color: Color, disc_color: Color, tit
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bar)
 	if small:
-		var hint := UI.label("lock to disc: %s  (Settings)" % ("on" if lock_on() else "off"), 13, UI.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+		hint = UI.label("click to watch full screen  ·  lock to disc: %s" % ("on" if lock_on() else "off"), 13, UI.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 		add_child(hint)
 	else:
 		lock_btn = UI.button("", _toggle_lock)
@@ -149,6 +158,20 @@ func setup(p_level: Node, clip: Dictionary, color: Color, disc_color: Color, tit
 	_main_vp = level.get_viewport()
 	_main_mask = _main_vp.canvas_cull_mask
 	_main_vp.canvas_cull_mask = _main_mask & ~(1 << CAM_BIT)
+	_restart()
+
+
+## Resize the cam's view (the world scales with it); restarts the clip.
+func set_view(size: Vector2i) -> void:
+	view = size
+	cont.custom_minimum_size = Vector2(size)
+	sv.size = size
+	replay()
+
+
+## Back to the start of the clip; `played` fires again at its end.
+func replay() -> void:
+	_played = false
 	_restart()
 
 
@@ -212,6 +235,9 @@ func _process(dt: float) -> void:
 	if t >= last:
 		hold_t += dt
 		if hold_t > HOLD:
+			if not _played:
+				_played = true
+				played.emit()
 			_restart()
 	else:
 		var near_score := absf(t - score_at) < SLOWMO_TICKS

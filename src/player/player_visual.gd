@@ -16,6 +16,7 @@ var dead := false
 var facing := 1.0
 var aim_dir := Vector2.RIGHT
 var anchor_local := Vector2.ZERO
+var snapshot_rope := false   # puppets / ghosts draw their own rope (live runners get the overlay's)
 var disc_color := Color(2, 0.5, 1.5)
 const BODY_HDR := 1.15     # runner line brightness (glow kicks in just above 1.0)
 var run_phase := 0.0
@@ -79,6 +80,7 @@ func update_from_snapshot(s: Array, pos: Vector2, dt: float) -> void:
 	frozen = 1.0 if flags & 256 != 0 else 0.0
 	_set_knocked(flags & 512 != 0)
 	anchor_local = Vector2(s[6], s[7]) - pos
+	snapshot_rope = true
 	aim_dir = Vector2(facing, -0.3).normalized()
 	_step(dt)
 
@@ -240,6 +242,10 @@ func _draw_timed() -> void:
 		var swing_a := sin(run_phase + PI) * 0.8 if on_floor else -0.9
 		hand_a = shoulder + Vector2(facing * 6 + swing_a * 8, 12)
 		hand_b = shoulder + Vector2(-facing * 4 - swing_a * 8, 13)
+	if swinging and snapshot_rope and anchor_local.length() > 24.0:
+		draw_line(hand_a, anchor_local, Color(0.02, 0.0, 0.06, 0.5 * alpha), 5.0, true)
+		draw_line(hand_a, anchor_local, Color(0.95, 0.85, 0.55, 0.9 * alpha), 2.5, true)
+		draw_circle(anchor_local, 4.0, Color(1.0, 0.9, 0.5, alpha))
 	draw_line(shoulder, hand_a, ol, w + 3.5, true)
 	draw_line(shoulder, hand_b, ol, w + 3.5, true)
 	draw_line(shoulder, hand_a, c, w, true)

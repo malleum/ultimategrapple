@@ -49,6 +49,9 @@ var pov_clip: Array = []   # per tick: [frame, disc pos, disc pose] (see _record
 var pov_after := 0
 var split_times: Array = []   # cumulative times at each split crossed this run (finish last)
 var split_gold: Array = []    # per split: that segment was a best-ever
+## PB splits this run is compared against. Kept after a new PB is saved so the
+## column keeps showing what you beat (not all zeros against yourself).
+var split_ref: Array = []
 var zoom_override := 0.0      # photo mode / tools: fixed camera zoom
 var follow_fn := Callable()   # match playback: [pos, vel] the camera follows instead
 var background: Node2D
@@ -64,6 +67,9 @@ var done := false
 var deaths := 0
 var lie := Vector2.ZERO
 var respawn_t := -1.0
+## A death holds you this long before respawning (the camera glides to the
+## lie meanwhile) so you can plan the next attempt.
+const RESPAWN_WAIT := 1.0
 var finish_time := 0.0
 var rec_frames: Array = []
 var rec_tick := 0
@@ -223,6 +229,7 @@ func restart() -> void:
 	rec_frames.clear()
 	split_times.clear()
 	split_gold.clear()
+	split_ref = []
 	if level.mode == "solo":
 		Game.save_splits()
 	pov_clip.clear()
@@ -437,6 +444,8 @@ func _update_camera(dt: float) -> void:
 		target = fv[0] + Vector2(0, -22) + cam_look
 	else:
 		var c: Vector2 = player.center()
+		if respawn_t >= 0.0 and respawn_t < RESPAWN_WAIT - 0.3:
+			c = lie + (c - player.global_position)
 		var v: Vector2 = player.velocity
 		# look-ahead is low-passed: feeding raw velocity in made the camera bob
 		# with every jump, apex and landing
@@ -473,7 +482,7 @@ func shake(amount: float) -> void:
 
 func _on_player_died() -> void:
 	deaths += 1
-	respawn_t = 0.35
+	respawn_t = RESPAWN_WAIT
 	shake(10.0)
 
 
@@ -550,15 +559,18 @@ func _on_scored() -> void:
 	if level.mode == "solo":
 		inp.stop_recording()
 		var medal: String = level.medal_for(finish_time)
+		var prev = Game.records.get(level.level_id)
+		var old_pb: float = float(prev.time) if prev is Dictionary and prev.has("time") else -1.0
 		var is_pb := Game.submit_record(level.level_id, finish_time, player.throws, medal)
 		if is_pb and split_count() > 0:
+			split_ref = (Game.get_splits(level.level_id, split_count()).pb as Array).duplicate()
 			Game.set_pb_splits(level.level_id, split_count(), split_times)
 		Game.save_splits()
 		if is_pb:
 			_record(true)
 			Game.save_ghost(level.level_id, rec_frames)
 			Game.save_replay(_make_replay(medal))
-		hud.show_results(finish_time, medal, is_pb)
+		hud.show_results(finish_time, medal, is_pb, old_pb if is_pb else -1.0)
 	elif level.mode == "replay":
 		hud.show_results(finish_time, level.medal_for(finish_time), false)
 	else:
@@ -763,6 +775,13 @@ func _frame() -> Array:
 	f.append_array([snappedf(disc.global_position.x, 0.1), snappedf(disc.global_position.y, 0.1), dvis,
 		snappedf(pz.x, 0.01), snappedf(pz.y, 0.01)])
 	return f
+
+
+## The PB splits the column compares against (see split_ref).
+func split_pb() -> Array:
+	if done and not split_ref.is_empty():
+		return split_ref
+	return Game.get_splits(level.level_id, split_count()).pb
 
 
 func split_count() -> int:

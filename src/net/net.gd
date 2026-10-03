@@ -37,6 +37,8 @@ var _bcast: PacketPeerUDP = null
 var _listen: PacketPeerUDP = null
 var _bcast_t := 0.0
 var _round_timer := -1.0
+var _round_holds := {}   # server: peer id -> time its disc cam hold expires
+const HOLD_MAX := 30.0
 var _join_seq := 0
 
 
@@ -321,6 +323,7 @@ func _start_round() -> void:
 	round_winner = -1
 	round_results = {}
 	_round_timer = -1.0
+	_round_holds.clear()
 	_set_status("Round %d: %s" % [round_idx + 1, data.get("name", "")])
 	rpc("begin_round", packed, raw.size(), round_idx, players)
 
@@ -427,6 +430,38 @@ func net_disc_hit(zone: String, vel: Vector2, at: Vector2) -> void:
 	r.on_disc_hit_by(str(players.get(from, {}).get("name", "")), zone, vel.limit_length(3000.0))
 
 
+## A player is watching the round's disc cam full screen: the server holds
+## the next course (up to HOLD_MAX) until they're done.
+func hold_round(on: bool) -> void:
+	if multiplayer.multiplayer_peer == null:
+		return
+	if is_server():
+		round_hold(on)
+	else:
+		rpc_id(1, "round_hold", on)
+
+
+@rpc("any_peer", "reliable")
+func round_hold(on: bool) -> void:
+	if not is_server():
+		return
+	var id := multiplayer.get_remote_sender_id()
+	if id == 0:
+		id = 1
+	if on and round_active:
+		_round_holds[id] = Time.get_ticks_msec() / 1000.0 + HOLD_MAX
+	else:
+		_round_holds.erase(id)
+
+
+func _round_held() -> bool:
+	var now := Time.get_ticks_msec() / 1000.0
+	for id in _round_holds.keys():
+		if float(_round_holds[id]) < now or not players.has(id):
+			_round_holds.erase(id)
+	return not _round_holds.is_empty()
+
+
 func report_finish(t: float, throws: int) -> void:
 	if is_server():
 		finish(t, throws)
@@ -502,7 +537,8 @@ func _process(dt: float) -> void:
 			_bcast_t = 1.0
 			_broadcast()
 	if is_server() and round_active and _round_timer > 0.0:
-		_round_timer -= dt
+		if _round_timer > 0.5 or not _round_held():
+			_round_timer -= dt
 		if _round_timer <= 0.0:
 			_round_timer = -1.0
 			if set_winner != -1:
@@ -548,6 +584,8 @@ func waiting_text() -> String:
 		return ""
 	var left := maxf(0.0, next_round_at - Time.get_ticks_msec() / 1000.0)
 	var who: String = str(players.get(round_winner, {}).get("name", "?"))
+	if left <= 0.0:
+		return "%s won round %d  ·  someone is watching the disc cam" % [who, round_idx + 1]
 	if set_winner != -1:
 		return "%s TAKES THE SET  ·  back to lobby in %d" % [who, int(ceil(left))]
 	return "%s won round %d  ·  next course in %d" % [who, round_idx + 1, int(ceil(left))]

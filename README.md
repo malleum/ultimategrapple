@@ -30,7 +30,7 @@ decorations, window decorations come from libdecor (bundled in the nixpkgs Godot
 
 Carry the disc, throw it, chase it, catch it, and chain your movement until it hits the chains.
 
-- **Carrying is about 38% slower** (858 vs 534 px/s). On open *fairways*, throwing the disc ahead and sprinting
+- **Carrying is about 44% slower** (858 vs 480 px/s). On open *fairways*, throwing the disc ahead and sprinting
   after it wins. In tight *tunnels*, throws just bounce off the walls, so carrying it and
   making one final throw wins. The generator builds both kinds of section and signposts them.
 - **Throwing while moving** adds aim sway, random spray and lost range.
@@ -42,7 +42,8 @@ Carry the disc, throw it, chase it, catch it, and chain your movement until it h
 - **Splits.** Each course is cut into 3-8 splits along its route (a long throw carries you
   through split lines too). The column under the medals shows your PB splits and, as you
   cross each line, how far ahead (green) or behind (red) you are, gold for a best-ever
-  segment, LiveSplit style.
+  segment, LiveSplit style. After a new PB the column keeps the deltas against the PB you
+  just beat, and the results card shows how much faster it was.
 - **Wind readout.** Holding the disc, every wind zone along your aim line gets a chevron
   marker where the line enters it (direction and strength 1-5); in flight the disc shows
   the wind it is in.
@@ -56,11 +57,11 @@ Carry the disc, throw it, chase it, catch it, and chain your movement until it h
 | Run / aim | A D / mouse | left stick / right stick |
 | Jump / double jump / wall-jump | Space | A |
 | Slide / crouch / fast-fall | S | stick down |
-| Grapple swing (hold) · reel | RMB · W/S | LT · stick up/down |
-| Zip to point (hold, or tap while swinging) | E | LB |
+| Grapple swing (hold) · reel | Shift or MOUSE 4 · W/S | LT · stick up/down |
+| Zip to point (hold, or tap while swinging) | E or MOUSE 5 | LB |
 | Charge + throw | hold / release LMB | hold / release RT |
-| **Snap** (spin) | F right as you release | RB right as you release |
-| **Pivot** (hold) | Ctrl | B |
+| **Snap** (spin) | RMB right as you release | RB right as you release |
+| **Pivot** (hold) | Ctrl | L3 or B |
 | Throw type | 1-6 / Q | D-pad left/right |
 | Nose angle | wheel / Z X | D-pad up/down |
 | Recall disc | T | Y |
@@ -103,10 +104,13 @@ reticle reads the screen behind it and switches to dark ink over bright skies.
 - **Double jump.** One extra jump in the air, refreshed by landing, grappling, launch
   pads and sky catches. There is no dash.
 - **Sky catch.** Catching the disc midair refreshes your double jump and your air pivot.
-- **Grapple.** 680 px range. Points behind a platform can still be grabbed: the rope starts
-  wrapped around the platform corner. A point is chosen by aim direction (±40°) or by
-  having the cursor near it. Clicks are buffered for 0.15 s. Zip follows the rope around
-  corners and only lets go when it's truly stuck. Fragile (red) points hold for 1.1 s and
+- **Grapple.** 680 px range. Points behind a platform can still be grabbed: the rope goes
+  straight through the platforms in the way. It only bends around a corner when you move
+  so that something new comes between you and the point (a platform it went through counts
+  as new once the rope has come clear of it). A point is chosen by aim direction (±40°) or
+  by having the cursor near it. Clicks are buffered for 0.15 s. Zip pulls straight at the
+  point; if it drags you into a platform the rope went through, it bends around that one
+  and carries on. It only lets go when it's truly stuck. Fragile (red) points hold for 1.1 s and
   flash before they break.
 - **Rope physics.** Inelastic rope, pumping, reeling that conserves angular momentum,
   wrapping around corners, fragile, moving and boost anchors, and grapple-anywhere ceilings.
@@ -127,7 +131,8 @@ stays level in the middle and the world turns around it, so a hammer that flips 
 the world upside down. Turn it off to keep the world upright and watch the disc tilt.
 In couch and online versus, the round winner's disc cam pops up in the corner for everyone
 (online it is rebuilt from the frames their client already streams), and if someone else
-won, you get your own once you sink it.
+won, you get your own once you sink it. Click it to watch it full screen: the next course
+waits until it has played through (at most 30 s).
 
 **Match recordings.** Every couch and online round is recorded too (the last 40), listed
 under MATCHES on the REPLAYS page. Watching one replays the whole round with every runner
@@ -155,7 +160,7 @@ saves a replay which, when watched, finishes in the same time.
 A seeded, deterministic walker places segments from a weighted grammar. There are 27 segment
 types: gaps, stairs, wall-jump chimneys, swing chains, zip ledges, zip towers, slide tunnels,
 moving platforms, bounce pads, disc gates (throw through a ring to open a door), disc bridges,
-updrafts, crosswinds, laser gauntlets, saws, breakable glass, drop shafts, hammer walls, ramp
+updrafts, crosswinds, laser gauntlets, saws, breakable glass (only a disc breaks it), drop shafts, hammer walls, ramp
 jumps, grip ceilings, pillar hops, booster gaps, rope-wrap blocks, fairways (open field,
 valley, or high tailwind lane), tunnels and slope runs.
 

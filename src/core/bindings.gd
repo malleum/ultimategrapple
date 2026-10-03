@@ -39,6 +39,11 @@ const PAD_NAMES := {0: "A", 1: "B", 2: "X", 3: "Y", 4: "BACK", 5: "GUIDE", 6: "S
 	16: "PADDLE 1", 17: "PADDLE 2", 18: "PADDLE 3", 19: "PADDLE 4", 20: "TOUCHPAD"}
 const AXIS_NAMES := {4: "LT", 5: "RT"}
 
+## Bumped when the defaults change in a way old saves should not keep
+## (2: throw LMB / snap RMB, grapple off RMB, nothing on F). Saved bindings
+## from an older version are dropped and the new defaults load instead.
+const VERSION := 2
+
 static var kbm: Dictionary = {}
 static var pad: Dictionary = {}
 ## mouse wheel button index -> [actions]; these never enter the InputMap
@@ -52,10 +57,10 @@ static func default_kbm() -> Dictionary:
 		"move_up": [_k(KEY_W), _k(KEY_UP)],
 		"move_down": [_k(KEY_S), _k(KEY_DOWN)],
 		"jump": [_k(KEY_SPACE)],
-		"grapple": [_m(MOUSE_BUTTON_RIGHT)],
+		"grapple": [_k(KEY_SHIFT), _m(MOUSE_BUTTON_XBUTTON1)],
 		"zip": [_k(KEY_E), _m(MOUSE_BUTTON_XBUTTON2)],
 		"throw": [_m(MOUSE_BUTTON_LEFT)],
-		"snap": [_k(KEY_F), _m(MOUSE_BUTTON_XBUTTON1)],
+		"snap": [_m(MOUSE_BUTTON_RIGHT)],
 		"pivot": [_k(KEY_CTRL)],
 		"throw_next": [_k(KEY_Q)],
 		"throw_prev": [],
@@ -77,7 +82,7 @@ static func default_pad() -> Dictionary:
 		"zip": [_b(JOY_BUTTON_LEFT_SHOULDER)],
 		"throw": [_a(JOY_AXIS_TRIGGER_RIGHT)],
 		"snap": [_b(JOY_BUTTON_RIGHT_SHOULDER)],
-		"pivot": [_b(JOY_BUTTON_B)],
+		"pivot": [_b(JOY_BUTTON_LEFT_STICK), _b(JOY_BUTTON_B)],
 		"throw_next": [_b(JOY_BUTTON_DPAD_RIGHT)],
 		"throw_prev": [_b(JOY_BUTTON_DPAD_LEFT)],
 		"nose_up": [_b(JOY_BUTTON_DPAD_UP)],
@@ -96,6 +101,8 @@ static func _a(axis: int) -> String: return "a:%d" % axis
 ## Load from the saved settings blob ({"kbm": {...}, "pad": {...}}), falling
 ## back to defaults per action, then push into the InputMap.
 static func load_from(saved) -> void:
+	if saved is Dictionary and int(saved.get("v", 1)) < VERSION:
+		saved = {}
 	kbm = _merge(default_kbm(), saved.get("kbm", {}) if saved is Dictionary else {}, ["k:", "m:"])
 	pad = _merge(default_pad(), saved.get("pad", {}) if saved is Dictionary else {}, ["b:", "a:"])
 	apply()
@@ -118,7 +125,7 @@ static func _merge(defaults: Dictionary, saved, prefixes: Array) -> Dictionary:
 
 
 static func to_dict() -> Dictionary:
-	return {"kbm": kbm.duplicate(true), "pad": pad.duplicate(true)}
+	return {"v": VERSION, "kbm": kbm.duplicate(true), "pad": pad.duplicate(true)}
 
 
 static func reset(device: String) -> void:
@@ -252,7 +259,7 @@ static func snapshot_labels() -> Dictionary:
 	return out
 
 
-## All bindings of an action joined for help text, e.g. "F / MOUSE 4".
+## All bindings of an action joined for help text, e.g. "E / MOUSE 5".
 static func labels(action: String, use_pad := false) -> String:
 	var arr: Array = (pad if use_pad else kbm).get(action, [])
 	var parts := []

@@ -439,10 +439,17 @@ func on_runner_finished(r: Node) -> void:
 
 var round_cam: Control = null
 var _cam_layer: CanvasLayer = null
+var _round_disc_cam = null
+## Someone clicked the round cam up to full screen: the next course waits
+## until it has played through (couch here, online via the server).
+var cam_hold := false
+var _cam_hold_until := 0.0
+const CAM_HOLD_MAX := 30.0
 
 
 ## Show a disc cam in the corner once the clip has its moment after the
-## chains. `clip_fn` is called then and returns a DiscCam clip.
+## chains. `clip_fn` is called then and returns a DiscCam clip. Clicking it
+## plays it full screen and holds the next course until it has finished.
 func show_round_cam(clip_fn: Callable, color: Color, disc_color: Color, title: String) -> void:
 	await get_tree().create_timer(1.0).timeout
 	if not is_inside_tree():
@@ -452,6 +459,7 @@ func show_round_cam(clip_fn: Callable, color: Color, disc_color: Color, title: S
 		return
 	if round_cam and is_instance_valid(round_cam):
 		round_cam.queue_free()
+	_set_cam_hold(false)
 	if _cam_layer == null:
 		_cam_layer = CanvasLayer.new()
 		_cam_layer.layer = 40
@@ -468,14 +476,73 @@ func show_round_cam(clip_fn: Callable, color: Color, disc_color: Color, title: S
 	panel.add_child(cam)
 	cam.setup(self, clip, color, disc_color, title, true)
 	_cam_layer.add_child(panel)
-	# bottom right, above the control hints; never takes the mouse
-	panel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT, Control.PRESET_MODE_MINSIZE, 24)
-	panel.position.y -= 70.0
+	_corner(panel)
 	_ui_only(panel)
+	# the panel itself takes clicks (its contents don't)
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	panel.gui_input.connect(_on_round_cam_input)
+	cam.played.connect(_on_round_cam_played)
 	round_cam = panel
+	_round_disc_cam = cam
 	var tw := create_tween().bind_node(panel)
 	panel.modulate.a = 0.0
 	tw.tween_property(panel, "modulate:a", 1.0, 0.25)
+
+
+## Bottom right, above the control hints.
+func _corner(panel: Control) -> void:
+	panel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT, Control.PRESET_MODE_MINSIZE, 24)
+	panel.position.y -= 70.0
+
+
+func _on_round_cam_input(ev: InputEvent) -> void:
+	if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
+		round_cam.accept_event()
+		set_round_cam_full(not cam_hold)
+
+
+## Full screen (and hold the next course) or back to the corner.
+func set_round_cam_full(full: bool) -> void:
+	if round_cam == null or not is_instance_valid(round_cam):
+		return
+	var vs: Vector2 = get_viewport().get_visible_rect().size
+	if full:
+		var w := int(minf(vs.x - 80.0, (vs.y - 150.0) * 16.0 / 9.0))
+		_round_disc_cam.set_view(Vector2i(w, int(w * 9.0 / 16.0)))
+		round_cam.reset_size()
+		round_cam.position = ((vs - round_cam.size) * 0.5).floor()
+		if _round_disc_cam.hint:
+			_round_disc_cam.hint.text = "next course waits for this  ·  click to shrink"
+	else:
+		_round_disc_cam.set_view(DiscCam.VIEW_SMALL)
+		round_cam.reset_size()
+		_corner(round_cam)
+		if _round_disc_cam.hint:
+			_round_disc_cam.hint.text = "click to watch full screen"
+	_set_cam_hold(full)
+
+
+func _on_round_cam_played() -> void:
+	if cam_hold:
+		_set_cam_hold(false)
+		if _round_disc_cam.hint:
+			_round_disc_cam.hint.text = "click to shrink"
+
+
+func _set_cam_hold(on: bool) -> void:
+	if cam_hold == on:
+		return
+	cam_hold = on
+	_cam_hold_until = Time.get_ticks_msec() / 1000.0 + CAM_HOLD_MAX
+	if mode == "multi":
+		Net.hold_round(on)
+
+
+## Couch: is the next course being held for the disc cam?
+func holding_round() -> bool:
+	if cam_hold and Time.get_ticks_msec() / 1000.0 > _cam_hold_until:
+		_set_cam_hold(false)
+	return cam_hold
 
 
 ## The corner cam: drawn by every game view (couch views only draw some

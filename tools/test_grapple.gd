@@ -2,8 +2,11 @@ extends SceneTree
 ## Grapple behaviour checks on a hand-built course:
 ##   hold      grabbing while falling / flying away keeps the rope (no false snap)
 ##   regrab    letting go and clicking again 3 ticks later still grabs (buffer)
-##   through   a point behind a platform can be grabbed; the rope starts wrapped
-##   zip_wrap  zipping to a point behind a platform goes around it and arrives
+##   through   a point behind a platform can be grabbed; the rope goes straight
+##             through it and stays straight while hanging under it
+##   bend      a clear rope bends round the platform once you swing under it
+##   zip_wrap  zipping to a point behind a platform: pulled into it, the rope
+##             bends round it and the zip still arrives
 ##   cursor    cursor right next to a point picks it even outside the aim cone
 ##   range     a point 650 px away is in range
 ##   double    one double jump in the air, not two
@@ -54,6 +57,7 @@ func _physics_process(_dt: float) -> bool:
 				tests.append(["hold", Vector2(260, -150), Vector2(vx, vy)])
 		tests.append(["regrab", Vector2(-200, -150), Vector2.ZERO])
 		tests.append(["through", Vector2(1180, -420), Vector2.ZERO])
+		tests.append(["bend", Vector2(1560, -420), Vector2.ZERO])
 		tests.append(["zip_wrap", Vector2(1180, -420), Vector2.ZERO])
 		tests.append(["cursor", Vector2(-150, -150), Vector2.ZERO])
 		tests.append(["range", Vector2(-1000, -150), Vector2.ZERO])
@@ -84,9 +88,20 @@ func _physics_process(_dt: float) -> bool:
 			if f == 3:
 				Input.action_press("grapple")
 			if f == 5:
-				_check("through", p.state == 1 and p.anchors.size() >= 2, "state=%d anchors=%d" % [p.state, p.anchors.size()])
+				_check("through", p.state == 1 and p.anchors.size() == 1, "straight through: state=%d anchors=%d" % [p.state, p.anchors.size()])
 			if f == 60:
-				_check("through", p.state == 1, "still swinging: state=%d" % p.state)
+				_check("through", p.state == 1 and p.anchors.size() == 1, "still swinging, still straight: state=%d anchors=%d" % [p.state, p.anchors.size()])
+				_next()
+		"bend":
+			if f == 3:
+				Input.action_press("grapple")
+			if f == 5:
+				data["clear"] = p.state == 1 and p.anchors.size() == 1
+			if p.anchors.size() >= 2 and not data.has("bent"):
+				data["bent"] = f
+			if f == 120:
+				_check("bend", bool(data.clear) and data.has("bent") and p.state == 1,
+					"clear at attach: %s, bent round the slab at tick %s" % [data.clear, data.get("bent", "-")])
 				_next()
 		"zip_wrap":
 			if f == 3:
@@ -142,7 +157,7 @@ func _next() -> void:
 	lvl.restart()
 	p.respawn(t[1])
 	match t[0]:
-		"through", "zip_wrap":
+		"through", "zip_wrap", "bend":
 			aim = P_BEHIND
 		"range":
 			aim = P_FAR

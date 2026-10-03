@@ -16,7 +16,7 @@ const RECENT_PATH := "user://recent.json"
 const RECENT_MAX := 40
 ## Bump when movement / physics / input layout change: older replays can't
 ## re-simulate faithfully any more. 2: no dash, double jump, faster running.
-const REPLAY_VERSION := 4   # 3: bigger basket, 3x air pivot; 4: speeds, mantle, smoother jumps
+const REPLAY_VERSION := 5   # 3: bigger basket, 3x air pivot; 4: speeds, mantle, smoother jumps; 5: slower zip, rope through platforms
 const ReplayInput = preload("res://src/core/replay_input.gd")
 const GENERATOR_VERSION := 1
 
@@ -789,6 +789,9 @@ func couch_waiting_text() -> String:
 		return ""
 	var left := maxf(0.0, float(couch.next_at) - Time.get_ticks_msec() / 1000.0)
 	var who: String = couch.players[couch.winner].name
+	var lvl = current_scene
+	if lvl and is_instance_valid(lvl) and lvl.get("cam_hold"):
+		return "%s wins round %d  ·  watching the disc cam" % [who, int(couch.round) + 1]
 	if couch.set_winner != -1:
 		return "%s TAKES THE SET  ·  %d" % [who, int(ceil(left))]
 	return "%s wins round %d  ·  next course in %d" % [who, int(couch.round) + 1, int(ceil(left))]
@@ -817,6 +820,10 @@ func end_couch() -> void:
 func _process(_dt: float) -> void:
 	_poll_export()
 	if couch.is_empty() or float(couch.get("next_at", -1.0)) < 0.0:
+		return
+	var lvl = current_scene
+	if lvl and is_instance_valid(lvl) and lvl.has_method("holding_round") and lvl.holding_round():
+		couch.next_at = maxf(float(couch.next_at), Time.get_ticks_msec() / 1000.0 + 1.0)
 		return
 	if Time.get_ticks_msec() / 1000.0 >= float(couch.next_at):
 		if int(couch.set_winner) != -1:

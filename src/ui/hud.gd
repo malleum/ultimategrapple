@@ -623,8 +623,7 @@ func _draw_splits(ci: Control, vs: Vector2) -> void:
 	var n: int = runner.split_count()
 	if n == 0:
 		return
-	var e: Dictionary = Game.get_splits(level.level_id, n)
-	var pb: Array = e.pb
+	var pb: Array = runner.split_pb()
 	var x := vs.x - 268.0
 	var y0 := 12.0 + 40.0 + 34.0 * 4 + 10.0
 	var row := 25.0
@@ -1053,6 +1052,7 @@ func _draw_scoreboard(ci: Control, vs: Vector2) -> void:
 	for i in lines.size():
 		_text(ci, Vector2(r.position.x + 18, y), lines[i], 15 if i > 0 else 13, Color(1, 0.85, 0.4) if i == 0 else Color(1, 1, 1, 0.9), HORIZONTAL_ALIGNMENT_LEFT, -1, _mono if i > 0 else _bold, 0)
 		y += 24
+	_draw_place(ci, vs)
 	var wt := ""
 	if level.mode == "couch":
 		wt = Game.couch_waiting_text()
@@ -1063,6 +1063,59 @@ func _draw_scoreboard(ci: Control, vs: Vector2) -> void:
 		var wr := Rect2(vs.x * 0.5 - ww * 0.5, vs.y * 0.6, ww, 50)
 		_slab(ci, wr, 14.0, Color(0.15, 0.1, 0.02, 0.85), Color(1, 0.85, 0.3, 0.9))
 		_text(ci, wr.position + Vector2(0, 34), wt, 26, Color(1, 0.9, 0.5), HORIZONTAL_ALIGNMENT_CENTER, ww, _bold, 4)
+
+
+## Versus: where you finished this round, [place, runners], or [0, n] if
+## not finished (yet). Ranked by finish time.
+func my_place() -> Vector2i:
+	var results := {}
+	var me = null
+	var n := 0
+	if level.mode == "couch":
+		if Game.couch.is_empty():
+			return Vector2i.ZERO
+		results = Game.couch.results
+		me = runner.index
+		n = Game.couch.players.size()
+	elif level.mode == "multi":
+		results = level.net_results
+		me = Net.my_id()
+		n = Net.players.size()
+	if me == null or not results.has(me):
+		return Vector2i(0, n)
+	var mine := float(results[me])
+	var place := 1
+	for k in results:
+		if k != me and float(results[k]) < mine:
+			place += 1
+	return Vector2i(place, maxi(n, results.size()))
+
+
+static func ordinal(n: int) -> String:
+	var suf := "TH"
+	if n % 100 < 11 or n % 100 > 13:
+		suf = ["TH", "ST", "ND", "RD", "TH", "TH", "TH", "TH", "TH", "TH"][n % 10]
+	return "%d%s" % [n, suf]
+
+
+const PLACE_COLORS := [Color(1.0, 0.82, 0.25), Color(0.78, 0.84, 0.95), Color(0.9, 0.55, 0.3)]
+
+
+## Big finishing place once you've sunk it in versus (1ST gold, 2ND silver...).
+func _draw_place(ci: Control, vs: Vector2) -> void:
+	if not runner.done:
+		return
+	var pl := my_place()
+	if pl.x <= 0:
+		return
+	var col: Color = PLACE_COLORS[pl.x - 1] if pl.x <= 3 else Color(0.8, 0.82, 0.9)
+	var big := ordinal(pl.x)
+	var sub := "FIRST TO THE CHAINS" if pl.x == 1 else "TO THE CHAINS  ·  OF %d" % pl.y
+	var w := maxf(_text_w(big, 72, _bold), _text_w(sub, 18, _bold)) + 80.0
+	var r := Rect2(vs.x * 0.5 - w * 0.5, vs.y * 0.2, w, 124)
+	_slab(ci, r, 16.0, Color(0.02, 0.015, 0.06, 0.82), Color(col, 0.95))
+	_text(ci, r.position + Vector2(0, 80), big, 72, col, HORIZONTAL_ALIGNMENT_CENTER, w, _bold, 6)
+	_text(ci, r.position + Vector2(0, 110), sub, 18, Color(col, 0.85), HORIZONTAL_ALIGNMENT_CENTER, w, _bold, 3)
 
 
 func _draw_countdown(ci: Control, vs: Vector2) -> void:
@@ -1117,7 +1170,8 @@ class MedalBadge:
 		draw_string(f, c + Vector2(-r, r * 0.38), letter, HORIZONTAL_ALIGNMENT_CENTER, r * 2.0, int(r * 1.1), Color(1, 1, 1))
 
 
-func show_results(tm: float, medal: String, is_pb: bool) -> void:
+## old_pb: the personal best this run beat (-1 for a first clear / no PB).
+func show_results(tm: float, medal: String, is_pb: bool, old_pb := -1.0) -> void:
 	await get_tree().create_timer(0.9).timeout
 	if not is_instance_valid(level) or not runner.done:
 		return
@@ -1168,6 +1222,11 @@ func show_results(tm: float, medal: String, is_pb: bool) -> void:
 		var tw2 := create_tween().bind_node(pb).set_loops()
 		tw2.tween_property(pb, "modulate:a", 0.45, 0.5)
 		tw2.tween_property(pb, "modulate:a", 1.0, 0.5)
+		if old_pb > 0.0:
+			v.add_child(UI.label("−%.3fs  ·  old best %s" % [old_pb - tm, Game.format_time(old_pb)], 20,
+				Color(0.5, 1, 0.7), HORIZONTAL_ALIGNMENT_CENTER))
+		else:
+			v.add_child(UI.label("first clear", 18, UI.DIM, HORIZONTAL_ALIGNMENT_CENTER))
 	var chips := UI.hbox(26)
 	chips.alignment = BoxContainer.ALIGNMENT_CENTER
 	if level.par_time() > 0.0:

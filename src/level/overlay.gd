@@ -19,6 +19,10 @@ var _was_full := false
 ## The cursor is drawn by its own node so a screen-reading shader can flip it
 ## dark over bright skies and bright over dark ones.
 var reticle: Node2D
+var _dt := 0.0
+var _chip_pos := {}            # wind zone -> smoothed chip position
+var _disc_prev := Vector2.ZERO  # disc position over the last two ticks (chip rides the drawn disc)
+var _disc_cur := Vector2.ZERO
 
 const RETICLE_SHADER := """
 shader_type canvas_item;
@@ -55,7 +59,14 @@ func _init() -> void:
 	add_child(reticle)
 
 
+func _physics_process(_pdt: float) -> void:
+	if runner and runner.disc:
+		_disc_prev = _disc_cur if _disc_cur.distance_to(runner.disc.global_position) < 200.0 else runner.disc.global_position
+		_disc_cur = runner.disc.global_position
+
+
 func _process(dt: float) -> void:
+	_dt = dt
 	t += dt
 	lock_t += dt
 	full_flash = maxf(0.0, full_flash - dt * 3.0)
@@ -130,19 +141,25 @@ func _draw_timed() -> void:
 		if p.has_disc:
 			var m: Vector2 = p.mouse_world_draw()
 			var adir := (m - hand).normalized() if m.distance_to(hand) > 1.0 else Vector2(p.facing, 0)
-			var seen := {}
-			var s2 := 0.0
-			while s2 < WIND_LOOK:
-				var q := hand + adir * s2
-				for z in runner.level.wind_zones:
-					if not seen.has(z) and z.rect.has_point(q):
-						seen[z] = true
-						_wind_chip(q + Vector2(0, -26), z.force, 0.9 if s2 > 0.0 else 1.0)
-				s2 += 36.0
+			var live := {}
+			for z in runner.level.wind_zones:
+				# exact point where the aim line enters the zone (sampling the
+				# line made the chip hop in steps as you moved)
+				var e = _ray_rect(hand, adir, WIND_LOOK, z.rect)
+				if e == null:
+					continue
+				var at: Vector2 = e + Vector2(0, -26)
+				var prev = _chip_pos.get(z)
+				if prev != null and (prev as Vector2).distance_to(at) < 160.0:
+					at = (prev as Vector2).lerp(at, 1.0 - exp(-18.0 * _dt))
+				live[z] = at
+				_wind_chip(at, z.force, 0.9 if hand.distance_to(e) > 1.0 else 1.0)
+			_chip_pos = live
 		elif runner.disc.state == Disc.FLIGHT:
+			var dp: Vector2 = _disc_prev.lerp(_disc_cur, Engine.get_physics_interpolation_fraction())
 			var w: Vector2 = runner.level.wind_at(runner.disc.global_position)
 			if w != Vector2.ZERO:
-				_wind_chip(runner.disc.global_position + Vector2(0, -30), w, 1.0)
+				_wind_chip(dp + Vector2(0, -30), w, 1.0)
 
 	# ---------------------------------------------------------------- rope
 	if (p.state == Player.SWING or p.state == Player.ZIP) and not p.anchors.is_empty():
@@ -252,6 +269,33 @@ func _draw_reticle() -> void:
 
 
 const WIND_LOOK := 1600.0   # how far along the aim line wind zones are flagged
+
+
+## Where a ray (origin, unit dir, length) first enters rect; origin itself
+## when it starts inside; null when it misses.
+static func _ray_rect(o: Vector2, d: Vector2, length: float, r: Rect2):
+	var t0 := 0.0
+	var t1 := length
+	for k in 2:
+		var ok: float = o[k]
+		var dk: float = d[k]
+		var lo: float = r.position[k]
+		var hi: float = r.end[k]
+		if absf(dk) < 1e-6:
+			if ok < lo or ok > hi:
+				return null
+			continue
+		var a := (lo - ok) / dk
+		var b := (hi - ok) / dk
+		if a > b:
+			var tmp := a
+			a = b
+			b = tmp
+		t0 = maxf(t0, a)
+		t1 = minf(t1, b)
+		if t0 > t1:
+			return null
+	return o + d * t0
 
 
 ## Wind marker: a chevron arrow in the wind's direction, one chevron per

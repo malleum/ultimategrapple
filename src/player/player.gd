@@ -50,7 +50,7 @@ const SLIDE_MIN_SPEED := 190.0
 const SLIDE_BOOST := 150.0
 const SLIDE_FRICTION := 300.0
 const CROUCH_SPEED := 170.0
-const CARRY_SPEED_MULT := 0.622   # carrying the disc: ~534
+const CARRY_SPEED_MULT := 0.56    # carrying the disc: ~480
 const CARRY_JUMP_MULT := 0.97
 const MAX_SPEED := 2600.0
 const THROW_MOVE_REF := 593.0     # speed that counts as "full run" for moving-throw sway
@@ -61,8 +61,8 @@ const ROPE_MIN := 36.0
 const ROPE_MAX := 860.0
 const REEL_SPEED := 540.0
 const SWING_PUMP := 900.0
-const ZIP_ACCEL := 4800.0
-const ZIP_MAX := 1250.0
+const ZIP_ACCEL := 3200.0
+const ZIP_MAX := 830.0
 const TARGET_CONE := 0.7          # aim cone (rad) for picking a grapple point
 const CURSOR_SNAP := 160.0        # a point this close to the cursor is picked regardless of cone
 const GRAPPLE_BUFFER := 0.15      # a grapple/zip press waits this long for a target / cooldown
@@ -118,6 +118,7 @@ var air_time := 0.0
 # grapple state
 var anchors: Array = []       # Array[Vector2]; [0] original, rest are wrap corners
 var wrap_signs: Array = []
+var rope_ghosts: Array = []   # RIDs the rope was thrown straight through (see _rope_hit)
 var rope_len := 0.0
 var grapple_node: Node = null  # grapple point node (null for grip surfaces)
 var target: Dictionary = {}    # current aim target {pos, node}
@@ -203,6 +204,7 @@ func reset_run_state(seed_value: int) -> void:
 	floor_ice = false
 	air_time = 0.0
 	rope_len = 0.0
+	rope_ghosts.clear()
 	target = {}
 	grapple_cd = 0.0
 	grapple_buf = 0.0
@@ -568,12 +570,6 @@ func _move(_dt: float) -> void:
 		velocity = velocity.limit_length(MAX_SPEED)
 	var pre_vel := velocity
 	move_and_slide()
-	for i in get_slide_collision_count():
-		var c := get_slide_collision(i)
-		var o := c.get_collider()
-		if o and o.has_meta("glass") and pre_vel.length() > 650.0:
-			o.get_parent().shatter(pre_vel)
-			velocity = pre_vel * 0.9
 	var was_floor := on_floor
 	on_floor = is_on_floor()
 	floor_ice = false
@@ -719,19 +715,18 @@ func _attach(t: Dictionary, mode: int) -> void:
 	grapple_node = t.node
 	grapple_buf = 0.0
 	zip_buf = 0.0
-	# grabbed through a platform: start the rope already wrapped around it
+	# grabbed through a platform: the rope goes straight through it (it only
+	# bends around things that come between later)
 	var c := center()
 	var space := get_world_2d().direct_space_state
-	for i in 4:
-		var a: Vector2 = anchors[-1]
-		var hit := space.intersect_ray(PhysicsRayQueryParameters2D.create(c, a, collision_mask, [get_rid()]))
-		if hit.is_empty() or hit.position.distance_to(a) < 4.0:
+	var ex: Array[RID] = [get_rid()]
+	rope_ghosts.clear()
+	for i in 6:
+		var hit := space.intersect_ray(PhysicsRayQueryParameters2D.create(c, t.pos, collision_mask, ex))
+		if hit.is_empty() or hit.position.distance_to(t.pos) < 4.0:
 			break
-		var corner = _find_corner(hit.collider, c, a)
-		if corner == null or corner.distance_to(a) < 4.0:
-			break
-		anchors.append(corner)
-		wrap_signs.append(signf((corner - a).cross(c - corner)))
+		rope_ghosts.append(hit.rid)
+		ex.append(hit.rid)
 	rope_len = clampf(c.distance_to(anchors[-1]), ROPE_MIN, ROPE_MAX)
 	state = mode
 	if mode == ZIP:
@@ -757,6 +752,7 @@ func _detach(jump: bool) -> void:
 	state = NORMAL
 	anchors.clear()
 	wrap_signs.clear()
+	rope_ghosts.clear()
 	grapple_node = null
 	grapple_cd = 0.08
 	fx.emit("grapple_release", center(), jump)
@@ -857,19 +853,28 @@ func _zip(dt: float) -> void:
 	var side := velocity - dir * along
 	velocity = dir * minf(along, ZIP_MAX) + side * pow(0.02, dt)
 	_move(dt)
+	# pulled into a platform the rope went through: now it is in the way, bend
+	# around it like anything else
+	if not rope_ghosts.is_empty():
+		for i in get_slide_collision_count():
+			rope_ghosts.erase(get_slide_collision(i).get_collider_rid())
 	# a platform crossing the line: bend around it instead of letting go
 	c = center()
-	var hit := get_world_2d().direct_space_state.intersect_ray(PhysicsRayQueryParameters2D.create(c, a, collision_mask, [get_rid()]))
+	var hit := _rope_hit(c, a)
+	var wrapped := false
 	if not hit.is_empty() and hit.position.distance_to(a) >= 4.0 and anchors.size() < 8:
-		var corner = _find_corner(hit.collider, c, a)
+		var corner = _zip_corner(hit.collider, c, a)
 		if corner != null and corner.distance_to(a) >= 4.0:
 			anchors.append(corner)
 			wrap_signs.append(signf((corner - a).cross(c - corner)))
+			wrapped = true
 	# only give up when it really is stuck (pinned against something)
 	var remaining := c.distance_to(anchors[-1])
 	for i in range(anchors.size() - 1, 0, -1):
 		remaining += (anchors[i] as Vector2).distance_to(anchors[i - 1])
-	if remaining < zip_best - 2.0:
+	if wrapped:
+		zip_best = remaining   # the way round is longer: measure progress from here
+	elif remaining < zip_best - 2.0:
 		zip_best = remaining
 		zip_stuck_t = 0.0
 	else:
@@ -891,8 +896,7 @@ func _update_wraps() -> void:
 			wrap_signs.pop_back()
 			return
 	var a: Vector2 = anchors[-1]
-	var q := PhysicsRayQueryParameters2D.create(c, a, collision_mask, [get_rid()])
-	var hit := get_world_2d().direct_space_state.intersect_ray(q)
+	var hit := _rope_hit(c, a)
 	if hit.is_empty() or hit.position.distance_to(a) < 4.0:
 		return
 	var corner = _find_corner(hit.collider, c, a)
@@ -905,6 +909,75 @@ func _update_wraps() -> void:
 	anchors.append(corner)
 	wrap_signs.append(signf((corner - a).cross(c - corner)))
 	fx.emit("rope_wrap", corner, null)
+
+
+## First thing the live rope segment (c -> a) runs into, skipping platforms
+## the rope was thrown straight through. Those stay see-through until the rope
+## is one straight segment clear of them again; after that they block (and
+## get wrapped around) like anything else.
+func _rope_hit(c: Vector2, a: Vector2) -> Dictionary:
+	if rope_ghosts.is_empty():
+		return get_world_2d().direct_space_state.intersect_ray(PhysicsRayQueryParameters2D.create(c, a, collision_mask, [get_rid()]))
+	var space := get_world_2d().direct_space_state
+	var ex: Array[RID] = [get_rid()]
+	var crossing: Array = []
+	for i in 8:
+		var hit := space.intersect_ray(PhysicsRayQueryParameters2D.create(c, a, collision_mask, ex))
+		if hit.is_empty():
+			break
+		if not rope_ghosts.has(hit.rid):
+			return hit
+		crossing.append(hit.rid)
+		ex.append(hit.rid)
+	if anchors.size() == 1:
+		rope_ghosts = crossing
+	return {}
+
+
+## Zip: the corner of col on the shortest way round (c -> corner -> a) that
+## can be reached in a straight line and isn't the one we're already at.
+func _zip_corner(col: Object, c: Vector2, a: Vector2):
+	var verts := _corners(col)
+	if verts.is_empty():
+		return null
+	var space := get_world_2d().direct_space_state
+	# already at a corner: the next one has to be reachable from there
+	var from := c
+	for v in verts:
+		if v.distance_to(c) < 34.0:
+			from = v
+	var best = null
+	var best_d := INF
+	for v in verts:
+		if v.distance_to(c) < 34.0:
+			continue
+		var d := c.distance_to(v) + v.distance_to(a)
+		if d >= best_d:
+			continue
+		var hit := space.intersect_ray(PhysicsRayQueryParameters2D.create(from, v, collision_mask, [get_rid()]))
+		if not hit.is_empty() and hit.position.distance_to(v) > 4.0:
+			continue
+		best_d = d
+		best = v
+	return best
+
+
+## A collider's corners, pushed 2 px outwards.
+func _corners(col: Object) -> PackedVector2Array:
+	var verts := PackedVector2Array()
+	var mid := Vector2.ZERO
+	if col and col.has_meta("rect"):
+		var r: Rect2 = col.get_meta("rect")
+		verts = PackedVector2Array([r.position, Vector2(r.end.x, r.position.y), r.end, Vector2(r.position.x, r.end.y)])
+	elif col and col.has_meta("poly"):
+		verts = col.get_meta("poly")
+	for v in verts:
+		mid += v
+	mid /= maxf(1.0, verts.size())
+	var out := PackedVector2Array()
+	for v in verts:
+		out.append(v + (v - mid).normalized() * 2.0)
+	return out
 
 
 func _find_corner(col: Object, c: Vector2, a: Vector2):
@@ -1304,6 +1377,7 @@ func respawn(pos: Vector2) -> void:
 	state = NORMAL
 	anchors.clear()
 	wrap_signs.clear()
+	rope_ghosts.clear()
 	grapple_node = null
 	winds.clear()
 	booster_dir = 0

@@ -44,11 +44,30 @@ func _process(_dt: float) -> bool:
 	Bindings.reset("pad")
 	var inp := PlayerInput.new(PlayerInput.KBM)
 
-	# defaults: side buttons already drive snap (MOUSE 4) and zip (MOUSE 5)
+	# defaults: throw LMB, snap RMB, side buttons drive grapple (MOUSE 4) and
+	# zip (MOUSE 5), nothing on F
 	_mouse(MOUSE_BUTTON_XBUTTON1, true)
 	inp.poll()
-	_check("default MOUSE 4 -> snap", inp.pressed("snap"))
+	_check("default MOUSE 4 -> grapple", inp.pressed("grapple"))
 	_mouse(MOUSE_BUTTON_XBUTTON1, false)
+	_mouse(MOUSE_BUTTON_RIGHT, true)
+	inp.poll()
+	_check("default RMB -> snap", inp.pressed("snap") and not inp.pressed("grapple"))
+	_mouse(MOUSE_BUTTON_RIGHT, false)
+	_check("default LMB -> throw", Bindings.kbm.throw == ["m:%d" % MOUSE_BUTTON_LEFT])
+	var on_f: Array = []
+	for a in Bindings.kbm:
+		if Bindings.kbm[a].has("k:%d" % KEY_F):
+			on_f.append(a)
+	_check("nothing on F %s" % [on_f], on_f.is_empty())
+	# saves from before the new defaults are dropped; current ones load back
+	Bindings.load_from({"kbm": {"snap": ["k:%d" % KEY_F]}})
+	_check("old save reset", not Bindings.kbm.snap.has("k:%d" % KEY_F))
+	Bindings.bind("kbm", "recall", 1, "k:%d" % KEY_H)
+	Bindings.load_from(Bindings.to_dict())
+	_check("current save kept", Bindings.kbm.recall.has("k:%d" % KEY_H))
+	Bindings.reset("kbm")
+	inp.poll()
 
 	# rebind jump to MOUSE 5: it leaves zip, and both side buttons work
 	var taken := Bindings.bind("kbm", "jump", 0, "m:%d" % MOUSE_BUTTON_XBUTTON2)

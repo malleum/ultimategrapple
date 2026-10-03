@@ -1,6 +1,7 @@
 extends SceneTree
 ## Split times: a course is cut into splits along its route; crossing a line
-## records the time; a finish stores the PB splits and best segments; a faster
+## records the time; a finish stores the PB splits and best segments (the
+## column keeps comparing against the PB it just beat); a faster
 ## second run shows negative deltas (gold where a segment beat its best).
 ## godot --headless --fixed-fps 120 -s tools/test_splits.gd
 
@@ -69,6 +70,9 @@ func _physics_process(_dt: float) -> bool:
 			"2nd run %s: first split %+.2fs, shown gold" % [_fmt(second), d0])
 		var e2: Dictionary = G.get_splits(ID, 4)
 		_check("pb", absf(float(e2.pb[3]) - float(second[3])) < 0.0001, "PB splits now the 2nd run (finish %.2f)" % float(e2.pb[3]))
+		var shown: Array = r.split_pb()
+		_check("shown", absf(float(shown[3]) - float(first[3])) < 0.0001,
+			"results column still compares against the beaten PB (finish %.2f, delta %+.2fs)" % [float(shown[3]), float(second[3]) - float(shown[3])])
 		var saved = JSON.parse_string(FileAccess.get_file_as_string(G.SPLITS_PATH))
 		_check("saved", saved is Dictionary and saved.has(ID), "splits.json has the course")
 		G.records.erase(ID)
