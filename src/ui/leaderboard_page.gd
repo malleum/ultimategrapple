@@ -7,6 +7,7 @@ const UI = preload("res://src/ui/ui.gd")
 const FETCH_TIMEOUT := 12.0
 
 var back_fn: Callable
+var name_fn: Callable     # opens the choose-your-name prompt
 var levels := {}          # level id -> level data (built-ins)
 var keys: Array = []      # course keys in menu order
 var course := ""
@@ -103,10 +104,13 @@ func _on_state() -> void:
 		for p in Online.presence:
 			names.append(str(p.name))
 		online_lbl.text = "Online as %s  ·  online now: %s" % [str(Game.settings.player_name), ", ".join(PackedStringArray(names))]
+		if not Online.name_ok:
+			online_lbl.text = "Online, but not on the leaderboards yet: %s" % Online.name_msg
 		if course != "":
 			Online.request_board(course)
 	else:
 		online_lbl.text = Online.link_text()
+	_rebuild()
 
 
 func _select(k: String) -> void:
@@ -138,9 +142,22 @@ func _on_board(c: String, list: Array) -> void:
 	_rebuild()
 
 
+## You see the boards once you've picked a name (and the server took it).
+func _named() -> bool:
+	return bool(Game.settings.get("name_chosen", false)) and (Online.name_ok or not Online.is_online())
+
+
 func _rebuild() -> void:
 	for c in board_box.get_children():
 		c.queue_free()
+	if not _named():
+		board_box.add_child(UI.label("Choose a name to see the leaderboards and get your runs on them. Your runs so far are kept and show up under it.", 20, UI.DIM))
+		if name_fn.is_valid():
+			board_box.add_child(UI.button("CHOOSE NAME", name_fn, 22))
+		entries = []
+		picked.clear()
+		_rebuild_splits()
+		return
 	if entries.is_empty():
 		var why := ""
 		if Online.is_online():

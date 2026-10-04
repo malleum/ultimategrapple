@@ -7,6 +7,9 @@ extends SceneTree
 ##   run       a runner's ghost frames can be fetched
 ##   relay     a replay sent to the other client lands in their Friends' runs
 ##   impostor  a second client claiming an id with the wrong secret is refused
+##   names     a "Runner" (default name) is off the online list and the boards,
+##             a lookalike of a taken name is refused, and once the Runner
+##             picks a name their earlier run shows up under it
 ## godot --headless -s tools/test_services.gd
 
 const PORT := 24782
@@ -16,6 +19,8 @@ var srv
 var c1
 var c2
 var c3
+var c4   # still called "Runner"
+var c5   # tries a lookalike of a taken name
 var f := 0
 var phase := "connect"
 var fails := 0
@@ -49,6 +54,7 @@ func _process(_dt: float) -> bool:
 		srv.start_server(PORT)
 		c1 = root.get_node("Online")
 		c1.auto_sync = false
+		c1.name_override = "Alpha"
 		c1.connect_to("127.0.0.1:%d" % PORT)
 		c2 = OnlineScript.new()
 		c2.name = "Cli2Test"
@@ -56,7 +62,17 @@ func _process(_dt: float) -> bool:
 		c2.uid = "0123456789abcdef"
 		c2._key = "00112233445566778899aabbccddeeff"
 		c2.auto_sync = false
+		c2.name_override = "Bravo"
 		c2.connect_to("127.0.0.1:%d" % PORT)
+		c4 = OnlineScript.new()
+		c4.name = "Cli4Test"
+		root.add_child(c4)
+		c4.uid = "aaaaaaaaaaaaaaaa"
+		c4._key = "0000000000000000000000000000000a"
+		c4.auto_sync = false
+		c4.name_override = "Runner"
+		c4.submitted.connect(func(c, r, t, imp): got["s4"] = [c, r, t, imp])
+		c4.connect_to("127.0.0.1:%d" % PORT)
 		var keys: Array = OnlineScript.builtin_courses().keys()
 		keys.sort()
 		course = keys[0]
@@ -74,9 +90,15 @@ func _process(_dt: float) -> bool:
 		return _finish()
 	match phase:
 		"connect":
-			if c1.is_online() and c2.is_online() and c1.presence.size() == 2 and c2.presence.size() == 2:
-				_check("hello", c1.courses.has(course) and OnlineScript.course_key(lid) == course,
+			if c1.is_online() and c2.is_online() and c4.is_online() and c1.presence.size() == 2 and c2.presence.size() == 2 and f > 30:
+				_check("hello", c1.courses.has(course) and OnlineScript.course_key(lid) == course and c1.name_ok and c2.name_ok,
 					"both online, %d courses with boards, %s -> %s" % [c1.courses.size(), lid, course])
+				_check("runner", not c4.name_ok and c4.name_msg.contains("default"), "a \"Runner\" is online but unnamed: %s" % c4.name_msg)
+				c4.submit_run(lid, 9.0, 1, "ace", _frames(25), [3.0, 6.0, 9.0])
+				phase = "submit4"
+		"submit4":
+			if got.has("s4"):
+				_check("hidden", int(got.s4[1]) == 0, "the Runner's (fastest) run is kept but not ranked: #%d of %d" % [got.s4[1], got.s4[2]])
 				c1.submit_run(lid, 12.5, 2, "gold", _frames(40), [4.0, 8.0, 12.5])
 				phase = "submit1"
 		"submit1":
@@ -100,6 +122,30 @@ func _process(_dt: float) -> bool:
 				var b: Array = got.board
 				_check("board", b.size() == 2 and str(b[0].uid) == c2.uid and float(b[1].time) == 12.5 and (b[1].splits as Array).size() == 3,
 					"%d entries: %s %.1f, %s %.1f" % [b.size(), b[0].name, b[0].time, b[1].name, b[1].time])
+				c5 = OnlineScript.new()
+				c5.name = "Cli5Test"
+				root.add_child(c5)
+				c5.uid = "bbbbbbbbbbbbbbbb"
+				c5._key = "0000000000000000000000000000000b"
+				c5.auto_sync = false
+				c5.name_override = " br4VO"
+				c5.connect_to("127.0.0.1:%d" % PORT)
+				phase = "lookalike"
+		"lookalike":
+			if c5.is_online() and c5.name_msg != "":
+				_check("taken", not c5.name_ok and c5.name_msg.contains("taken"), "\" br4VO\" vs Bravo: %s" % c5.name_msg)
+				got.erase("board")
+				c4.name_override = "Charlie"
+				c4.update_profile()
+				phase = "rename"
+		"rename":
+			if c4.name_ok and not got.has("asked"):
+				got["asked"] = true
+				c1.request_board(course)
+			if got.has("board"):
+				var b2: Array = got.board
+				_check("renamed", b2.size() == 3 and str(b2[0].name) == "Charlie" and float(b2[0].time) == 9.0,
+					"after choosing a name the Runner's run shows: %s" % [b2.map(func(e): return "%s %.1f" % [e.name, e.time])])
 				c1.request_run(course, c2.uid)
 				phase = "run"
 		"run":
@@ -130,8 +176,33 @@ func _process(_dt: float) -> bool:
 		"impostor":
 			if got.has("c3"):
 				_check("impostor", not c3.is_online() and str(got.c3).contains("someone else"), "refused: %s" % got.c3)
+				_migrate()
 				return _finish()
 	return false
+
+
+## A server restarting on boards from before names were owned: "Runner"s
+## and the second "bob" drop off until they choose; the first Bob keeps it.
+func _migrate() -> void:
+	var dir := "user://test_services_server2"
+	DirAccess.make_dir_recursive_absolute(dir)
+	var acc := {"1111111111111111": {"h": "x", "name": "Runner"}, "2222222222222222": {"h": "x", "name": "Bob"},
+		"3333333333333333": {"h": "x", "name": "b0b"}, "4444444444444444": {"h": "x", "name": "Dee"}}
+	var brd := {}
+	brd[course] = {}
+	for u in acc:
+		brd[course][u] = {"time": 10.0 + float(u.substr(0, 1)), "splits": [], "color": 0, "medal": "", "throws": 1, "date": 0}
+	FileAccess.open(dir + "/accounts.json", FileAccess.WRITE).store_string(JSON.stringify(acc))
+	FileAccess.open(dir + "/boards.json", FileAccess.WRITE).store_string(JSON.stringify(brd))
+	var s2 = OnlineScript.new()
+	s2.name = "SrvMigrate"
+	s2.server_dir = dir
+	root.add_child(s2)
+	s2.start_server(PORT + 1)
+	var names: Array = s2._entries(course).map(func(e): return str(e.name))
+	_check("migrate", names == ["Bob", "Dee"], "boards after restart show %s (Runner and the second bob hidden)" % [names])
+	s2.queue_free()
+	_rm(dir)
 
 
 func _finish() -> bool:

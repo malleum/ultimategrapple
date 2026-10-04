@@ -29,6 +29,7 @@ signal board_received(course: String, entries: Array)
 signal run_received(course: String, uid: String, info: Dictionary, data: Dictionary)
 signal submitted(course: String, rank: int, total: int, improved: bool)
 signal send_result(ok: bool, text: String)
+signal name_needed(msg: String)                        # the server won't show us until we pick a (free) name
 
 var server := false
 var connected := false        # client: hello answered
@@ -38,6 +39,9 @@ var uid := ""
 var _key := ""
 var server_dir := SERVER_DIR  # where a server keeps its boards (tests use their own)
 var auto_sync := true         # upload local PBs on connect
+var name_ok := false          # client: the server accepted our name (we're on the boards)
+var name_msg := ""
+var name_override := ""       # tests: a name other than the settings' one
 var link := "off"             # off / connecting / online / no_answer / refused
 var link_msg := ""
 var last_submit := {}         # the latest submit answer (the results card may open after it)
@@ -46,7 +50,8 @@ var _retry_t := -1.0
 var _address := ""
 
 # --- server state
-var _accounts := {}           # uid -> {"h": sha256(secret), "name": str}
+var _accounts := {}           # uid -> {"h": sha256(secret), "name": str, "named": bool, "seen": unix}
+var _names := {}              # normalised name -> uid that owns it
 var _boards := {}             # course -> {uid -> {name, color, time, throws, medal, date, splits}}
 var _peers := {}              # peer id -> {uid, name, color}
 var _rate := {}               # peer id -> {kind -> last usec}
@@ -126,6 +131,51 @@ static func unpack(b: PackedByteArray, max_size: int):
 	if raw.is_empty():
 		return null
 	return bytes_to_var(raw)   # no objects: plain data only
+
+
+# ================================================================ names
+# A name is owned by the first online id that uses it. "Runner" (the default),
+# empty and junk names don't count: those runners stay off the boards and the
+# online list until they choose one. Names are compared case-insensitively
+# and with lookalikes folded (M4lleum = malleum), and a name whose owner
+# hasn't been seen for NAME_STALE_DAYS can be taken by someone else.
+
+const NAME_STALE_DAYS := 180
+const DEFAULT_NAMES := ["runner", "dedlcated", "player", "guest", "anonymous", "anon"]   # normalised (i -> l)
+
+
+## The form two names are compared in.
+static func norm_name(n: String) -> String:
+	var out := ""
+	for ch in n.to_lower():
+		match ch:
+			"0", "o": out += "o"
+			"1", "i", "l", "|", "!": out += "l"
+			"3": out += "e"
+			"4", "@": out += "a"
+			"5", "$": out += "s"
+			"7": out += "t"
+			"8": out += "b"
+			"9": out += "g"
+			_:
+				if (ch >= "a" and ch <= "z") or (ch >= "2" and ch <= "9"):
+					out += ch
+				elif ch.unicode_at(0) > 127 and ch.strip_edges() != "":
+					out += ch   # other scripts count as themselves
+	return out
+
+
+## Why a name can't be used ("" if it can).
+static func name_problem(n: String) -> String:
+	var t := n.strip_edges()
+	var k := norm_name(t)
+	if t.length() < 2 or k.length() < 2:
+		return "Pick a name with at least 2 letters or digits."
+	if t.length() > 16:
+		return "Names are at most 16 characters."
+	if k in DEFAULT_NAMES or norm_name("Runner") == k:
+		return "\"%s\" is the default name: pick your own." % t
+	return ""
 
 
 # ================================================================ client
@@ -223,7 +273,9 @@ func _on_dropped() -> void:
 
 
 func _my_name() -> String:
-	return str(Game.settings.player_name).substr(0, 16)
+	if name_override != "":
+		return name_override
+	return str(Game.settings.player_name).strip_edges().substr(0, 16)
 
 
 ## Re-announce name / colour after they change in the menu.
@@ -284,8 +336,16 @@ func sync_local_records() -> void:
 # --- server -> client
 
 @rpc("authority", "reliable")
-func welcome(ok: bool, msg: String, keys: Array) -> void:
+func welcome(ok: bool, msg: String, keys: Array, named: bool, nmsg: String) -> void:
 	connected = ok
+	name_ok = ok and named
+	name_msg = nmsg
+	if ok and not named and name_override == "":
+		Game.settings["name_chosen"] = false
+		Game.save_settings()
+	if ok and not named:
+		name_needed.emit(nmsg)
+		notice.emit("%s You're off the leaderboards until you choose a name (menu)." % nmsg)
 	courses = {}
 	var local := builtin_courses()
 	for k in keys:
@@ -406,7 +466,8 @@ func _push_presence() -> void:
 	var list: Array = []
 	for id in _peers:
 		var p: Dictionary = _peers[id]
-		list.append({"uid": p.uid, "name": p.name, "color": p.color})
+		if bool(p.get("named", false)):
+			list.append({"uid": p.uid, "name": p.name, "color": p.color})
 	for id in _peers:
 		rpc_id(id, "presence_list", list)
 
@@ -417,21 +478,58 @@ func hello(who: String, key: String, pname: String, color: int) -> void:
 		return
 	var id := multiplayer.get_remote_sender_id()
 	if who.length() != 16 or key.length() != 32 or not who.is_valid_hex_number():
-		rpc_id(id, "welcome", false, "Bad online id", [])
+		rpc_id(id, "welcome", false, "Bad online id", [], false, "")
 		return
 	var h := key.sha256_text()
 	var acc: Dictionary = _accounts.get(who, {})
 	if not acc.is_empty() and str(acc.get("h", "")) != h:
-		rpc_id(id, "welcome", false, "That online id belongs to someone else (delete user://online_id.json)", [])
+		rpc_id(id, "welcome", false, "That online id belongs to someone else (delete user://online_id.json)", [], false, "")
 		return
 	pname = pname.strip_edges().substr(0, 16)
-	if pname == "":
-		pname = "Runner"
-	_accounts[who] = {"h": h, "name": pname}
+	var nmsg := _claim_name(who, pname)
+	acc = _accounts.get(who, {})
+	acc["h"] = h
+	acc["seen"] = int(Time.get_unix_time_from_system())
+	if nmsg == "":
+		acc["name"] = pname
+		acc["named"] = true
+	else:
+		acc["named"] = false
+		if str(acc.get("name", "")) == "":
+			acc["name"] = pname
+	_accounts[who] = acc
 	_save_accounts()
-	_peers[id] = {"uid": who, "name": pname, "color": posmod(color, 8)}
-	rpc_id(id, "welcome", true, "", courses.keys())
+	_peers[id] = {"uid": who, "name": str(acc.name), "color": posmod(color, 8), "named": bool(acc.named)}
+	rpc_id(id, "welcome", true, "", courses.keys(), bool(acc.named), nmsg)
 	_push_presence()
+
+
+## Give `pname` to `who` if it's a proper name nobody else holds; frees
+## their previous one. Returns why not ("" when claimed).
+func _claim_name(who: String, pname: String) -> String:
+	var why := name_problem(pname)
+	if why != "":
+		return why
+	var k := norm_name(pname)
+	var owner := str(_names.get(k, ""))
+	if owner != "" and owner != who:
+		var oacc: Dictionary = _accounts.get(owner, {})
+		var idle := int(Time.get_unix_time_from_system()) - int(oacc.get("seen", 0))
+		if idle < NAME_STALE_DAYS * 86400 or _online_uid(owner):
+			return "\"%s\" is already taken: pick another name." % pname
+		oacc["named"] = false   # long gone: the name is free again
+	for nk in _names.keys():
+		if str(_names[nk]) == who:
+			_names.erase(nk)
+	_names[k] = who
+	return ""
+
+
+func _online_uid(who: String) -> bool:
+	for id in _peers:
+		if str(_peers[id].uid) == who:
+			return true
+	return false
 
 
 @rpc("any_peer", "reliable")
@@ -460,23 +558,23 @@ func submit(course: String, info: Dictionary, blob: PackedByteArray) -> void:
 		_trim(course)
 		_save_boards()
 	var rank := _rank(course, me.uid)
-	rpc_id(multiplayer.get_remote_sender_id(), "submit_ok", course, rank, (_boards.get(course, {}) as Dictionary).size(), improved)
+	rpc_id(multiplayer.get_remote_sender_id(), "submit_ok", course, rank, _entries(course).size(), improved)
 
 
 @rpc("any_peer", "reliable")
 func get_board(course: String) -> void:
-	if not server or _sender().is_empty() or not courses.has(course) or not _allow("board", 0.2):
+	if not server or _sender().is_empty() or not courses.has(course) or not _budget("board", 30, 10.0):
 		return
 	rpc_id(multiplayer.get_remote_sender_id(), "board", course, _entries(course))
 
 
 @rpc("any_peer", "reliable")
 func get_run(course: String, who: String) -> void:
-	if not server or _sender().is_empty() or not courses.has(course) or not _allow("run_" + who, 0.2):
+	if not server or _sender().is_empty() or not courses.has(course) or not _budget("run", 120, 10.0):
 		return
 	var e: Dictionary = (_boards.get(course, {}) as Dictionary).get(who, {})
 	var blob := _read_run(course, who)
-	if e.is_empty() or blob.is_empty():
+	if e.is_empty() or blob.is_empty() or not bool((_accounts.get(who, {}) as Dictionary).get("named", false)):
 		return
 	var info := e.duplicate()
 	info["uid"] = who
@@ -489,6 +587,9 @@ func relay(target: String, kind: String, title: String, blob: PackedByteArray) -
 	var me := _sender()
 	var from_id := multiplayer.get_remote_sender_id()
 	if not server or me.is_empty():
+		return
+	if not bool(me.get("named", false)):
+		rpc_id(from_id, "relay_ok", false, "Choose a name first")
 		return
 	if not _allow("relay", 3.0):
 		rpc_id(from_id, "relay_ok", false, "Slow down: one send every few seconds")
@@ -508,9 +609,12 @@ func _entries(course: String) -> Array:
 	var b: Dictionary = _boards.get(course, {})
 	var out: Array = []
 	for who in b:
+		var acc: Dictionary = _accounts.get(who, {})
+		if not bool(acc.get("named", false)):
+			continue   # no chosen name (still "Runner", or taken): hidden until they pick one
 		var e: Dictionary = (b[who] as Dictionary).duplicate()
 		e["uid"] = who
-		e["name"] = str((_accounts.get(who, {}) as Dictionary).get("name", "Runner"))
+		e["name"] = str(acc.get("name", ""))
 		out.append(e)
 	out.sort_custom(func(a, c): return float(a.time) < float(c.time))
 	return out
@@ -553,6 +657,18 @@ func _load_server_state() -> void:
 	DirAccess.make_dir_recursive_absolute(server_dir)
 	var a = JSON.parse_string(FileAccess.get_file_as_string(server_dir + "/accounts.json")) if FileAccess.file_exists(server_dir + "/accounts.json") else null
 	_accounts = a if a is Dictionary else {}
+	# names, first come first served (accounts keep the order they joined in);
+	# a second "Bob" or a default "Runner" stays unnamed until they pick one
+	_names = {}
+	for who in _accounts:
+		var acc: Dictionary = _accounts[who]
+		var nm := str(acc.get("name", ""))
+		var k := norm_name(nm)
+		if name_problem(nm) == "" and not _names.has(k):
+			_names[k] = who
+			acc["named"] = true
+		else:
+			acc["named"] = false
 	var b = JSON.parse_string(FileAccess.get_file_as_string(server_dir + "/boards.json")) if FileAccess.file_exists(server_dir + "/boards.json") else null
 	_boards = {}
 	if b is Dictionary:

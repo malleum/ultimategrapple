@@ -68,11 +68,77 @@ func _ready() -> void:
 	Net.lobby_changed.connect(_on_lobby_changed)
 	Net.status_changed.connect(_on_status)
 	Net.servers_changed.connect(_refresh_servers)
+	Online.name_needed.connect(func(msg): _name_prompt(msg))
 	show_page(start_page)
+	if not bool(Game.settings.get("name_chosen", false)):
+		_name_prompt("")
 
 
 func _exit_tree() -> void:
 	Net.stop_discovery()
+
+
+# ------------------------------------------------------------------ name
+
+const NAME_A := ["Neon", "Swift", "Quiet", "Lucky", "Rapid", "Sly", "Bold", "Silver", "Wild", "Crimson", "Lunar", "Frost"]
+const NAME_B := ["Heron", "Comet", "Falcon", "Otter", "Disc", "Fox", "Lynx", "Raven", "Gecko", "Kite", "Pike", "Wren"]
+var _name_box: Control = null
+
+
+## Choose your name: on first start, and whenever the online server says the
+## name is the default or taken. Until then you're off the leaderboards.
+func _name_prompt(msg: String) -> void:
+	if _name_box and is_instance_valid(_name_box):
+		_name_box.queue_free()
+	var cur := str(Game.settings.player_name).strip_edges()
+	var shade := ColorRect.new()
+	shade.color = Color(0, 0, 0, 0.7)
+	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
+	shade.mouse_filter = Control.MOUSE_FILTER_STOP
+	shade.theme = UI.theme()
+	layer.add_child(shade)
+	_name_box = shade
+	var cc := CenterContainer.new()
+	cc.set_anchors_preset(Control.PRESET_FULL_RECT)
+	shade.add_child(cc)
+	var panel := PanelContainer.new()
+	cc.add_child(panel)
+	var v := UI.vbox(14)
+	v.custom_minimum_size = Vector2(620, 0)
+	panel.add_child(v)
+	v.add_child(UI.label("CHOOSE YOUR NAME", 40, UI.NEON))
+	var info := UI.label("It's how you show up online and on the leaderboards. A name is yours once you use it: nobody else can take it.", 18, UI.DIM)
+	info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(info)
+	var ne := LineEdit.new()
+	ne.max_length = 16
+	ne.custom_minimum_size = Vector2(0, 52)
+	ne.add_theme_font_size_override("font_size", 28)
+	ne.text = cur if Online.name_problem(cur) == "" else "%s %s" % [NAME_A.pick_random(), NAME_B.pick_random()]
+	v.add_child(ne)
+	var err := UI.label(msg, 18, UI.PINK)
+	err.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(err)
+	var h := UI.hbox(12)
+	v.add_child(h)
+	var ok := func():
+		var n := ne.text.strip_edges()
+		var why := Online.name_problem(n)
+		if why != "":
+			err.text = why
+			return
+		Game.settings.player_name = n
+		Game.settings["name_chosen"] = true
+		Game.save_settings()
+		Online.update_profile()   # the server checks it's free (prompts again if not)
+		shade.queue_free()
+		if page in ["title", "leaderboards", "multi"]:
+			show_page(page)
+	h.add_child(UI.button("RANDOM", func(): ne.text = "%s %s" % [NAME_A.pick_random(), NAME_B.pick_random()], 22))
+	h.add_child(UI.button("OK", ok, 26))
+	ne.text_submitted.connect(func(_t): ok.call())
+	ne.grab_focus.call_deferred()
+	ne.select_all.call_deferred()
 
 
 func _process(dt: float) -> void:
@@ -240,7 +306,10 @@ func _page_multi() -> void:
 	ne.text = str(Game.settings.player_name)
 	ne.custom_minimum_size = Vector2(240, 0)
 	ne.max_length = 16
-	ne.text_changed.connect(func(tx): Game.settings.player_name = tx; Game.save_settings())
+	ne.text_changed.connect(func(tx):
+		Game.settings.player_name = tx
+		Game.settings["name_chosen"] = Online.name_problem(tx) == ""
+		Game.save_settings())
 	ne.focus_exited.connect(func(): Online.update_profile())
 	who.add_child(ne)
 	var colb := UI.button("COLOR", func(): pass, 20)
@@ -721,6 +790,7 @@ func _page_leaderboards() -> void:
 	var c := _clear()
 	var lp := LeaderboardPage.new()
 	lp.back_fn = func(): show_page("title")
+	lp.name_fn = func(): _name_prompt("")
 	c.add_child(lp)
 
 

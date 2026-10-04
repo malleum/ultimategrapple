@@ -42,6 +42,7 @@ var settings := {
 	"online_server": "joshammer.com",
 	"online_services": true,  # stay connected for leaderboards, who's online and sending runs
 	"share_records": true,    # post PBs on the built-in courses to the online leaderboard
+	"name_chosen": false,     # picked a name in the first-run prompt (until then: off the boards)
 	"disc_cam_lock": true,
 	"rumble": 1.0,           # controller vibration strength (0 = off)   # finish replay: the disc stays level and the world turns
 }

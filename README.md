@@ -147,6 +147,13 @@ online services; same host as PLAY ONLINE, UDP port 24682) for:
   as named ghosts, or **WATCH TICKED** to watch them run together.
 - **Who's online**, and **SEND** (above): the server only relays, it keeps nothing.
 
+**Names.** On first start the game asks for your name (pre-filled with a random one like
+"Bold Fox"). A name belongs to the first online id that uses it: someone else picking it,
+or a lookalike (case, spaces, `0/o`, `1/l/i`, `4/a`, `5/s` ...), is told it's taken. The
+default "Runner" isn't a name: until you choose one you're left off the online list and the
+boards; your runs are kept and show up under the name once you pick it. A name whose owner
+hasn't been online for 180 days can be taken by someone else.
+
 The server stores only the boards: per built-in course and runner, the best time, splits
 and 30 Hz ghost frames (top 100), in its state directory. A board is keyed by the course
 file's hash and the physics version, so an edited course or a physics change starts a fresh

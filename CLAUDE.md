@@ -19,7 +19,7 @@
   - `godot4 --headless --fixed-fps 120 -s tools/test_splits.gd` (split lines along the route, PB splits + gold segments)
   - `godot4 --headless --fixed-fps 120 -s tools/test_rival.gd` (share a run file, import it, race the friend's ghost)
   - `godot4 --headless --fixed-fps 120 -s tools/test_favorites.gd` (keep a non-PB run as a favorite, play it back; PB ghost follows the run clock through recalls)
-  - `godot4 --headless -s tools/test_services.gd` (online services over loopback: leaderboard post/rank/fetch, relay to another client, impostor refused)
+  - `godot4 --headless -s tools/test_services.gd` (online services over loopback: leaderboard post/rank/fetch, relay to another client, impostor refused, names: Runner hidden, lookalikes refused, rename shows old runs, restart migration)
   - `godot4 --headless --fixed-fps 120 -s tools/test_roll.gd` (rollers run down slopes, set off when set down on one, still stop on the flat)
   - `nix build .#default` (pck export + wrapper)
 - Avoid `:=` on Variant values (Dictionary/Array element access) — Godot treats failed inference as a parse error.

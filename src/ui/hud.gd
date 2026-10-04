@@ -1281,7 +1281,10 @@ func show_results(tm: float, medal: String, is_pb: bool, old_pb := -1.0) -> void
 		var ck := Online.course_key(level.level_id)
 		var show_rank := func(course: String, rank: int, total: int, improved: bool):
 			if course == ck and is_instance_valid(ol):
-				ol.text = ("ONLINE  #%d OF %d" % [rank, total]) + ("" if improved else "  (your online best)")
+				if rank <= 0:
+					ol.text = "Posted. Choose a name in the menu to show up on the leaderboard."
+				else:
+					ol.text = ("ONLINE  #%d OF %d" % [rank, total]) + ("" if improved else "  (your online best)")
 		var ls: Dictionary = Online.last_submit
 		if str(ls.get("course", "")) == ck and Time.get_ticks_msec() - int(ls.get("ms", 0)) < 5000:
 			show_rank.call(ck, int(ls.rank), int(ls.total), bool(ls.improved))
