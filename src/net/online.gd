@@ -42,6 +42,8 @@ var auto_sync := true         # upload local PBs on connect
 var name_ok := false          # client: the server accepted our name (we're on the boards)
 var name_msg := ""
 var name_override := ""       # tests: a name other than the settings' one
+var _hello_t := -1.0          # seconds since hello while waiting for the welcome
+const HELLO_TIMEOUT := 8.0
 var link := "off"             # off / connecting / online / no_answer / refused
 var link_msg := ""
 var last_submit := {}         # the latest submit answer (the results card may open after it)
@@ -74,7 +76,16 @@ func _ready() -> void:
 
 
 func _process(dt: float) -> void:
-	if server or _retry_t < 0.0:
+	if server:
+		return
+	# connected, said hello, no welcome: the server speaks another version of
+	# this protocol (its RPCs don't line up with ours and get dropped)
+	if _hello_t >= 0.0 and not connected:
+		_hello_t += dt
+		if _hello_t > HELLO_TIMEOUT:
+			_hello_t = -1.0
+			_set_link("mismatch", "")
+	if _retry_t < 0.0:
 		return
 	_retry_t -= dt
 	if _retry_t < 0.0 and _address != "":
@@ -235,6 +246,8 @@ func link_text() -> String:
 			return "No answer from %s (UDP). The server may be an older version without online services, or UDP %s isn't open in its firewall. Retrying..." % [host, host.get_slice(":", 1)]
 		"refused":
 			return "The online server refused us: %s" % link_msg
+		"mismatch":
+			return "%s answered but runs a different version of the game (its online protocol doesn't match). Update the server and the game to the same version." % host
 	return "Online services are off (Settings)."
 
 
@@ -252,6 +265,7 @@ func _close() -> void:
 	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
 	connected = false
 	presence = []
+	_hello_t = -1.0
 
 
 func is_online() -> bool:
@@ -259,6 +273,7 @@ func is_online() -> bool:
 
 
 func _on_connected() -> void:
+	_hello_t = 0.0
 	rpc_id(1, "hello", uid, _key, _my_name(), int(Game.settings.player_color))
 
 
@@ -336,7 +351,9 @@ func sync_local_records() -> void:
 # --- server -> client
 
 @rpc("authority", "reliable")
-func welcome(ok: bool, msg: String, keys: Array, named: bool, nmsg: String) -> void:
+func welcome(ok: bool, msg: String, keys: Array, named := true, nmsg := "") -> void:
+	# (named / nmsg default: an older server without owned names sends 3 args)
+	_hello_t = -1.0
 	connected = ok
 	name_ok = ok and named
 	name_msg = nmsg

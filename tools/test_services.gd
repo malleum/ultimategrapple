@@ -10,6 +10,7 @@ extends SceneTree
 ##   names     a "Runner" (default name) is off the online list and the boards,
 ##             a lookalike of a taken name is refused, and once the Runner
 ##             picks a name their earlier run shows up under it
+##   oldserver an older server's shorter welcome still gets the client online
 ## godot --headless -s tools/test_services.gd
 
 const PORT := 24782
@@ -176,6 +177,19 @@ func _process(_dt: float) -> bool:
 		"impostor":
 			if got.has("c3"):
 				_check("impostor", not c3.is_online() and str(got.c3).contains("someone else"), "refused: %s" % got.c3)
+				# an older server (before owned names) answers with a 3-value welcome
+				c1.connected = false
+				c1.name_ok = false
+				c1.link = "connecting"
+				for id in srv._peers:
+					if str(srv._peers[id].uid) == c1.uid:
+						srv.rpc_id(id, "welcome", true, "", srv.courses.keys())
+				got.erase("board")
+				phase = "oldwelcome"
+				f = 2000
+		"oldwelcome":
+			if f == 2030:
+				_check("oldserver", c1.is_online() and c1.name_ok and c1.link == "online", "a 3-value welcome from an older server is still understood (link %s)" % c1.link)
 				_migrate()
 				return _finish()
 	return false
