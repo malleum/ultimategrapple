@@ -38,6 +38,28 @@ var knocked := false      # versus: knocked down by a disc to the head (lying fl
 var knock_side := 1.0
 var charge := 0.0
 
+## Air animation (all derived from what the visual already gets, so ghosts,
+## replays and online runners animate the same): takeoff stretch, tuck going
+## up, spread at the apex, legs reaching down and arms flailing as you fall,
+## a front flip on a double jump, a snag-and-pull on a sky catch, a squash
+## on landing. Joints ease towards each pose's targets (_j), so nothing snaps.
+const TAKEOFF_T := 0.16
+const FLIP_T := 0.4
+const CATCH_T := 0.34
+const LAND_T := 0.16
+var air_t := 0.0          # time since leaving the ground
+var flip_t := -1.0        # double jump flip progress (s), -1 = none
+var catch_t := -1.0       # sky catch, -1 = none
+var land_t := -1.0        # landing squash, -1 = none
+var land_k := 0.0         # how hard that landing was (0..1)
+var _was_floor := true
+var _was_swing := false
+var _had_disc := true
+var _prev_vy := 0.0
+var _fall_vy := 0.0       # last airborne vertical speed (for the landing)
+var _t := 0.0
+var _j := {}              # current joints, feet-relative (hip, neck, k1, l1, k2, l2, ha, hb)
+
 
 func _init() -> void:
 	for i in SCARF_N:
@@ -90,8 +112,180 @@ func _step(dt: float) -> void:
 		run_phase += absf(vel.x) * dt * 0.035
 	elif not on_floor:
 		run_phase += dt * 4.0
+	_step_air(dt)
 	_step_scarf(dt)
 	queue_redraw()
+
+
+## Events from state changes (works on snapshots too), then ease the joints.
+func _step_air(dt: float) -> void:
+	_t += dt
+	var air := not on_floor and not swinging and not dead and not knocked
+	if not on_floor:
+		air_t += dt
+		_fall_vy = vel.y
+	if _was_floor and not on_floor:
+		air_t = 0.0
+	if not _was_floor and on_floor and _fall_vy > 250.0:
+		land_t = 0.0
+		land_k = clampf((_fall_vy - 250.0) / 1100.0, 0.25, 1.0)
+	# a sudden kick upwards in the air: double jump (also wall jumps, pads)
+	# (not the hop of letting go of a grapple)
+	if air and not _was_swing and air_t > 0.06 and dt > 0.0 and (vel.y - _prev_vy) / dt < -9000.0 and vel.y < -300.0:
+		flip_t = 0.0
+	if has_disc and not _had_disc and not on_floor and not swinging:
+		catch_t = 0.0
+	_was_floor = on_floor
+	_was_swing = swinging
+	_had_disc = has_disc
+	_prev_vy = vel.y
+	if flip_t >= 0.0:
+		flip_t += dt
+		if flip_t > FLIP_T or not air:
+			flip_t = -1.0
+	if catch_t >= 0.0:
+		catch_t += dt
+		if catch_t > CATCH_T:
+			catch_t = -1.0
+	if land_t >= 0.0:
+		land_t += dt
+		if land_t > LAND_T or not on_floor:
+			land_t = -1.0
+	var tgt := _targets()
+	if _j.is_empty() or dt <= 0.0:
+		_j = tgt
+		return
+	# fast enough to keep up with a run cycle, slow enough to blend poses
+	var rate := 30.0 if on_floor or swinging else 18.0
+	var k := 1.0 - exp(-rate * dt)
+	for key in tgt:
+		_j[key] = (_j.get(key, tgt[key]) as Vector2).lerp(tgt[key], k)
+
+
+static func _smooth(x: float) -> float:
+	x = clampf(x, 0.0, 1.0)
+	return x * x * (3.0 - 2.0 * x)
+
+
+## Where every joint wants to be right now (feet-relative; hands relative to
+## the shoulder).
+func _targets() -> Dictionary:
+	var f := facing
+	var lean := clampf(vel.x / 1400.0, -0.45, 0.45)
+	var hip := Vector2(0, -20)
+	var neck := hip + Vector2(lean * 20.0, -18)
+	var k1: Vector2
+	var l1: Vector2
+	var k2: Vector2
+	var l2: Vector2
+	var ha: Vector2
+	var hb: Vector2
+	var lo := low and not knocked
+	if lo:
+		hip = Vector2(-f * 6, -8)
+		neck = Vector2(f * 12, -16)
+		l1 = Vector2(-f * 20, -2)
+		l2 = Vector2(-f * 14, 0)
+		k1 = (hip + l1) * 0.5 + Vector2(0, -3)
+		k2 = (hip + l2) * 0.5 + Vector2(0, 2)
+		ha = Vector2(f * 6, 10)
+		hb = Vector2(-f * 4, 11)
+	elif on_floor or swinging or knocked:
+		var s := sin(run_phase)
+		var s2 := sin(run_phase + PI)
+		var amp := clampf(absf(vel.x) / 440.0, 0.0, 1.2) if on_floor else 0.3
+		l1 = hip + Vector2(s * 12 * amp, 20)
+		l2 = hip + Vector2(s2 * 12 * amp, 20)
+		k1 = hip + Vector2(s * 6 * amp + f * 4 * amp, 10 - maxf(0, cos(run_phase)) * 3 * amp)
+		k2 = hip + Vector2(s2 * 6 * amp + f * 4 * amp, 10 - maxf(0, cos(run_phase + PI)) * 3 * amp)
+		var swing_a := sin(run_phase + PI) * 0.8
+		ha = Vector2(f * 6 + swing_a * 8, 12)
+		hb = Vector2(-f * 4 - swing_a * 8, 13)
+		if swinging and not on_floor:
+			# hanging: legs trail the swing a little
+			var trail := clampf(-vel.x / 900.0, -1.0, 1.0)
+			l1 = hip + Vector2(trail * 10.0 + f * 3, 19)
+			l2 = hip + Vector2(trail * 14.0 - f * 3, 18)
+			k1 = hip + Vector2(trail * 5.0 + f * 5, 10)
+			k2 = hip + Vector2(trail * 7.0, 10)
+		if land_t >= 0.0:
+			# landing squash: hips drop, knees bend forward, arms go out
+			var q := land_k * sin(PI * clampf(land_t / LAND_T, 0.0, 1.0))
+			hip.y += 7.0 * q
+			neck += Vector2(f * 4.0 * q, 9.0 * q)
+			k1 += Vector2(f * 6.0 * q, 3.0 * q)
+			k2 += Vector2(f * 3.0 * q, 3.0 * q)
+			ha += Vector2(f * 8.0 * q, -3.0 * q)
+			hb += Vector2(-f * 8.0 * q, -3.0 * q)
+	else:
+		var vy := vel.y
+		var up := _smooth(-vy / 700.0)              # 1 = rising fast
+		var top := 1.0 - _smooth(absf(vy) / 380.0)  # 1 = at the apex
+		var fall := _smooth((vy - 150.0) / 900.0)   # 1 = falling fast
+		var flail := sin(_t * 15.0) * 3.0 * fall
+		# rising: knees up, arms forward and up
+		k1 = hip + Vector2(f * 11, 6)
+		l1 = hip + Vector2(f * 4, 15)
+		k2 = hip + Vector2(f * 2, 10)
+		l2 = hip + Vector2(-f * 6, 18)
+		ha = Vector2(f * 13, -6)
+		hb = Vector2(-f * 8, 2)
+		# apex: tighter tuck, arms out for balance
+		k1 = k1.lerp(hip + Vector2(f * 10, 2), top)
+		l1 = l1.lerp(hip + Vector2(f * 3, 12), top)
+		k2 = k2.lerp(hip + Vector2(f * 6, 4), top)
+		l2 = l2.lerp(hip + Vector2(-f * 2, 13), top)
+		ha = ha.lerp(Vector2(f * 15, 2), top)
+		hb = hb.lerp(Vector2(-f * 14, 0), top)
+		# falling: legs reach for the ground, arms up and flailing, lean back
+		k1 = k1.lerp(hip + Vector2(f * 6, 10), fall)
+		l1 = l1.lerp(hip + Vector2(f * 4, 21), fall)
+		k2 = k2.lerp(hip + Vector2(-f * 4, 9), fall)
+		l2 = l2.lerp(hip + Vector2(-f * 10, 15), fall)
+		ha = ha.lerp(Vector2(f * 9, -15 + flail), fall)
+		hb = hb.lerp(Vector2(-f * 12, -12 - flail), fall)
+		neck += Vector2(-f * 3.0 * fall, 0)
+		# takeoff: stretched out, arms thrown up, back leg pushing off
+		if air_t < TAKEOFF_T and up > 0.3:
+			var tk := 1.0 - _smooth(air_t / TAKEOFF_T)
+			hip.y -= 2.0 * tk
+			neck = neck.lerp(hip + Vector2(f * 3 + lean * 20.0, -19), tk)
+			k1 = k1.lerp(hip + Vector2(f * 9, 6), tk)
+			l1 = l1.lerp(hip + Vector2(f * 6, 15), tk)
+			k2 = k2.lerp(hip + Vector2(-f * 5, 11), tk)
+			l2 = l2.lerp(hip + Vector2(-f * 8, 21), tk)
+			ha = ha.lerp(Vector2(f * 6, -17), tk)
+			hb = hb.lerp(Vector2(-f * 4, -15), tk)
+		# double jump: tucked into a ball for the flip
+		if flip_t >= 0.0:
+			var b := sin(PI * clampf(flip_t / FLIP_T, 0.0, 1.0))
+			k1 = k1.lerp(hip + Vector2(f * 9, -2), b)
+			l1 = l1.lerp(hip + Vector2(f * 2, 6), b)
+			k2 = k2.lerp(hip + Vector2(f * 7, 2), b)
+			l2 = l2.lerp(hip + Vector2(f * 1, 9), b)
+			neck = neck.lerp(hip + Vector2(f * 8, -15), b)
+			ha = ha.lerp(Vector2(f * 2, 18), b)
+			hb = hb.lerp(Vector2(-f * 1, 17), b)
+	# sky catch: the throwing hand snags forward-up, then pulls the disc in
+	if catch_t >= 0.0 and not lo:
+		var c := clampf(catch_t / CATCH_T, 0.0, 1.0)
+		var reach := sin(PI * minf(c * 1.6, 1.0))
+		var e := 1.0 - _smooth(c)
+		ha = ha.lerp(Vector2(f * 20, -14), reach * e)
+		hb = hb.lerp(Vector2(-f * 14, -4), e)
+		if not on_floor:
+			k1 = k1.lerp(hip + Vector2(f * 12, 4), e)
+			l1 = l1.lerp(hip + Vector2(f * 16, 12), e)
+			k2 = k2.lerp(hip + Vector2(-f * 8, 8), e)
+			l2 = l2.lerp(hip + Vector2(-f * 15, 15), e)
+	return {"hip": hip, "neck": neck, "k1": k1, "l1": l1, "k2": k2, "l2": l2, "ha": ha, "hb": hb}
+
+
+## Front flip angle for the double jump (0 when not flipping).
+func flip_angle() -> float:
+	if flip_t < 0.0:
+		return 0.0
+	return facing * TAU * _smooth(flip_t / FLIP_T)
 
 
 ## Forget the cloth's world positions (after a teleport), so it re-hangs.
@@ -174,42 +368,24 @@ func _draw_timed() -> void:
 	draw_polyline(sp, accent, 3.0, true)
 	draw_circle(sp[sp.size() - 1], 1.6, accent)
 
-	var hip: Vector2
-	var neck: Vector2
+	if _j.is_empty():
+		_j = _targets()
+	var hip: Vector2 = _j.hip
+	var neck: Vector2 = _j.neck
 	var head: Vector2
 	if lo:
-		hip = Vector2(-facing * 6, -8)
-		neck = Vector2(facing * 12, -16)
 		head = neck + Vector2(facing * 7, -4)
 	else:
-		hip = Vector2(0, -20)
-		neck = hip + Vector2(lean * 20.0, -18)
-		head = neck + Vector2(lean * 8.0, -9)
-
-	# legs
-	var l1: Vector2
-	var l2: Vector2
-	var k1: Vector2
-	var k2: Vector2
-	if lo:
-		l1 = Vector2(-facing * 20, -2)
-		l2 = Vector2(-facing * 14, 0)
-		k1 = (hip + l1) * 0.5 + Vector2(0, -3)
-		k2 = (hip + l2) * 0.5 + Vector2(0, 2)
-	elif not on_floor:
-		var tuck := clampf(-vel.y / 800.0, -0.5, 1.0)
-		l1 = hip + Vector2(facing * 8, 18 - tuck * 6)
-		l2 = hip + Vector2(-facing * 6, 20 - tuck * 2)
-		k1 = hip + Vector2(facing * 12, 8 - tuck * 4)
-		k2 = hip + Vector2(-facing * 2, 12)
-	else:
-		var s := sin(run_phase)
-		var s2 := sin(run_phase + PI)
-		var amp := clampf(absf(vel.x) / 440.0, 0.0, 1.2)
-		l1 = hip + Vector2(s * 12 * amp, 20)
-		l2 = hip + Vector2(s2 * 12 * amp, 20)
-		k1 = hip + Vector2(s * 6 * amp + facing * 4 * amp, 10 - maxf(0, cos(run_phase)) * 3 * amp)
-		k2 = hip + Vector2(s2 * 6 * amp + facing * 4 * amp, 10 - maxf(0, cos(run_phase + PI)) * 3 * amp)
+		var nd := (neck - hip).normalized()
+		head = neck + nd * 9.0 + Vector2(lean * 8.0, 0)
+	var k1: Vector2 = _j.k1
+	var l1: Vector2 = _j.l1
+	var k2: Vector2 = _j.k2
+	var l2: Vector2 = _j.l2
+	# double jump: the whole body turns a front flip around the hips
+	var fa := flip_angle()
+	if fa != 0.0 and not knocked:
+		draw_set_transform(hip - hip.rotated(fa), fa)
 	# dark under-stroke keeps the runner readable on bright themes
 	var ol := Color(0.02, 0.0, 0.06, 0.75 * alpha)
 	draw_polyline(PackedVector2Array([hip, k1, l1]), ol, w + 3.5, true)
@@ -228,9 +404,10 @@ func _draw_timed() -> void:
 
 	# arms
 	var shoulder := neck + Vector2(0, 3)
-	var hand_a: Vector2
-	var hand_b: Vector2
+	var hand_a: Vector2 = shoulder + (_j.ha as Vector2)
+	var hand_b: Vector2 = shoulder + (_j.hb as Vector2)
 	if swinging:
+		# exact, not eased: the rope leaves from this hand
 		var dir := (anchor_local - shoulder).normalized()
 		hand_a = shoulder + dir * 20.0
 		hand_b = shoulder + dir.rotated(0.35 * facing) * 17.0
@@ -238,10 +415,6 @@ func _draw_timed() -> void:
 		var back := -aim_dir
 		hand_a = shoulder + (back * (10.0 + charge * 10.0)) + Vector2(0, 4)
 		hand_b = shoulder + aim_dir * 14.0
-	else:
-		var swing_a := sin(run_phase + PI) * 0.8 if on_floor else -0.9
-		hand_a = shoulder + Vector2(facing * 6 + swing_a * 8, 12)
-		hand_b = shoulder + Vector2(-facing * 4 - swing_a * 8, 13)
 	if swinging and snapshot_rope and anchor_local.length() > 24.0:
 		draw_line(hand_a, anchor_local, Color(0.02, 0.0, 0.06, 0.5 * alpha), 5.0, true)
 		draw_line(hand_a, anchor_local, Color(0.95, 0.85, 0.55, 0.9 * alpha), 2.5, true)
