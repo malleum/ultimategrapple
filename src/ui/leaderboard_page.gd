@@ -58,7 +58,11 @@ func _ready() -> void:
 	watch_btn = UI.button("WATCH TICKED", func(): _fetch_then("watch"), 22)
 	b.add_child(race_btn)
 	b.add_child(watch_btn)
-	b.add_child(UI.button("REFRESH", func(): Online.request_board(course), 22))
+	b.add_child(UI.button("REFRESH", func():
+		if Online.is_online():
+			Online.request_board(course)
+		elif bool(Game.settings.get("online_services", true)):
+			Online.connect_to(str(Game.settings.get("online_server", "joshammer.com"))), 22))
 	b.add_child(UI.button("BACK", func(): back_fn.call(), 20))
 	v.add_child(b)
 
@@ -102,7 +106,7 @@ func _on_state() -> void:
 		if course != "":
 			Online.request_board(course)
 	else:
-		online_lbl.text = "Offline: can't reach %s (Settings → online services)." % str(Game.settings.get("online_server", ""))
+		online_lbl.text = Online.link_text()
 
 
 func _select(k: String) -> void:
@@ -138,7 +142,11 @@ func _rebuild() -> void:
 	for c in board_box.get_children():
 		c.queue_free()
 	if entries.is_empty():
-		board_box.add_child(UI.label("No runs yet on this course." if Online.is_online() else "", 20, UI.DIM))
+		var why := ""
+		if Online.is_online():
+			why = "No runs yet on this course." if Online.courses.has(course) else \
+				"The online server runs a different version of the game, so it has no board for this version of the course. Update both to the same version."
+		board_box.add_child(UI.label(why, 20, UI.DIM))
 	var rank := 1
 	for e in entries:
 		var uid := str(e.uid)

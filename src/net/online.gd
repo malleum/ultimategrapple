@@ -38,6 +38,8 @@ var uid := ""
 var _key := ""
 var server_dir := SERVER_DIR  # where a server keeps its boards (tests use their own)
 var auto_sync := true         # upload local PBs on connect
+var link := "off"             # off / connecting / online / no_answer / refused
+var link_msg := ""
 var last_submit := {}         # the latest submit answer (the results card may open after it)
 var _peer: ENetMultiplayerPeer = null
 var _retry_t := -1.0
@@ -155,15 +157,42 @@ func connect_to(address: String) -> void:
 	if _peer.create_client(host, port) != OK:
 		_peer = null
 		_retry_t = RECONNECT_T
+		_set_link("no_answer", "")
 		return
 	multiplayer.multiplayer_peer = _peer
 	_retry_t = -1.0
+	if link != "no_answer":   # keep saying why while it retries
+		_set_link("connecting", "")
+
+
+func _set_link(l: String, msg: String) -> void:
+	link = l
+	link_msg = msg
+	state_changed.emit()
+
+
+## What the menus say about the services connection.
+func link_text() -> String:
+	var host := _address if _address != "" else str(Game.settings.get("online_server", ""))
+	if not ":" in host:
+		host += ":%d" % SERVICE_PORT
+	match link:
+		"online":
+			return "Online"
+		"connecting":
+			return "Connecting to %s (UDP) ..." % host
+		"no_answer":
+			return "No answer from %s (UDP). The server may be an older version without online services, or UDP %s isn't open in its firewall. Retrying..." % [host, host.get_slice(":", 1)]
+		"refused":
+			return "The online server refused us: %s" % link_msg
+	return "Online services are off (Settings)."
 
 
 func disconnect_services() -> void:
 	_address = ""
 	_retry_t = -1.0
 	_close()
+	_set_link("off", "")
 
 
 func _close() -> void:
@@ -188,7 +217,7 @@ func _on_dropped() -> void:
 	_close()
 	if was:
 		notice.emit("Lost the connection to the online server")
-	state_changed.emit()
+	_set_link("connecting" if was else "no_answer", "")
 	if _address != "":
 		_retry_t = RECONNECT_T
 
@@ -265,6 +294,9 @@ func welcome(ok: bool, msg: String, keys: Array) -> void:
 	if not ok:
 		notice.emit(msg)
 		disconnect_services()
+		_set_link("refused", msg)
+	else:
+		_set_link("online", "")
 	state_changed.emit()
 	if ok:
 		sync_local_records()
