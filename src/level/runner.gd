@@ -20,6 +20,7 @@ const SpeedTrail = preload("res://src/fx/speed_trail.gd")
 const Hud = preload("res://src/ui/hud.gd")
 const PlayerInput = preload("res://src/core/player_input.gd")
 const Rumble = preload("res://src/core/rumble.gd")
+const Stats = preload("res://src/core/stats.gd")
 
 const POV_TICKS := 1200   # disc cam on the results card: the last 10 s before the chains
 const POV_AFTER := 100    # ... and a moment after
@@ -65,6 +66,9 @@ var personal: Array = []
 var time := 0.0
 var penalty := 0.0
 var running := false
+var _air_streak := 0.0          # stats: current airtime
+var _throw_from := Vector2.ZERO # stats: where the disc in flight was thrown from
+var _throw_t := -1.0            # stats: its flight time so far (-1: none)
 var done := false
 var deaths := 0
 var lie := Vector2.ZERO
@@ -207,6 +211,8 @@ func th() -> Dictionary:
 # ================================================================== flow
 
 func restart() -> void:
+	if _stats_on() and running and not done:
+		Stats.add("restarts")
 	if level.mode == "replay":
 		var rp: Dictionary = level.replay
 		run_seed = int(rp.seed)
@@ -257,6 +263,7 @@ func restart() -> void:
 		_setup_pb_ghost()
 	if not level.is_timetrial() and level.race_live:
 		running = true
+		_stat_attempt()
 
 
 ## Watching your PB run itself: no ghost of it on top of it.
@@ -314,6 +321,8 @@ func _physics_process(dt: float) -> void:
 
 
 func _physics_process_timed(dt: float) -> void:
+	if _stats_on():
+		_stat_tick(dt)
 	if level.is_timetrial() and not done:
 		# Player and disc state at the start of every tick. Playback re-simulates
 		# from the recorded inputs but pins these each tick: Godot's contact
@@ -327,6 +336,7 @@ func _physics_process_timed(dt: float) -> void:
 		track.append(disc.velocity)
 	if not running and not done and not input_locked and level.is_timetrial() and _any_input():
 		running = true
+		_stat_attempt()
 		if pb_ghost.visible:
 			pb_ghost.start()
 		for rg in rival_ghosts:
@@ -409,6 +419,8 @@ func _remote_contacts() -> void:
 
 
 func on_tackle_landed(victim: String) -> void:
+	if _stats_on():
+		Stats.add("tackles")
 	rumble("tackle_landed")
 	hud.popup("TACKLE!" if victim == "" else "TACKLED %s!" % victim.to_upper(), Color(2.2, 1.6, 0.3), 1.2)
 	shake(6.0)
@@ -551,6 +563,8 @@ func _on_recalled() -> void:
 func _on_disc_oob() -> void:
 	if player.has_disc:
 		return
+	if _stats_on():
+		Stats.add("oob")
 	player.has_disc = true
 	disc.hold()
 	_penalize(OOB_PENALTY, "OUT OF BOUNDS", Color(2, 0.4, 0.3))
@@ -558,6 +572,8 @@ func _on_disc_oob() -> void:
 
 
 func on_gate(g: Node) -> void:
+	if _stats_on():
+		Stats.add("gates")
 	var th: Dictionary = level.th
 	play_sfx("gate", g.ring_pos)
 	spawn_burst(g.ring_pos, th.get("basket", Color(2, 2, 0.3)), 30)
@@ -587,12 +603,26 @@ func _on_scored() -> void:
 		while split_times.size() < split_count() - 1:   # finished past a split line we never crossed
 			_split(finish_time)
 		_split(finish_time)
+	if _stats_on():
+		Stats.add("completions")
+		Stats.add_level(level.level_id, "comp")
+		if level.mode == "couch" and int(Game.couch.get("winner", -1)) == -1:
+			Stats.add("rounds_won")
+		elif level.mode == "multi" and Net.round_winner == -1:
+			Stats.add("rounds_won")
 	if level.mode == "solo":
 		inp.stop_recording()
 		var medal: String = level.medal_for(finish_time)
 		var prev = Game.records.get(level.level_id)
 		var old_pb: float = float(prev.time) if prev is Dictionary and prev.has("time") else -1.0
 		var is_pb := Game.submit_record(level.level_id, finish_time, player.throws, medal)
+		if _stats_on():
+			if medal != "":
+				Stats.add("medal_" + medal)
+			if is_pb:
+				Stats.add("pbs")
+			Stats.save()
+			Online.post_stats(level.level_id)
 		if is_pb and split_count() > 0:
 			split_ref = (Game.get_splits(level.level_id, split_count()).pb as Array).duplicate()
 			Game.set_pb_splits(level.level_id, split_count(), split_times)
@@ -675,6 +705,8 @@ func _rumble_fx(kind: String, data) -> void:
 
 func _on_disc_impact(kind: String, strength: float) -> void:
 	var p: Vector2 = disc.global_position
+	if _stats_on():
+		_stat_impact(kind, p)
 	match kind:
 		"chains":
 			level.basket.hit(strength)
@@ -708,6 +740,8 @@ func _on_disc_impact(kind: String, strength: float) -> void:
 
 func _on_player_fx(kind: String, pos: Vector2, data) -> void:
 	var th: Dictionary = level.th
+	if _stats_on():
+		_stat_fx(kind, pos, data)
 	_rumble_fx(kind, data)
 	match kind:
 		"jump":
@@ -789,6 +823,100 @@ func _on_player_fx(kind: String, pos: Vector2, data) -> void:
 			play_sfx("tick", pos, 0.4)
 		"charge":
 			play_sfx("charge", pos, 0.4)
+
+
+# ================================================================== stats
+
+func _exit_tree() -> void:
+	if _stats_on():
+		Stats.save()
+		Online.post_stats(level.level_id)
+
+
+## Local stats count the local player's own live play (not replays, watched
+## matches, renders, or the other couch players).
+func _stats_on() -> bool:
+	return Stats.enabled and index == 0 and level.mode in ["solo", "couch", "multi"] and not Game.render_mode
+
+
+func _stat_attempt() -> void:
+	if not _stats_on():
+		return
+	Stats.add("attempts")
+	Stats.add_level(level.level_id, "att", 1.0, str(level.level_data.get("name", "")))
+	if level.mode != "solo":
+		Stats.add("rounds")
+
+
+func _stat_tick(dt: float) -> void:
+	Stats.add("play_s", dt)
+	Stats.add_level(level.level_id, "play", dt)
+	Stats.tick(dt)
+	if _throw_t >= 0.0:
+		_throw_t += dt
+	if not running or done:
+		return
+	var v: Vector2 = player.velocity
+	Stats.most("top_speed", v.length())
+	if player.state == Player.SWING or player.state == Player.ZIP:
+		Stats.add("swing_s", dt)
+	if player.on_floor:
+		Stats.add("run_px", absf(v.x) * dt)
+		_air_streak = 0.0
+	elif player.state != Player.DEAD:
+		Stats.add("air_s", dt)
+		_air_streak += dt
+		Stats.most("longest_air", _air_streak)
+
+
+func _stat_fx(kind: String, pos: Vector2, data) -> void:
+	match kind:
+		"jump": Stats.add("jumps")
+		"airjump": Stats.add("airjumps")
+		"walljump": Stats.add("walljumps")
+		"mantle": Stats.add("mantles")
+		"slide": Stats.add("slides")
+		"grapple_attach": Stats.add("zips" if int(data) == Player.ZIP else "grapples")
+		"rope_wrap": Stats.add("wraps")
+		"boost": Stats.add("boosts")
+		"pad": Stats.add("pads")
+		"pivot_launch": Stats.add("pivot_launches")
+		"recall": Stats.add("recalls")
+		"tackled": Stats.add("tackled")
+		"disc_hit": Stats.add("disc_hit")
+		"catch": Stats.add("sky_catches" if data else "catches")
+		"throw":
+			Stats.add("throws")
+			Stats.add("throw_" + str(data.type))
+			Stats.add_level(level.level_id, "throws")
+			_throw_from = pos
+			_throw_t = 0.0
+		"snap":
+			match str(data.label):
+				"PERFECT":
+					Stats.add("snap_perfect")
+					if float(data.ms) >= 0.0 and float(data.ms) < 1.0:
+						Stats.add("snap_frame")
+				"GOOD": Stats.add("snap_good")
+				_: Stats.add("snap_none")
+		"death":
+			Stats.add("deaths")
+			Stats.add("death_" + ("fall" if str(data) == "fall" else "hazard"))
+			Stats.add_level(level.level_id, "deaths")
+
+
+func _stat_impact(kind: String, p: Vector2) -> void:
+	match kind:
+		"chains": Stats.add("chains")
+		"chain_spit": Stats.add("spit_outs")
+		"skip": Stats.add("skips")
+		"glass": Stats.add("glass")
+		"clash": Stats.add("clashes")
+	# the throw's first touch: how far and how long it flew
+	if _throw_t >= 0.0 and kind != "skip":
+		Stats.most("longest_throw", _throw_from.distance_to(p))
+		Stats.most("longest_flight", _throw_t)
+		_throw_t = -1.0
 
 
 func play_sfx(sfx_name: String, pos: Vector2, vol := 1.0, pitch := 1.0) -> void:

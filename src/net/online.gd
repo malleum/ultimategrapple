@@ -15,6 +15,8 @@ extends Node
 ## The server remembers the secret's hash per id, so nobody can overwrite
 ## your records by taking your name.
 
+const Stats = preload("res://src/core/stats.gd")
+
 const SERVICE_PORT := 24682
 const MAX_BLOB := 4 * 1024 * 1024      # biggest run / match the server relays
 const MAX_RUN_BLOB := 1024 * 1024      # biggest leaderboard run it keeps
@@ -53,7 +55,11 @@ var _address := ""
 
 # --- server state
 var _accounts := {}           # uid -> {"h": sha256(secret), "name": str, "named": bool, "seen": unix}
-var _names := {}              # normalised name -> uid that owns it
+var _names := {}
+var _stats := {}              # course -> {uid -> {att, comp, play}} (only ever grows)
+var _stats_dirty := false
+var _stats_save_t := 0.0
+const STATS_SAVE_T := 20.0              # normalised name -> uid that owns it
 var _boards := {}             # course -> {uid -> {name, color, time, throws, medal, date, splits}}
 var _peers := {}              # peer id -> {uid, name, color}
 var _rate := {}               # peer id -> {kind -> last usec}
@@ -64,6 +70,11 @@ func _enter_tree() -> void:
 	var api := SceneMultiplayer.new()
 	api.server_relay = false
 	get_tree().set_multiplayer(api, get_path())
+
+
+func _exit_tree() -> void:
+	if server and _stats_dirty:
+		_save_stats()
 
 
 func _ready() -> void:
@@ -77,6 +88,10 @@ func _ready() -> void:
 
 func _process(dt: float) -> void:
 	if server:
+		_stats_save_t += dt
+		if _stats_dirty and _stats_save_t > STATS_SAVE_T:
+			_stats_save_t = 0.0
+			_save_stats()
 		return
 	# connected, said hello, no welcome: the server speaks another version of
 	# this protocol (its RPCs don't line up with ours and get dropped)
@@ -307,8 +322,17 @@ func submit_run(level_id: String, time: float, throws: int, medal: String, frame
 	var blob := pack({"frames": frames})
 	if blob.size() > MAX_RUN_BLOB:
 		return false
-	rpc_id(1, "submit", ck, {"time": time, "throws": throws, "medal": medal, "splits": splits}, blob)
+	rpc_id(1, "submit", ck, {"time": time, "throws": throws, "medal": medal, "splits": splits, "stats": Stats.board_stats(level_id)}, blob)
 	return true
+
+
+## This course's attempts / clears / time played for its board (built-in
+## courses only). Rides on submit with no run, which an older server ignores.
+func post_stats(level_id: String) -> void:
+	var ck := course_key(level_id)
+	if not is_online() or ck == "" or not courses.has(ck) or not bool(Game.settings.get("share_records", true)):
+		return
+	rpc_id(1, "submit", ck, {"stats": Stats.board_stats(level_id)}, PackedByteArray())
 
 
 func request_board(course: String) -> void:
@@ -340,6 +364,7 @@ func sync_local_records() -> void:
 		return
 	for ck in courses:
 		var lid: String = str(courses[ck])
+		post_stats(lid)
 		var rec = Game.get_record(lid)
 		if rec == null:
 			continue
@@ -554,6 +579,10 @@ func submit(course: String, info: Dictionary, blob: PackedByteArray) -> void:
 	var me := _sender()
 	if not server or me.is_empty() or not courses.has(course) or not _budget("submit", 40, 60.0):
 		return
+	if info.get("stats") is Dictionary:
+		_put_stats(course, str(me.uid), info.stats)
+	if blob.is_empty():
+		return   # stats only
 	var t := float(info.get("time", 0.0))
 	if t <= 0.5 or t > 3600.0 or blob.size() > MAX_RUN_BLOB:
 		return
@@ -632,9 +661,25 @@ func _entries(course: String) -> Array:
 		var e: Dictionary = (b[who] as Dictionary).duplicate()
 		e["uid"] = who
 		e["name"] = str(acc.get("name", ""))
+		var st: Dictionary = (_stats.get(course, {}) as Dictionary).get(who, {})
+		e["att"] = int(st.get("att", 0))
+		e["comp"] = int(st.get("comp", 0))
+		e["play"] = float(st.get("play", 0.0))
 		out.append(e)
 	out.sort_custom(func(a, c): return float(a.time) < float(c.time))
 	return out
+
+
+## A runner's attempts / clears / seconds on a course: totals from their
+## client, kept as the highest seen (a reinstall can't wind them back).
+func _put_stats(course: String, who: String, st: Dictionary) -> void:
+	var c: Dictionary = _stats.get(course, {})
+	var old: Dictionary = c.get(who, {})
+	c[who] = {"att": maxi(int(old.get("att", 0)), clampi(int(st.get("att", 0)), 0, 10000000)),
+		"comp": maxi(int(old.get("comp", 0)), clampi(int(st.get("comp", 0)), 0, 10000000)),
+		"play": maxf(float(old.get("play", 0.0)), clampf(float(st.get("play", 0.0)), 0.0, 1.0e9))}
+	_stats[course] = c
+	_stats_dirty = true
 
 
 func _rank(course: String, who: String) -> int:
@@ -686,6 +731,12 @@ func _load_server_state() -> void:
 			acc["named"] = true
 		else:
 			acc["named"] = false
+	var st = JSON.parse_string(FileAccess.get_file_as_string(server_dir + "/stats.json")) if FileAccess.file_exists(server_dir + "/stats.json") else null
+	_stats = {}
+	if st is Dictionary:
+		for k in st:
+			if courses.has(k):
+				_stats[k] = st[k]
 	var b = JSON.parse_string(FileAccess.get_file_as_string(server_dir + "/boards.json")) if FileAccess.file_exists(server_dir + "/boards.json") else null
 	_boards = {}
 	if b is Dictionary:
@@ -698,6 +749,14 @@ func _save_accounts() -> void:
 	var f := FileAccess.open(server_dir + "/accounts.json", FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify(_accounts))
+
+
+## Stats arrive often: written at most every STATS_SAVE_T seconds.
+func _save_stats() -> void:
+	_stats_dirty = false
+	var f := FileAccess.open(server_dir + "/stats.json", FileAccess.WRITE)
+	if f:
+		f.store_string(JSON.stringify(_stats))
 
 
 func _save_boards() -> void:

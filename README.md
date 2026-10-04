@@ -135,6 +135,16 @@ Matches) with a notice, and they race your ghost, name and all, on the same cour
 results card says who won and by how much. Older `.ugr` files can still be dropped on the
 window or loaded with IMPORT FRIEND'S RUN.
 
+## Stats
+
+**STATS** on the title screen: time played in **chrons** (1 chron = 1% of a day = 14 min
+24 s) and counters for everything you do: attempts, clears, restarts, PBs and medals;
+distance run, top speed, jumps, double / wall jumps, mantles, slides, pads, longest
+airtime; grapples, zips, wraps, boosts; throws by type, perfect and frame-perfect snaps,
+longest throw and flight, chains, spit-outs, skips, sky catches; deaths by cause, tackles
+and versus rounds; plus your most played courses. Only your own runs count (not replays or
+other couch players). Kept in `user://stats.json`; `tools/test_stats.gd` covers it.
+
 ## Online services
 
 The game keeps a second, lobby-independent connection to the online server (Settings →
@@ -144,7 +154,8 @@ online services; same host as PLAY ONLINE, UDP port 24682) for:
   course is posted automatically (Settings → post my PBs) with its splits and ghost; the
   results card shows your online rank. Tick any number of runs to compare their splits side
   by side (fastest per split in gold), **RACE TICKED** to run the course against all of them
-  as named ghosts, or **WATCH TICKED** to watch them run together.
+  as named ghosts, or **WATCH TICKED** to watch them run together. Each row also shows how
+  much that runner has played the course: tries, clears and chrons.
 - **Who's online**, and **SEND** (above): the server only relays, it keeps nothing.
 
 **Names.** On first start the game asks for your name (pre-filled with a random one like
@@ -155,7 +166,8 @@ boards; your runs are kept and show up under the name once you pick it. A name w
 hasn't been online for 180 days can be taken by someone else.
 
 The server stores only the boards: per built-in course and runner, the best time, splits
-and 30 Hz ghost frames (top 100), in its state directory. A board is keyed by the course
+and 30 Hz ghost frames (top 100), plus tries / clears / seconds played, in its state
+directory. A board is keyed by the course
 file's hash and the physics version, so an edited course or a physics change starts a fresh
 board. Each install makes a random online id and secret (`user://online_id.json`); the
 server keeps the secret's hash so nobody else can post as you. `tools/test_services.gd`

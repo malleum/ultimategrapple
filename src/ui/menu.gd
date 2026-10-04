@@ -166,6 +166,7 @@ func show_page(p: String) -> void:
 		"controls": _page_controls()
 		"replays": _page_replays()
 		"leaderboards": _page_leaderboards()
+		"stats": _page_stats()
 		"bindings": _page_bindings()
 		"settings": _page_settings()
 		_: _page_title()
@@ -196,6 +197,7 @@ func _page_title() -> void:
 	col.add_child(UI.button("QUICK RANDOM", func(): Game.start_random(randi() % 1000000, "", 0.5, 12), 30))
 	col.add_child(UI.button("LEADERBOARDS", func(): show_page("leaderboards"), 30))
 	col.add_child(UI.button("REPLAYS", func(): show_page("replays"), 30))
+	col.add_child(UI.button("STATS", func(): show_page("stats"), 24))
 	col.add_child(UI.button("COUCH VERSUS", func(): show_page("couch"), 30))
 	col.add_child(UI.button("ONLINE / LAN", func(): show_page("multi"), 30))
 	col.add_child(UI.button("CONTROLS", func(): show_page("controls"), 24))
@@ -784,6 +786,16 @@ func _match_row(e: Dictionary) -> Control:
 # ------------------------------------------------------------------ leaderboards
 
 const LeaderboardPage = preload("res://src/ui/leaderboard_page.gd")
+
+
+const StatsPage = preload("res://src/ui/stats_page.gd")
+
+
+func _page_stats() -> void:
+	var c := _clear()
+	var sp := StatsPage.new()
+	sp.back_fn = func(): show_page("title")
+	c.add_child(sp)
 
 
 func _page_leaderboards() -> void:

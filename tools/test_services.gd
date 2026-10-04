@@ -11,6 +11,7 @@ extends SceneTree
 ##             a lookalike of a taken name is refused, and once the Runner
 ##             picks a name their earlier run shows up under it
 ##   oldserver an older server's shorter welcome still gets the client online
+##   stats     tries / clears / time per course reach the board and only grow
 ## godot --headless -s tools/test_services.gd
 
 const PORT := 24782
@@ -116,6 +117,9 @@ func _process(_dt: float) -> bool:
 		"slower":
 			if got.has("s1"):
 				_check("keep", not bool(got.s1[3]) and int(got.s1[1]) == 2, "a slower resubmit keeps the best (improved=%s, #%d)" % [got.s1[3], got.s1[1]])
+				# per-course play stats ride on submit with no run; they only grow
+				c1.rpc_id(1, "submit", course, {"stats": {"att": 7, "comp": 3, "play": 1728.0}}, PackedByteArray())
+				c1.rpc_id(1, "submit", course, {"stats": {"att": 2, "comp": 1, "play": 10.0}}, PackedByteArray())
 				c1.request_board(course)
 				phase = "board"
 		"board":
@@ -123,6 +127,8 @@ func _process(_dt: float) -> bool:
 				var b: Array = got.board
 				_check("board", b.size() == 2 and str(b[0].uid) == c2.uid and float(b[1].time) == 12.5 and (b[1].splits as Array).size() == 3,
 					"%d entries: %s %.1f, %s %.1f" % [b.size(), b[0].name, b[0].time, b[1].name, b[1].time])
+				_check("stats", int(b[1].get("att", -1)) == 7 and int(b[1].get("comp", -1)) == 3 and float(b[1].get("play", -1.0)) == 1728.0,
+					"Alpha on the board: %s tries, %s clears, %s s played (a lower resend doesn't wind them back)" % [b[1].get("att"), b[1].get("comp"), b[1].get("play")])
 				c5 = OnlineScript.new()
 				c5.name = "Cli5Test"
 				root.add_child(c5)

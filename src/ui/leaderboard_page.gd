@@ -4,6 +4,7 @@ extends PanelContainer
 ## ghosts, or watch them run together.
 
 const UI = preload("res://src/ui/ui.gd")
+const Stats = preload("res://src/core/stats.gd")
 const FETCH_TIMEOUT := 12.0
 
 var back_fn: Callable
@@ -190,6 +191,12 @@ func _rebuild() -> void:
 		tl.custom_minimum_size = Vector2(150, 0)
 		h.add_child(tl)
 		h.add_child(UI.label("●", 18, UI.medal_color(str(e.get("medal", "")))))
+		# how much they've played this course (an older server sends none)
+		var played := "%s tries  ·  %s clears  ·  %s chrons" % [_n(e.get("att", 0)), _n(e.get("comp", 0)), Stats.chron_text(float(e.get("play", 0.0)))] \
+			if e.has("att") else ""
+		var pl := UI.label(played, 16, Color(0.75, 0.85, 1.0))
+		pl.custom_minimum_size = Vector2(330, 0)
+		h.add_child(pl)
 		var dl := UI.label(Time.get_date_string_from_unix_time(int(e.get("date", 0))), 16, UI.DIM)
 		h.add_child(dl)
 		board_box.add_child(h)
@@ -297,3 +304,7 @@ func _launch() -> void:
 		Game.play_match_data({"kind": "match", "mode": "board", "level": data, "name": str(data.get("name", "Course")),
 			"theme": str(data.get("theme", "")), "date": int(Time.get_unix_time_from_system()), "runners": rs,
 			"winner": str(runs[0].info.name), "countdown": 3.0})
+
+
+static func _n(v) -> String:
+	return Stats._num(float(v))
