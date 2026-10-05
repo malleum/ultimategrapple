@@ -69,9 +69,71 @@ func _ready() -> void:
 	Net.status_changed.connect(_on_status)
 	Net.servers_changed.connect(_refresh_servers)
 	Online.name_needed.connect(func(msg): _name_prompt(msg))
+	# saved-course sources in the couch / lobby pickers come from the catalog
+	Online.catalog_received.connect(func(_l):
+		if page == "multi":
+			_build_lobby()
+		elif page == "couch":
+			show_page("couch"))
 	show_page(start_page)
 	if not bool(Game.settings.get("name_chosen", false)):
 		_name_prompt("")
+	if Game.updater:
+		if not Game.updater.info.is_empty():
+			_update_prompt(Game.updater.info)
+		Game.updater.available.connect(_update_prompt)
+
+
+# ------------------------------------------------------------------ update
+
+static var _update_dismissed := false
+
+
+## A newer release is out: offer to download it, swap it in and restart.
+func _update_prompt(info: Dictionary) -> void:
+	if _update_dismissed or page != "title":
+		return
+	var shade := ColorRect.new()
+	shade.color = Color(0, 0, 0, 0.7)
+	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
+	shade.mouse_filter = Control.MOUSE_FILTER_STOP
+	shade.theme = UI.theme()
+	layer.add_child(shade)
+	var cc := CenterContainer.new()
+	cc.set_anchors_preset(Control.PRESET_FULL_RECT)
+	shade.add_child(cc)
+	var panel := PanelContainer.new()
+	cc.add_child(panel)
+	var v := UI.vbox(14)
+	v.custom_minimum_size = Vector2(640, 0)
+	panel.add_child(v)
+	v.add_child(UI.label("UPDATE AVAILABLE", 40, UI.NEON))
+	var what := UI.label("A newer version of Ultimate Grapple is out (built %s%s). Download it now? The game restarts on the new version; your runs and settings stay." % [
+		str(info.get("date", "")), (": " + str(info.title)) if str(info.get("title", "")) != "" else ""], 18, UI.DIM)
+	what.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(what)
+	var st := UI.label("", 18, UI.PINK)
+	st.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(st)
+	var h := UI.hbox(12)
+	v.add_child(h)
+	var ok := UI.button("UPDATE NOW", func(): pass, 24)
+	var later := UI.button("LATER", func():
+		_update_dismissed = true
+		shade.queue_free(), 22)
+	ok.pressed.connect(func():
+		ok.disabled = true
+		later.disabled = true
+		Game.updater.install())
+	h.add_child(ok)
+	h.add_child(later)
+	Game.updater.progress.connect(func(text: String, done: bool, good: bool):
+		if not is_instance_valid(st):
+			return
+		st.text = text
+		if done and not good:
+			later.disabled = false
+			later.text = "CLOSE")
 
 
 func _exit_tree() -> void:
@@ -332,16 +394,27 @@ func _build_lobby() -> void:
 		server_list = UI.vbox(6)
 		lobby_box.add_child(server_list)
 		_refresh_servers()
-		lobby_box.add_child(UI.label("Dedicated server:  nix run . -- --server [--port=24680 --wins=3 --source=random|pinned]", 16, UI.DIM))
+		lobby_box.add_child(UI.label("Dedicated server:  nix run . -- --server [--port=24680 --wins=3 --source=random|pinned]  ·  any number of players", 16, UI.DIM))
 		return
 	Net.stop_discovery()
-	lobby_box.add_child(UI.label("LOBBY  ·  first to %d wins" % int(Net.settings.wins), 26, UI.GOLD))
-	for id in Net.players:
+	lobby_box.add_child(UI.label("LOBBY  ·  %d runner%s  ·  first to %d wins  ·  %s" % [Net.players.size(), "" if Net.players.size() == 1 else "s", int(Net.settings.wins), Net.source_text()], 24, UI.GOLD))
+	# any number of runners: chips that wrap, scrolling once there are lots
+	var pscroll := ScrollContainer.new()
+	pscroll.custom_minimum_size = Vector2(0, mini(60 + 44 * int(ceil(Net.players.size() / 3.0)), 260))
+	pscroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	lobby_box.add_child(pscroll)
+	var chips := HFlowContainer.new()
+	chips.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	chips.add_theme_constant_override("h_separation", 26)
+	pscroll.add_child(chips)
+	var ids := Net.players.keys()
+	ids.sort_custom(func(a, b): return int(Net.players[a].get("order", 0)) < int(Net.players[b].get("order", 0)))
+	for id in ids:
 		var p: Dictionary = Net.players[id]
-		var row := UI.hbox()
-		row.add_child(UI.label(("● " if p.get("ready", false) else "○ ") + str(p.name) + ("  (you)" if id == Net.my_id() else "") + ("  [leader]" if int(id) == Net.leader_id() else ""), 22, Game.player_palette(int(p.color)) * 1.4))
-		row.add_child(UI.label("wins %d" % int(p.wins), 18, UI.DIM))
-		lobby_box.add_child(row)
+		var chip := UI.label(("● " if p.get("ready", false) else "○ ") + str(p.name) + (" (you)" if id == Net.my_id() else "") + (" ★" if int(id) == Net.leader_id() else "") + ("  ·  %d" % int(p.wins) if int(p.wins) > 0 else ""),
+			20, Game.player_palette(int(p.color)) * 1.4)
+		chip.custom_minimum_size = Vector2(320, 0)
+		chips.add_child(chip)
 	if Net.is_leader():
 		var s := UI.hbox()
 		s.add_child(UI.label("First to", 20))
@@ -351,17 +424,21 @@ func _build_lobby() -> void:
 		sb.value = int(Net.settings.wins)
 		sb.value_changed.connect(func(x): Net.update_settings({"wins": int(x)}))
 		s.add_child(sb)
-		var src := OptionButton.new()
-		src.add_item("Random courses")
-		src.add_item("Pinned courses")
-		src.selected = 1 if Net.settings.source == "pinned" else 0
-		src.item_selected.connect(func(i): Net.update_settings({"source": "pinned" if i == 1 else "random"}))
-		s.add_child(src)
+		var cur := str(Net.settings.source)
+		if cur == "saved":
+			cur = "saved::" + str(Net.settings.get("pool_name", ""))
+		s.add_child(_source_picker(cur, func(key: String):
+			if key.begins_with("saved:"):
+				Net.use_saved_courses(key.get_slice(":", 1), key.get_slice(":", 2))
+			else:
+				Net.update_settings({"source": key})))
 		s.add_child(UI.label("Difficulty", 20))
 		var ds := UI.slider(0, 1, float(Net.settings.difficulty), 0.1, func(x): Net.update_settings({"difficulty": x}))
 		ds.custom_minimum_size = Vector2(160, 28)
 		s.add_child(ds)
 		lobby_box.add_child(s)
+		if Net.pool_status != "":
+			lobby_box.add_child(UI.label(Net.pool_status, 16, UI.PINK))
 	var h2 := UI.hbox()
 	h2.add_child(UI.button("READY", func(): Net.toggle_ready(), 24))
 	if Net.is_leader():
@@ -370,6 +447,34 @@ func _build_lobby() -> void:
 		lobby_box.add_child(UI.label("Waiting for the leader to start (or everyone READY).", 16, UI.DIM))
 	h2.add_child(UI.button("LEAVE", func(): Net.leave(); _build_lobby(), 24))
 	lobby_box.add_child(h2)
+
+
+## Which courses a set is raced on: random, the main courses, or the courses
+## one runner saved online (keys "random", "pinned", "saved:<uid>:<name>").
+## `current` matches a saved entry by "saved:<uid>:" or "saved::<name>".
+func _source_picker(current: String, on_pick: Callable) -> OptionButton:
+	var ob := OptionButton.new()
+	var keys: Array = ["random", "pinned"]
+	ob.add_item("Random courses")
+	ob.add_item("Main courses")
+	for p in Online.catalog:
+		var n := (p.get("courses", []) as Array).size()
+		if n == 0:
+			continue
+		var who := "My" if str(p.uid) == Online.uid else "%s's" % str(p.name)
+		ob.add_item("%s saved courses (%d)" % [who, n])
+		keys.append("saved:%s:%s" % [str(p.uid), str(p.name)])
+	var sel := 0
+	for i in keys.size():
+		var k: String = keys[i]
+		if k == current or (current.begins_with("saved:") and k.begins_with("saved:") and
+				((current.get_slice(":", 1) != "" and k.get_slice(":", 1) == current.get_slice(":", 1)) or (current.get_slice(":", 1) == "" and k.get_slice(":", 2) == current.get_slice(":", 2)))):
+			sel = i
+	ob.selected = sel
+	ob.item_selected.connect(func(i): on_pick.call(keys[i]))
+	if Online.catalog.is_empty():
+		Online.request_catalog()   # the saved-course entries show on the next rebuild
+	return ob
 
 
 func _refresh_servers() -> void:
@@ -410,7 +515,7 @@ func _page_couch() -> void:
 	v.add_child(UI.label("COUCH VERSUS", 48, UI.NEON))
 	if Game.couch_champion != "":
 		v.add_child(UI.label(Game.couch_champion, 32, UI.GOLD))
-	v.add_child(UI.label("Split-screen race, up to 4 players. Everyone has their own gates, glass and grapple points.\nPress A on a controller (or SPACE on the keyboard) to join. B / BACKSPACE to leave. X / C to change color.", 18, UI.DIM))
+	v.add_child(UI.label("Split-screen race, up to %d players. Everyone has their own gates, glass and grapple points.\nPress A on a controller (or SPACE on the keyboard) to join. B / BACKSPACE to leave. X / C to change color." % Game.COUCH_MAX, 18, UI.DIM))
 	couch_box = UI.vbox(8)
 	couch_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	v.add_child(couch_box)
@@ -423,12 +528,7 @@ func _page_couch() -> void:
 	sb.value = couch_wins
 	sb.value_changed.connect(func(x): couch_wins = int(x))
 	s.add_child(sb)
-	var src := OptionButton.new()
-	src.add_item("Random courses")
-	src.add_item("Pinned courses")
-	src.selected = 1 if couch_source == "pinned" else 0
-	src.item_selected.connect(func(i): couch_source = "pinned" if i == 1 else "random")
-	s.add_child(src)
+	s.add_child(_source_picker(couch_source, func(key: String): couch_source = key))
 	s.add_child(UI.label("Difficulty", 20))
 	var ds := UI.slider(0, 1, couch_diff, 0.1, func(x): couch_diff = x)
 	ds.custom_minimum_size = Vector2(180, 28)
@@ -445,7 +545,7 @@ func _refresh_couch() -> void:
 		return
 	for ch in couch_box.get_children():
 		ch.queue_free()
-	for i in 4:
+	for i in maxi(4, mini(couch_players.size() + 1, Game.COUCH_MAX)):
 		if i < couch_players.size():
 			var p: Dictionary = couch_players[i]
 			var dev := "Keyboard + Mouse" if int(p.device) < 0 else "%s (#%d)" % [Input.get_joy_name(int(p.device)), int(p.device)]
@@ -464,7 +564,7 @@ func _couch_index(device: int) -> int:
 
 
 func _couch_join(device: int) -> void:
-	if _couch_index(device) >= 0 or couch_players.size() >= 4:
+	if _couch_index(device) >= 0 or couch_players.size() >= Game.COUCH_MAX:
 		return
 	var used := []
 	for p in couch_players:
@@ -499,6 +599,19 @@ func _start_couch() -> void:
 	var players := []
 	for p in couch_players:
 		players.append({"device": p.device, "name": p.name, "color": p.color, "wins": 0})
+	if couch_source.begins_with("saved:"):
+		# a runner's saved courses: fetch them first
+		var who := couch_source.get_slice(":", 1)
+		var cids: Array = []
+		for p in Online.catalog:
+			if str(p.uid) == who:
+				cids = (p.get("courses", []) as Array).map(func(c): return str(c.cid))
+		Online.fetch_courses(cids, func(levels: Array):
+			if levels.is_empty():
+				Game.start_couch(players, couch_wins, "random", couch_diff)
+			else:
+				Game.start_couch(players, couch_wins, "saved", couch_diff, levels))
+		return
 	Game.start_couch(players, couch_wins, couch_source, couch_diff)
 
 
@@ -997,9 +1110,10 @@ func _page_settings() -> void:
 		v.add_child(UI.label(k.replace("_", " ").capitalize(), 20))
 		v.add_child(UI.slider(0, 1, float(Game.settings[k]), 0.05, func(x): Game.settings[k] = x; Game.save_settings()))
 	var names := {"disc_cam_lock": "Disc cam: lock to the disc (world turns)",
+		"check_updates": "Check for a new version on start (downloaded release builds)",
 		"online_services": "Online services: leaderboards, who's online, sending runs",
 		"share_records": "Post my PBs on the built-in courses to the online leaderboard"}
-	for key in ["fullscreen", "vsync", "show_ghost", "disc_cam_lock", "online_services", "share_records"]:
+	for key in ["fullscreen", "vsync", "show_ghost", "disc_cam_lock", "online_services", "share_records", "check_updates"]:
 		var k2: String = key
 		var cb := CheckBox.new()
 		cb.text = names.get(k2, k2.replace("_", " ").capitalize())

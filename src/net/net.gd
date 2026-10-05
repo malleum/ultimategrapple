@@ -11,6 +11,10 @@ const ONLINE_SERVER := "joshammer.com"
 const DISCOVERY_PORT := 24681
 const STATE_HZ := 30.0
 const ROUND_BREAK := 5.0
+## Players per lobby (ENet allows 4095; this just keeps a runaway server sane).
+const MAX_PLAYERS := 256
+const POOL_MAX := 32        # saved courses a lobby can race through
+const SCOREBOARD_ROWS := 8  # the in-race scoreboard shows the top ones (and you)
 
 signal lobby_changed
 signal status_changed(text: String)
@@ -18,7 +22,11 @@ signal servers_changed
 
 var peer: ENetMultiplayerPeer = null
 var players := {}          # id -> {name, color, wins, ready}
-var settings := {"wins": 3, "source": "random", "difficulty": 0.5, "length": 10, "theme": ""}
+## source: "random" (generated), "pinned" (the main courses) or "saved" (the
+## courses one runner saved online, uploaded by the leader: pool_name says whose)
+var settings := {"wins": 3, "source": "random", "difficulty": 0.5, "length": 10, "theme": "", "pool_name": "", "pool_n": 0}
+var _pool: Array = []      # server: level data of the saved courses being raced
+var pool_status := ""      # client: fetching / sending the saved courses
 var in_lobby := false
 var dedicated := false
 var round_active := false
@@ -75,7 +83,7 @@ func _set_status(t: String) -> void:
 func host(port := PORT, as_dedicated := false) -> bool:
 	leave()
 	peer = ENetMultiplayerPeer.new()
-	var err := peer.create_server(port, 12)
+	var err := peer.create_server(port, MAX_PLAYERS)
 	if err != OK:
 		peer = null
 		_set_status("Could not host on port %d (error %d)" % [port, err])
@@ -265,7 +273,7 @@ func _apply_settings(s: Dictionary) -> void:
 	# clients can send anything: only take known keys, clamped
 	if s.has("wins"):
 		settings.wins = clampi(int(s.wins), 1, 15)
-	if s.has("source") and str(s.source) in ["random", "pinned"]:
+	if s.has("source") and str(s.source) in ["random", "pinned"] or (s.has("source") and str(s.source) == "saved" and not _pool.is_empty()):
 		settings.source = str(s.source)
 	if s.has("difficulty"):
 		settings.difficulty = clampf(float(s.difficulty), 0.0, 1.0)
@@ -280,6 +288,67 @@ func _apply_settings(s: Dictionary) -> void:
 func request_settings(s: Dictionary) -> void:
 	if is_server() and multiplayer.get_remote_sender_id() == leader_id() and not round_active:
 		_apply_settings(s)
+
+
+## Race the courses `uid` saved online: fetch them (Online), then hand them to
+## the server, which has no copy (a LAN host or a dedicated server alike).
+func use_saved_courses(uid: String, owner: String) -> void:
+	if not is_leader():
+		return
+	var cids: Array = []
+	for p in Online.catalog:
+		if str(p.uid) == uid:
+			cids = (p.get("courses", []) as Array).map(func(c): return str(c.cid))
+	if cids.is_empty():
+		pool_status = "%s has no saved courses." % owner
+		lobby_changed.emit()
+		return
+	pool_status = "Fetching %s's courses..." % owner
+	lobby_changed.emit()
+	Online.fetch_courses(cids, func(levels: Array):
+		if levels.is_empty():
+			pool_status = "Couldn't get %s's courses." % owner
+			lobby_changed.emit()
+			return
+		pool_status = ""
+		var raw := JSON.stringify(levels).to_utf8_buffer()
+		var packed := raw.compress(FileAccess.COMPRESSION_ZSTD)
+		if is_server():
+			set_pool(packed, raw.size(), owner)
+		elif peer:
+			rpc_id(1, "set_pool", packed, raw.size(), owner))
+
+
+## Leader -> server: the saved courses to race (source "saved").
+@rpc("any_peer", "reliable")
+func set_pool(packed: PackedByteArray, size: int, owner: String) -> void:
+	var from := multiplayer.get_remote_sender_id()
+	if not is_server() or round_active or (from != 0 and from != leader_id()):
+		return
+	if size <= 0 or size > 8 * 1024 * 1024 or packed.size() > 4 * 1024 * 1024:
+		return
+	var data = JSON.parse_string(packed.decompress(size, FileAccess.COMPRESSION_ZSTD).get_string_from_utf8())
+	if not data is Array:
+		return
+	var pool: Array = []
+	for d in (data as Array).slice(0, POOL_MAX):
+		if d is Dictionary and d.get("solids") is Array and d.get("spawn") is Array and d.get("basket") is Array:
+			pool.append(d)
+	if pool.is_empty():
+		return
+	_pool = pool
+	settings.source = "saved"
+	settings.pool_name = owner.substr(0, 16)
+	settings.pool_n = pool.size()
+	_push_lobby()
+
+
+## What the lobby is racing, for everyone to read.
+func source_text() -> String:
+	match str(settings.source):
+		"pinned": return "the main courses"
+		"saved": return "%s's saved courses (%d)" % [settings.get("pool_name", "?"), int(settings.get("pool_n", 0))]
+	return "random courses (difficulty %d)" % int(round(float(settings.difficulty) * 10))
 
 
 func request_start() -> void:
@@ -309,7 +378,9 @@ func start_set() -> void:
 
 func _start_round() -> void:
 	var data: Dictionary
-	if settings.source == "pinned":
+	if settings.source == "saved" and not _pool.is_empty():
+		data = _pool[round_idx % _pool.size()]
+	elif settings.source == "pinned":
 		var pool := Game.list_pinned_levels()
 		if pool.is_empty():
 			data = Game.generate_level(randi() % 1000000, settings.theme, settings.difficulty, settings.length)
@@ -566,7 +637,15 @@ func _level():
 func scoreboard_text() -> String:
 	var ids := players.keys()
 	ids.sort_custom(func(a, b): return int(players[a].wins) > int(players[b].wins))
-	var lines := ["FIRST TO %d" % int(settings.wins)]
+	var lines := ["FIRST TO %d%s" % [int(settings.wins), "  ·  %d RUNNERS" % ids.size() if ids.size() > SCOREBOARD_ROWS else ""]]
+	# a big lobby: the leaders, plus you if you're further down
+	if ids.size() > SCOREBOARD_ROWS:
+		var top := ids.slice(0, SCOREBOARD_ROWS - 1)
+		if not top.has(my_id()) and ids.has(my_id()):
+			top.append(my_id())
+		else:
+			top = ids.slice(0, SCOREBOARD_ROWS)
+		ids = top
 	for id in ids:
 		var p: Dictionary = players[id]
 		var stars := ""

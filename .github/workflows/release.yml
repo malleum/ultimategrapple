@@ -60,6 +60,18 @@ jobs:
           cp ~/godot-dl/{linux_release.x86_64,windows_release_x86_64.exe,version.txt,icudt_godot.dat} "$tdir/"
           echo "GODOT=$HOME/godot-dl/Godot_v${GODOT_VERSION}-stable_linux.x86_64" >> "$GITHUB_ENV"
 
+      # which build this is: baked into the game (the in-game updater compares
+      # it with the latest release's build.json) and published with it
+      - name: Stamp build
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess, time
+          title = subprocess.check_output(["git", "log", "-1", "--format=%s"]).decode().strip()
+          json.dump({"sha": os.environ["GITHUB_SHA"], "time": int(time.time()), "ref": os.environ["GITHUB_REF_NAME"], "title": title},
+                    open("build.json", "w"))
+          PY
+          cat build.json
+
       - name: Import
         run: $GODOT --headless --import
 
@@ -84,6 +96,8 @@ jobs:
           cd dist
           zip -r -9 UltimateGrapple-linux-x86_64.zip UltimateGrapple-linux
           zip -r -9 UltimateGrapple-windows-x86_64.zip UltimateGrapple-windows
+          # bare executables + build.json for the in-game updater
+          cp UltimateGrapple-linux/ultimate-grapple.x86_64 UltimateGrapple-windows/UltimateGrapple.exe ../build.json .
           ls -la
 
       - name: Publish
@@ -94,12 +108,13 @@ jobs:
           notes="Built from ${GITHUB_SHA::7} ($(git log -1 --format=%s)).
 
           **Linux**: unzip, then run \`./ultimate-grapple.x86_64\` (any distro, no Nix needed).
-          **Windows**: unzip, then run \`UltimateGrapple.exe\` (SmartScreen may warn: More info → Run anyway)."
+          **Windows**: unzip, then run \`UltimateGrapple.exe\` (SmartScreen may warn: More info → Run anyway).
+          Builds from here update themselves: the game offers newer releases when it starts."
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             tag="${GITHUB_REF#refs/tags/}"
-            gh release create "$tag" dist/*.zip --title "Ultimate Grapple $tag" --notes "$notes" --latest
+            gh release create "$tag" dist/*.zip dist/ultimate-grapple.x86_64 dist/UltimateGrapple.exe dist/build.json --title "Ultimate Grapple $tag" --notes "$notes" --latest
           else
             gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
-            gh release create nightly dist/*.zip --target "$GITHUB_SHA" \
+            gh release create nightly dist/*.zip dist/ultimate-grapple.x86_64 dist/UltimateGrapple.exe dist/build.json --target "$GITHUB_SHA" \
               --title "Ultimate Grapple (latest build)" --notes "$notes" --latest
           fi

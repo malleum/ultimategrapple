@@ -297,7 +297,7 @@ func _build_runners() -> void:
 	split_layer.layer = -50
 	add_child(split_layer)
 	var grid := GridContainer.new()
-	grid.columns = 1 if n == 2 else 2
+	grid.columns = 1 if n == 2 else (2 if n <= 4 else (3 if n <= 6 else 4))
 	grid.set_anchors_preset(Control.PRESET_FULL_RECT)
 	grid.add_theme_constant_override("h_separation", 4)
 	grid.add_theme_constant_override("v_separation", 4)

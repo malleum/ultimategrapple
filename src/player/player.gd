@@ -1450,6 +1450,7 @@ func snapshot() -> Array:
 	if stun_t > 0.0: flags |= 128
 	if frozen_t > 0.0: flags |= 256
 	if down_t > 0.0: flags |= 512
+	if mantle_t > 0.0: flags |= 1024
 	var anchor := Vector2.ZERO
 	if not anchors.is_empty():
 		anchor = anchors[-1]

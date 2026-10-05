@@ -15,6 +15,15 @@ game (on a non-NixOS distro with Nvidia, use these instead of `nix run`, which c
 host driver without nixGL). `.github/workflows/release.yml` rebuilds them on every push to
 `main` (the rolling `nightly` release) and on `v*` tags.
 
+**Updates.** These downloaded builds update themselves: on start the game asks GitHub for
+the latest release, and if it's a newer build it offers to download it. UPDATE NOW fetches
+the new executable for your platform, swaps it in place of the old one (Windows keeps the
+old one as `.exe.old` until the next start) and restarts. Your runs and settings live in
+the user folder and stay. Turn it off in Settings. Each release carries `build.json` (the
+commit and time it was built from, also baked into the game) and the bare executables next
+to the zips; `tools/test_updater.gd` checks the newer-build test and the swap. Builds from
+source or nix never self-update.
+
 ```sh
 nix run .                    # play
 nix run . -- --server        # headless dedicated server (port 24680)
@@ -276,7 +285,7 @@ courses. `levels/` ships with seven starter courses (regenerate them with
 
 ## Multiplayer
 
-- **Couch versus.** Split-screen for up to 4 players, each on their own device. From the menu,
+- **Couch versus.** Split-screen for up to 8 players, each on their own device. From the menu,
   press A or Space to join. Every player has a **personal world state**, so gates, glass,
   bridges and fragile anchors are per player: your disc opening a gate never opens it for
   anyone else. This works through per-runner physics layers and viewport visibility layers
@@ -284,7 +293,13 @@ courses. `levels/` ships with seven starter courses (regenerate them with
 - **Online.** PLAY ONLINE joins the public dedicated server at `joshammer.com:24680` (or
   any `host[:port]` you type). Nobody has to port-forward. The first player in the lobby is
   the leader: they pick wins, course source and difficulty, and start the set. Otherwise
-  the set starts when everyone is READY. To run your own server on NixOS:
+  the set starts when everyone is READY. A lobby takes any number of runners (up to 256);
+  the race scoreboard shows the top 8 and you.
+- **Course source** (online and couch): random courses, the main courses, or **one
+  runner's saved courses** (any runner with saved courses online, see Online services).
+  Online, the leader's game fetches them and hands them to the server, so it works on a
+  dedicated server and on a LAN host alike. `tools/test_lobby.sh [players]` runs a
+  dedicated server with 14 clients racing a saved-course pool. To run your own server on NixOS:
   `imports = [ ultimate-grapple.nixosModules.server ]; services.ultimate-grapple-server = {
   enable = true; openFirewall = true; };` (cloud firewalls need UDP 24680 too).
   `tools/test_online.gd` is a two-client smoke test against a running server.

@@ -23,6 +23,8 @@
   - `godot4 --headless --fixed-fps 120 -s tools/test_roll.gd` (rollers run down slopes, set off when set down on one, still stop on the flat)
   - `godot4 --headless --fixed-fps 120 -s tools/test_stats.gd` (local stats: attempts, restarts, jumps, throw types, snaps, chrons, save/reload)
   - `godot4 --headless --fixed-fps 120 -s tools/test_puzzles.gd` (chase gap needs the throw, roller plate + fence, slick wall, sunken basket)
+  - `godot4 --headless -s tools/test_updater.gd` (self-update: newer-build check, asset pick, executable swap on Linux/Windows)
+  - `tools/test_lobby.sh 14` (when touching Net: dedicated server + 14 clients, saved-course pool, all get round 1)
   - `nix build .#default` (pck export + wrapper)
 - Avoid `:=` on Variant values (Dictionary/Array element access) — Godot treats failed inference as a parse error.
 - Throw puzzles: check new/changed ones with `tools/piece_check.gd -- <segment> <seeds>` (which throw types open them) and `tools/reach_table.gd` (jump reach carrying vs empty, sizes chase gaps). Slick (no wall-jump) and fence (runners only) solids are what stop the wall jump from skipping them; lock() keeps sky shortcuts off them.
@@ -34,4 +36,5 @@
 - Controls are rebindable (`src/core/bindings.gd`, saved in settings.json). Never hard-code key names in UI; use `Bindings.label()/labels()`.
 - Performance: `--perf-log` (src/core/perf.gd) logs SEC/SPIKE/LEVEL/SUMMARY lines; wrap new per-frame work in `Perf.begin()`/`Perf.end("name", t0)`. World props must not `queue_redraw()` every tick unless they animate, and then only when `View.sees(...)` (src/world/view.gd, set by `Level.update_view()`). `tools/perf_scan.gd` compares script cost per course.
 - Online services (`src/net/online.gd`, autoload Online): leaderboards for the built-in courses + presence + relay, on its own ENet port (24682) and MultiplayerAPI branch, separate from the lobby (Net). One script for client and server so the RPC tables match: add RPCs to it in matching pairs. Prefer a new `kind` on the generic `ask`/`answer` pair (no RPC table change, old servers just ignore it) over a new RPC. Changing it means the server needs a bump.
+- Self-update (`src/core/updater.gd`): only release builds (res://build.json is written by `.github/workflows/release.yml`); each release must keep publishing `build.json` and the bare `ultimate-grapple.x86_64` / `UltimateGrapple.exe` assets, since that's what installed games download.
 - Per-player state (gates, glass, grapple points) lives in `src/level/runner.gd` on per-runner physics/visibility layer bits; shared world in `src/level/level.gd`.

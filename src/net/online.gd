@@ -421,6 +421,35 @@ func request_course(cid: String) -> void:
 		course_received.emit(cid, {})
 
 
+## Several saved courses' level data, in the order asked; `done` gets the ones
+## that came (cached ones at once, the rest from the server).
+func fetch_courses(cids: Array, done: Callable) -> void:
+	var want := {}
+	for c in cids:
+		want[str(c)] = true
+	var have := {}
+	var box := {}
+	box["fn"] = func(cid: String, d: Dictionary):
+		if not want.has(cid):
+			return
+		want.erase(cid)
+		if not d.is_empty():
+			have[cid] = d
+		if want.is_empty():
+			course_received.disconnect(box.fn)
+			var out: Array = []
+			for c in cids:
+				if have.has(str(c)):
+					out.append(have[str(c)])
+			done.call(out)
+	if want.is_empty():
+		done.call([])
+		return
+	course_received.connect(box.fn)
+	for c in want.keys():
+		request_course(str(c))
+
+
 func cached_course(cid: String) -> Dictionary:
 	if not is_shared_id(cid):
 		return {}

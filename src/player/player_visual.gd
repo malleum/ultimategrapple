@@ -43,7 +43,11 @@ var charge := 0.0
 ## up, spread at the apex, legs reaching down and arms flailing as you fall,
 ## a front flip on a double jump, a snag-and-pull on a sky catch, a squash
 ## on landing. Joints ease towards each pose's targets (_j), so nothing snaps.
+## Climbing a ledge (mantle): a one-hand vault, one palm on the ledge and the
+## legs swinging over beside it, or, coming in fast, a side flip over it.
 const TAKEOFF_T := 0.16
+const VAULT_T := 0.32
+const FLIP_VAULT_SPEED := 620.0
 const FLIP_T := 0.4
 const CATCH_T := 0.34
 const LAND_T := 0.16
@@ -52,6 +56,11 @@ var flip_t := -1.0        # double jump flip progress (s), -1 = none
 var catch_t := -1.0       # sky catch, -1 = none
 var land_t := -1.0        # landing squash, -1 = none
 var land_k := 0.0         # how hard that landing was (0..1)
+var mantling := false     # the body is climbing a ledge right now
+var vault_t := -1.0       # ledge vault progress (s), -1 = none
+var vault_flip := false   # this vault is a side flip
+var _was_mantle := false
+var _recent_vx := 0.0     # running speed of the last moment (the wall stops it before the vault starts)
 var _was_floor := true
 var _was_swing := false
 var _had_disc := true
@@ -80,6 +89,7 @@ func update_from_player(p) -> void:
 	facing = p.facing
 	aim_dir = p.aim_dir
 	charge = p.charge_power() if p.charging else 0.0
+	mantling = p.mantle_t > 0.0
 	if swinging and not p.anchors.is_empty():
 		anchor_local = p.anchors[-1] - p.global_position
 	if p.disc:
@@ -101,6 +111,7 @@ func update_from_snapshot(s: Array, pos: Vector2, dt: float) -> void:
 	stunned = flags & 128 != 0
 	frozen = 1.0 if flags & 256 != 0 else 0.0
 	_set_knocked(flags & 512 != 0)
+	mantling = flags & 1024 != 0
 	anchor_local = Vector2(s[6], s[7]) - pos
 	snapshot_rope = true
 	aim_dir = Vector2(facing, -0.3).normalized()
@@ -135,6 +146,12 @@ func _step_air(dt: float) -> void:
 		flip_t = 0.0
 	if has_disc and not _had_disc and not on_floor and not swinging:
 		catch_t = 0.0
+	_recent_vx = maxf(absf(vel.x), _recent_vx - 2500.0 * dt)
+	if mantling and not _was_mantle:
+		vault_t = 0.0
+		vault_flip = _recent_vx > FLIP_VAULT_SPEED
+		flip_t = -1.0
+	_was_mantle = mantling
 	_was_floor = on_floor
 	_was_swing = swinging
 	_had_disc = has_disc
@@ -151,6 +168,12 @@ func _step_air(dt: float) -> void:
 		land_t += dt
 		if land_t > LAND_T or not on_floor:
 			land_t = -1.0
+	if vault_t >= 0.0:
+		vault_t += dt
+		if vault_t > VAULT_T or swinging or dead:
+			vault_t = -1.0
+		else:
+			land_t = -1.0   # the vault already lands itself
 	var tgt := _targets()
 	if _j.is_empty() or dt <= 0.0:
 		_j = tgt
@@ -266,6 +289,31 @@ func _targets() -> Dictionary:
 			neck = neck.lerp(hip + Vector2(f * 8, -15), b)
 			ha = ha.lerp(Vector2(f * 2, 18), b)
 			hb = hb.lerp(Vector2(-f * 1, 17), b)
+	# ledge vault: the free hand plants on the ledge ahead, the body pivots
+	# over it and the legs swing through together beside it; a side flip
+	# tucks tight instead (the turn itself is drawn in _draw_timed)
+	if vault_t >= 0.0 and not lo:
+		var v := clampf(vault_t / VAULT_T, 0.0, 1.0)
+		var b := sin(PI * v)
+		if vault_flip:
+			k1 = k1.lerp(hip + Vector2(f * 10, -1), b)
+			l1 = l1.lerp(hip + Vector2(f * 3, 8), b)
+			k2 = k2.lerp(hip + Vector2(f * 8, 3), b)
+			l2 = l2.lerp(hip + Vector2(f * 1, 11), b)
+			neck = neck.lerp(hip + Vector2(f * 7, -16), b)
+			ha = ha.lerp(Vector2(f * 4, 16), b)
+			hb = hb.lerp(Vector2(-f * 3, 15), b)
+		else:
+			# lazy vault: the near hand planted on the ledge under the shoulder,
+			# torso leaning back over it, both legs swung through level and
+			# bent (sitting in the air), the other arm out behind for balance
+			hb = hb.lerp(Vector2(f * 5, 19), _smooth(v * 3.0) * (1.0 - _smooth((v - 0.8) * 5.0)))
+			ha = ha.lerp(Vector2(-f * 13, -9), b)
+			neck = neck.lerp(hip + Vector2(-f * 7, -16), b)
+			k1 = k1.lerp(hip + Vector2(f * 11, -4), b)
+			l1 = l1.lerp(hip + Vector2(f * 20, 3), b)
+			k2 = k2.lerp(hip + Vector2(f * 10, -1), b)
+			l2 = l2.lerp(hip + Vector2(f * 19, 7), b)
 	# sky catch: the throwing hand snags forward-up, then pulls the disc in
 	if catch_t >= 0.0 and not lo:
 		var c := clampf(catch_t / CATCH_T, 0.0, 1.0)
@@ -386,6 +434,19 @@ func _draw_timed() -> void:
 	var fa := flip_angle()
 	if fa != 0.0 and not knocked:
 		draw_set_transform(hip - hip.rotated(fa), fa)
+	elif vault_t >= 0.0 and not knocked:
+		var v := _smooth(vault_t / VAULT_T)
+		if vault_flip:
+			# side flip: the body turns over sideways (seen from the side it
+			# goes upside down and back), a bit tilted into the climb
+			var cy := cos(TAU * v)
+			var sy := signf(cy) * maxf(absf(cy), 0.22) if cy != 0.0 else 0.22
+			var tilt := -facing * 0.35 * sin(PI * v)
+			draw_set_transform_matrix(Transform2D(tilt, Vector2(1.0, sy), 0.0, Vector2.ZERO).translated_local(-hip).translated(hip))
+		else:
+			# lazy vault: the body tips back a little as it rides over the hand
+			var va := -facing * 0.25 * sin(PI * v)
+			draw_set_transform(hip - hip.rotated(va), va)
 	# dark under-stroke keeps the runner readable on bright themes
 	var ol := Color(0.02, 0.0, 0.06, 0.75 * alpha)
 	draw_polyline(PackedVector2Array([hip, k1, l1]), ol, w + 3.5, true)

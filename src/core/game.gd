@@ -26,6 +26,7 @@ signal export_status(text: String, done: bool)
 
 var main: Node = null
 var current_scene: Node = null
+var updater: Node = null   # release builds only (src/core/updater.gd)
 
 var settings := {
 	"master_volume": 0.8,
@@ -44,6 +45,7 @@ var settings := {
 	"share_records": true,    # post PBs on the built-in courses to the online leaderboard
 	"name_chosen": false,     # picked a name in the first-run prompt (until then: off the boards)
 	"disc_cam_lock": true,
+	"check_updates": true,    # release builds: offer a newer release on start
 	"rumble": 1.0,           # controller vibration strength (0 = off)   # finish replay: the disc stays level and the world turns
 }
 
@@ -69,6 +71,10 @@ func _ready() -> void:
 	var args := OS.get_cmdline_user_args()
 	server_mode = args.has("--server")
 	apply_settings()
+	const Updater = preload("res://src/core/updater.gd")
+	if not server_mode and bool(settings.get("check_updates", true)) and Updater.supported() and not Array(args).any(func(a): return str(a).begins_with("--render-replay")):
+		updater = Updater.new()
+		add_child(updater)
 
 
 # ---------------------------------------------------------------- input map
@@ -955,8 +961,13 @@ var couch_champion := ""
 var couch_last_players: Array = []
 
 
-func start_couch(players: Array, wins: int, source: String, difficulty: float) -> void:
-	couch = {"players": players, "wins": wins, "source": source, "difficulty": difficulty,
+## Split-screen players at most (each runner has its own layer bits).
+const COUCH_MAX := 8
+
+
+## source "random", "pinned" (main courses) or "saved" (`pool`: level data).
+func start_couch(players: Array, wins: int, source: String, difficulty: float, pool: Array = []) -> void:
+	couch = {"players": players, "wins": wins, "source": source, "difficulty": difficulty, "pool": pool,
 		"round": 0, "winner": -1, "set_winner": -1, "results": {}, "next_at": -1.0, "champion": ""}
 	for p in players:
 		p.wins = 0
@@ -969,7 +980,10 @@ func _couch_round() -> void:
 	couch.next_at = -1.0
 	var data: Dictionary
 	var pool := list_pinned_levels()
-	if couch.source == "pinned" and not pool.is_empty():
+	var saved: Array = couch.get("pool", [])
+	if couch.source == "saved" and not saved.is_empty():
+		data = saved[int(couch.round) % saved.size()]
+	elif couch.source == "pinned" and not pool.is_empty():
 		data = pool[int(couch.round) % pool.size()]
 	else:
 		data = generate_level(randi() % 1000000, "", couch.difficulty, 10)
