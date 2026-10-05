@@ -207,6 +207,24 @@ func save_splits() -> void:
 		_save_json(SPLITS_PATH, _splits)
 
 
+## A course saved online gets a new id ("sc_..."): carry this install's PB,
+## ghost, splits and play stats over from the id it had before.
+func adopt_course(old_id: String, new_id: String) -> void:
+	if old_id == new_id or old_id == "":
+		return
+	if records.has(old_id) and not records.has(new_id):
+		records[new_id] = (records[old_id] as Dictionary).duplicate()
+		_save_json(SAVE_PATH, records)
+		var g := load_ghost(old_id)
+		if g.size() > 2:
+			save_ghost(new_id, g)
+	var sp := get_splits_any(old_id)
+	if not sp.is_empty() and get_splits_any(new_id).is_empty():
+		_splits[new_id] = sp.duplicate(true)
+		save_splits()
+	load("res://src/core/stats.gd").copy_level(old_id, new_id)
+
+
 func get_record(level_id: String):
 	return records.get(level_id)
 

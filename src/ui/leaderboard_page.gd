@@ -9,7 +9,12 @@ const FETCH_TIMEOUT := 12.0
 
 var back_fn: Callable
 var name_fn: Callable     # opens the choose-your-name prompt
-var levels := {}          # level id -> level data (built-ins)
+## The courses to show boards for: [{key, name, level}]. Empty: the built-ins.
+var course_list: Array = []
+var start_key := ""       # open this one first
+var heading := "LEADERBOARDS"
+var datas := {}           # course key -> level data
+var names := {}           # course key -> course name
 var keys: Array = []      # course keys in menu order
 var course := ""
 var entries: Array = []
@@ -32,8 +37,8 @@ func _ready() -> void:
 	custom_minimum_size = Vector2(1180, 0)
 	var v := UI.vbox(10)
 	add_child(v)
-	v.add_child(UI.label("LEADERBOARDS", 48, UI.NEON))
-	v.add_child(UI.label("Best runs on the built-in courses, kept on the online server. Tick runs to compare their splits, race them all as ghosts, or watch them together. Your PBs here are posted automatically (Settings).", 18, UI.DIM))
+	v.add_child(UI.label(heading, 48, UI.NEON))
+	v.add_child(UI.label("Best runs, kept on the online server (gold, silver and bronze: the top three). Tick runs to compare their splits, race them all as ghosts, or watch them together. Your PBs here are posted automatically (Settings).", 18, UI.DIM))
 	online_lbl = UI.label("", 18, Color(0.5, 0.9, 1.0))
 	online_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(online_lbl)
@@ -68,25 +73,40 @@ func _ready() -> void:
 	b.add_child(UI.button("BACK", func(): back_fn.call(), 20))
 	v.add_child(b)
 
-	for d in Game.list_pinned_levels():
-		if bool(d.get("_builtin", false)):
-			levels[str(d.id)] = d
-	var bc := Online.builtin_courses()
-	for k in bc:
-		if levels.has(str(bc[k])):
-			keys.append(k)
-	keys.sort_custom(func(a, c): return str(bc[a]) < str(bc[c]))
-	for k in keys:
-		var kk: String = k
-		var nm := str(levels[str(bc[kk])].get("name", bc[kk]))
-		course_row.add_child(UI.button(nm, func(): _select(kk), 18))
+	if course_list.is_empty():
+		course_list = builtin_list()
+	for c in course_list:
+		var kk := str(c.key)
+		keys.append(kk)
+		names[kk] = str(c.name)
+		datas[kk] = c.get("level", {})
+		course_row.add_child(UI.button(names[kk], func(): _select(kk), 18))
 
 	Online.state_changed.connect(_on_state)
 	Online.board_received.connect(_on_board)
 	Online.run_received.connect(_on_run)
 	_on_state()
 	if not keys.is_empty():
-		_select(keys[0])
+		_select(start_key if keys.has(start_key) else keys[0])
+
+
+## The built-in courses as a course list, in menu order.
+static func builtin_list() -> Array:
+	var levels := {}
+	for d in Game.list_pinned_levels():
+		if bool(d.get("_builtin", false)):
+			levels[str(d.id)] = d
+	var bc := Online.builtin_courses()
+	var ks: Array = []
+	for k in bc:
+		if levels.has(str(bc[k])):
+			ks.append(k)
+	ks.sort_custom(func(a, c): return str(bc[a]) < str(bc[c]))
+	var out: Array = []
+	for k in ks:
+		var d: Dictionary = levels[str(bc[k])]
+		out.append({"key": k, "name": str(d.get("name", bc[k])), "level": d})
+	return out
 
 
 func _process(dt: float) -> void:
@@ -127,8 +147,7 @@ func _select(k: String) -> void:
 
 
 func _course_name(k: String) -> String:
-	var bc := Online.builtin_courses()
-	return str(levels.get(str(bc.get(k, "")), {}).get("name", bc.get(k, "")))
+	return str(names.get(k, k))
 
 
 func _on_board(c: String, list: Array) -> void:
@@ -162,7 +181,7 @@ func _rebuild() -> void:
 	if entries.is_empty():
 		var why := ""
 		if Online.is_online():
-			why = "No runs yet on this course." if Online.courses.has(course) else \
+			why = "No runs yet on this course." if Online.courses.has(course) or course.begins_with("sc_") else \
 				"The online server runs a different version of the game, so it has no board for this version of the course. Update both to the same version."
 		board_box.add_child(UI.label(why, 20, UI.DIM))
 	var rank := 1
@@ -286,8 +305,19 @@ func _launch() -> void:
 		status.text = "Couldn't get those runs."
 		return
 	runs.sort_custom(func(a, b): return float(a.info.time) < float(b.info.time))
-	var lid := str(Online.builtin_courses().get(course, ""))
-	var data: Dictionary = levels.get(lid, {})
+	var data: Dictionary = datas.get(course, {})
+	if data.is_empty() and course.begins_with("sc_"):
+		# a saved course we haven't downloaded yet: fetch it, then go
+		var cid := course.get_slice(":", 0)
+		var k := course
+		status.text = "Fetching the course..."
+		Online.course_received.connect(func(c, d):
+			if c == cid and not d.is_empty() and is_inside_tree() and course == k:
+				datas[k] = d
+				action = what
+				_launch(), CONNECT_ONE_SHOT)
+		Online.request_course(cid)
+		return
 	if data.is_empty():
 		return
 	data = data.duplicate(true)

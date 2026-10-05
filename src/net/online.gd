@@ -6,6 +6,9 @@ extends Node
 ##   presence      who is online right now
 ##   relay         send a replay or a match recording to someone online. The
 ##                 server forwards it and stores nothing.
+##   courses       each runner can save up to SHARE_MAX courses they liked
+##                 (the whole course, not a seed: a later generator can't
+##                 change it). Everyone can play them; they get boards too.
 ##
 ## One script plays both roles so both ends declare the same RPC table: the
 ## Online autoload is the client (or, with --server, the server); tests start
@@ -20,6 +23,9 @@ const Stats = preload("res://src/core/stats.gd")
 const SERVICE_PORT := 24682
 const MAX_BLOB := 4 * 1024 * 1024      # biggest run / match the server relays
 const MAX_RUN_BLOB := 1024 * 1024      # biggest leaderboard run it keeps
+const MAX_COURSE_BLOB := 512 * 1024    # biggest saved course
+const SHARE_MAX := 7                   # saved courses per runner
+const SHARED_DIR := "user://shared_courses"   # client cache of saved courses (they never change)
 const BOARD_SIZE := 100
 const ID_PATH := "user://online_id.json"
 const SERVER_DIR := "user://server"
@@ -32,6 +38,9 @@ signal run_received(course: String, uid: String, info: Dictionary, data: Diction
 signal submitted(course: String, rank: int, total: int, improved: bool)
 signal send_result(ok: bool, text: String)
 signal name_needed(msg: String)                        # the server won't show us until we pick a (free) name
+signal catalog_received(list: Array)                   # everyone's saved courses
+signal course_received(cid: String, data: Dictionary)  # a saved course's level data ({} if gone)
+signal share_result(ok: bool, msg: String, cid: String)
 
 var server := false
 var connected := false        # client: hello answered
@@ -49,6 +58,8 @@ const HELLO_TIMEOUT := 8.0
 var link := "off"             # off / connecting / online / no_answer / refused
 var link_msg := ""
 var last_submit := {}         # the latest submit answer (the results card may open after it)
+var catalog: Array = []       # [{uid, name, color, courses: [{cid, key, name, theme, diff, len, date, runs, top}]}]
+var _share_from := ""         # level id of the course being saved (its local records move to the new id)
 var _peer: ENetMultiplayerPeer = null
 var _retry_t := -1.0
 var _address := ""
@@ -61,6 +72,7 @@ var _stats_dirty := false
 var _stats_save_t := 0.0
 const STATS_SAVE_T := 20.0              # normalised name -> uid that owns it
 var _boards := {}             # course -> {uid -> {name, color, time, throws, medal, date, splits}}
+var _shared := {}             # uid -> [{cid, name, theme, diff, len, date}] (at most SHARE_MAX)
 var _peers := {}              # peer id -> {uid, name, color}
 var _rate := {}               # peer id -> {kind -> last usec}
 
@@ -113,6 +125,8 @@ func _process(dt: float) -> void:
 ## and the physics version, so an edited course or a physics change starts a
 ## fresh board instead of mixing incomparable times. "" if not built in.
 static func course_key(level_id: String) -> String:
+	if is_shared_id(level_id):
+		return shared_key(level_id)
 	var path := "res://levels/%s.json" % level_id.validate_filename()
 	if not FileAccess.file_exists(path):
 		return _key_by_scan(level_id)
@@ -140,6 +154,21 @@ static func builtin_courses() -> Dictionary:
 		if data is Dictionary and data.has("id"):
 			out["%s:%s:v%d" % [str(data.id), txt.md5_text().substr(0, 10), _replay_version()]] = str(data.id)
 	return out
+
+
+## Saved courses have ids "sc_<hash>" and boards keyed by id + physics version.
+static func is_shared_id(level_id: String) -> bool:
+	return level_id.begins_with("sc_") and level_id.length() == 15 and level_id.substr(3).is_valid_hex_number()
+
+
+static func shared_key(cid: String) -> String:
+	return "%s:v%d" % [cid, _replay_version()]
+
+
+## A board this client can post to: a built-in course the server keeps, or a
+## saved course (the server checks it exists).
+func _known(ck: String) -> bool:
+	return courses.has(ck) or (ck.begins_with("sc_") and ck == shared_key(ck.get_slice(":", 0)))
 
 
 static func _replay_version() -> int:
@@ -317,7 +346,7 @@ func update_profile() -> void:
 ## Submit a finished run on a built-in course (server keeps it if it's your best).
 func submit_run(level_id: String, time: float, throws: int, medal: String, frames: Array, splits: Array) -> bool:
 	var ck := course_key(level_id)
-	if not is_online() or ck == "" or not courses.has(ck) or frames.size() < 3:
+	if not is_online() or ck == "" or not _known(ck) or frames.size() < 3:
 		return false
 	var blob := pack({"frames": frames})
 	if blob.size() > MAX_RUN_BLOB:
@@ -330,7 +359,7 @@ func submit_run(level_id: String, time: float, throws: int, medal: String, frame
 ## courses only). Rides on submit with no run, which an older server ignores.
 func post_stats(level_id: String) -> void:
 	var ck := course_key(level_id)
-	if not is_online() or ck == "" or not courses.has(ck) or not bool(Game.settings.get("share_records", true)):
+	if not is_online() or ck == "" or not _known(ck) or not bool(Game.settings.get("share_records", true)):
 		return
 	rpc_id(1, "submit", ck, {"stats": Stats.board_stats(level_id)}, PackedByteArray())
 
@@ -371,6 +400,95 @@ func sync_local_records() -> void:
 		var frames := Game.load_ghost(lid)
 		var e: Dictionary = Game.get_splits_any(lid)
 		submit_run(lid, float(rec.time), int(rec.get("throws", 0)), str(rec.get("medal", "")), frames, e.get("pb", []))
+
+
+# --- saved courses (client)
+
+func request_catalog() -> void:
+	if is_online():
+		rpc_id(1, "ask", "catalog", [], PackedByteArray())
+
+
+## Level data of a saved course: from the cache, else asked of the server
+## (course_received fires either way).
+func request_course(cid: String) -> void:
+	var have := cached_course(cid)
+	if not have.is_empty():
+		course_received.emit(cid, have)
+	elif is_online():
+		rpc_id(1, "ask", "course", [cid], PackedByteArray())
+	else:
+		course_received.emit(cid, {})
+
+
+func cached_course(cid: String) -> Dictionary:
+	if not is_shared_id(cid):
+		return {}
+	var path := "%s/%s.json" % [SHARED_DIR, cid]
+	var d = JSON.parse_string(FileAccess.get_file_as_string(path)) if FileAccess.file_exists(path) else null
+	return d if d is Dictionary and str(d.get("id", "")) == cid else {}
+
+
+func _cache_course(cid: String, data: Dictionary) -> void:
+	DirAccess.make_dir_recursive_absolute(SHARED_DIR)
+	var f := FileAccess.open("%s/%s.json" % [SHARED_DIR, cid], FileAccess.WRITE)
+	if f:
+		f.store_string(JSON.stringify(data))
+
+
+## My saved courses (from the last catalog).
+func my_courses() -> Array:
+	for p in catalog:
+		if str(p.get("uid", "")) == uid:
+			return p.get("courses", [])
+	return []
+
+
+## Save a course to my list (slot -1: a new one; else replace that slot).
+func share_course(level: Dictionary, slot := -1) -> void:
+	if not is_online():
+		share_result.emit(false, "Not connected to the online server", "")
+		return
+	var data := level.duplicate(true)
+	data.erase("_builtin")
+	data.erase("pinned")
+	var blob := pack(data)
+	if blob.size() > MAX_COURSE_BLOB:
+		share_result.emit(false, "That course is too big to save online", "")
+		return
+	_share_from = str(level.get("id", ""))
+	rpc_id(1, "ask", "share", [slot], blob)
+
+
+func unshare_course(cid: String) -> void:
+	if is_online():
+		rpc_id(1, "ask", "unshare", [cid], PackedByteArray())
+
+
+@rpc("authority", "reliable")
+func answer(kind: String, args: Array, blob: PackedByteArray) -> void:
+	match kind:
+		"catalog":
+			catalog = args[0] if not args.is_empty() and args[0] is Array else []
+			catalog_received.emit(catalog)
+		"course":
+			var cid := str(args[0]) if not args.is_empty() else ""
+			var d = unpack(blob, MAX_COURSE_BLOB)
+			if d is Dictionary and str(d.get("id", "")) == cid:
+				_cache_course(cid, d)
+				course_received.emit(cid, d)
+			else:
+				course_received.emit(cid, {})
+		"share":
+			var ok := args.size() >= 3 and bool(args[0])
+			var cid2 := str(args[2]) if args.size() >= 3 else ""
+			if ok and _share_from != "" and _share_from != cid2:
+				Game.adopt_course(_share_from, cid2)
+				var rec = Game.get_record(cid2)
+				if rec != null and bool(Game.settings.get("share_records", true)):
+					submit_run(cid2, float(rec.time), int(rec.get("throws", 0)), str(rec.get("medal", "")), Game.load_ghost(cid2), Game.get_splits_any(cid2).get("pb", []))
+			_share_from = ""
+			share_result.emit(ok, str(args[1]) if args.size() >= 2 else "", cid2)
 
 
 # --- server -> client
@@ -532,6 +650,7 @@ func hello(who: String, key: String, pname: String, color: int) -> void:
 	acc = _accounts.get(who, {})
 	acc["h"] = h
 	acc["seen"] = int(Time.get_unix_time_from_system())
+	acc["color"] = posmod(color, 8)
 	if nmsg == "":
 		acc["name"] = pname
 		acc["named"] = true
@@ -577,7 +696,7 @@ func _online_uid(who: String) -> bool:
 @rpc("any_peer", "reliable")
 func submit(course: String, info: Dictionary, blob: PackedByteArray) -> void:
 	var me := _sender()
-	if not server or me.is_empty() or not courses.has(course) or not _budget("submit", 40, 60.0):
+	if not server or me.is_empty() or not _has_course(course) or not _budget("submit", 40, 60.0):
 		return
 	if info.get("stats") is Dictionary:
 		_put_stats(course, str(me.uid), info.stats)
@@ -609,14 +728,14 @@ func submit(course: String, info: Dictionary, blob: PackedByteArray) -> void:
 
 @rpc("any_peer", "reliable")
 func get_board(course: String) -> void:
-	if not server or _sender().is_empty() or not courses.has(course) or not _budget("board", 30, 10.0):
+	if not server or _sender().is_empty() or not _has_course(course) or not _budget("board", 30, 10.0):
 		return
 	rpc_id(multiplayer.get_remote_sender_id(), "board", course, _entries(course))
 
 
 @rpc("any_peer", "reliable")
 func get_run(course: String, who: String) -> void:
-	if not server or _sender().is_empty() or not courses.has(course) or not _budget("run", 120, 10.0):
+	if not server or _sender().is_empty() or not _has_course(course) or not _budget("run", 120, 10.0):
 		return
 	var e: Dictionary = (_boards.get(course, {}) as Dictionary).get(who, {})
 	var blob := _read_run(course, who)
@@ -649,6 +768,145 @@ func relay(target: String, kind: String, title: String, blob: PackedByteArray) -
 			rpc_id(from_id, "relay_ok", true, "Sent to %s" % _peers[id].name)
 			return
 	rpc_id(from_id, "relay_ok", false, "They're not online any more")
+
+
+## Requests that don't need their own RPC (new kinds don't change the RPC
+## table, so they stay compatible): answered with answer(kind, ...).
+@rpc("any_peer", "reliable")
+func ask(kind: String, args: Array, blob: PackedByteArray) -> void:
+	var me := _sender()
+	var id := multiplayer.get_remote_sender_id()
+	if not server or me.is_empty():
+		return
+	match kind:
+		"catalog":
+			if _budget("catalog", 20, 10.0):
+				rpc_id(id, "answer", "catalog", [_catalog_for(str(me.uid))], PackedByteArray())
+		"course":
+			if _budget("course", 60, 10.0) and not args.is_empty():
+				var cid := str(args[0])
+				var b := FileAccess.get_file_as_bytes(_course_path(cid)) if is_shared_id(cid) and FileAccess.file_exists(_course_path(cid)) else PackedByteArray()
+				rpc_id(id, "answer", "course", [cid], b)
+		"share":
+			if not _budget("share", 10, 60.0):
+				rpc_id(id, "answer", "share", [false, "Slow down: too many saves", ""], PackedByteArray())
+				return
+			var res := _share(str(me.uid), int(args[0]) if not args.is_empty() else -1, blob, bool(me.get("named", false)))
+			rpc_id(id, "answer", "share", res, PackedByteArray())
+			rpc_id(id, "answer", "catalog", [_catalog_for(str(me.uid))], PackedByteArray())
+		"unshare":
+			if _budget("share", 10, 60.0) and not args.is_empty():
+				var mine: Array = _shared.get(str(me.uid), [])
+				var cid2 := str(args[0])
+				_shared[str(me.uid)] = mine.filter(func(e): return str(e.cid) != cid2)
+				_drop_if_orphan(cid2)
+				_save_shared()
+				rpc_id(id, "answer", "catalog", [_catalog_for(str(me.uid))], PackedByteArray())
+
+
+## Save a course for `who` (slot -1: append). Returns [ok, msg, cid].
+func _share(who: String, slot: int, blob: PackedByteArray, named: bool) -> Array:
+	if not named:
+		return [false, "Choose a name first", ""]
+	if blob.size() > MAX_COURSE_BLOB:
+		return [false, "That course is too big", ""]
+	var d = unpack(blob, MAX_COURSE_BLOB)
+	if not (d is Dictionary and d.get("solids") is Array and d.get("entities") is Array and d.get("spawn") is Array and d.get("basket") is Array) \
+			or (d.solids as Array).size() > 6000 or (d.entities as Array).size() > 6000:
+		return [false, "That isn't a course", ""]
+	var mine: Array = _shared.get(who, [])
+	var cid := str(d.get("id", ""))
+	if not (is_shared_id(cid) and FileAccess.file_exists(_course_path(cid))):
+		# a new course: named by its contents, so the same course saved twice is one course
+		cid = "sc_" + JSON.stringify(d).md5_text().substr(0, 12)
+		d["id"] = cid
+		d["name"] = str(d.get("name", "Course")).strip_edges().substr(0, 40)
+		d.erase("_builtin")
+		d.erase("pinned")
+		if not FileAccess.file_exists(_course_path(cid)):
+			DirAccess.make_dir_recursive_absolute(_course_path(cid).get_base_dir())
+			var f := FileAccess.open(_course_path(cid), FileAccess.WRITE)
+			if f == null:
+				return [false, "The server couldn't store it", ""]
+			f.store_buffer(pack(d))
+	for e in mine:
+		if str(e.cid) == cid:
+			return [true, "Already in your courses", cid]
+	var entry := {"cid": cid, "name": str(d.get("name", "Course")).substr(0, 40), "theme": str(d.get("theme", "")).substr(0, 16),
+		"diff": float(d.get("difficulty", 0.5)), "len": int(d.get("length", 0)), "date": int(Time.get_unix_time_from_system())}
+	var old := ""
+	if slot >= 0 and slot < mine.size():
+		old = str(mine[slot].cid)
+		mine[slot] = entry
+	elif mine.size() >= SHARE_MAX:
+		return [false, "You already have %d courses: replace or remove one" % SHARE_MAX, ""]
+	else:
+		mine.append(entry)
+	_shared[who] = mine
+	if old != "":
+		_drop_if_orphan(old)
+	_save_shared()
+	return [true, "Saved to your courses", cid]
+
+
+## A course nobody has saved any more goes, with its board and runs.
+func _drop_if_orphan(cid: String) -> void:
+	for who in _shared:
+		for e in _shared[who]:
+			if str(e.cid) == cid:
+				return
+	DirAccess.remove_absolute(_course_path(cid))
+	var key := shared_key(cid)
+	if _boards.erase(key):
+		_save_boards()
+	_stats.erase(key)
+	var d := DirAccess.open("%s/runs/%s" % [server_dir, key.validate_filename()])
+	if d:
+		for fn in d.get_files():
+			DirAccess.remove_absolute("%s/runs/%s/%s" % [server_dir, key.validate_filename(), fn])
+
+
+func _course_path(cid: String) -> String:
+	return "%s/courses/%s.bin" % [server_dir, cid.validate_filename()]
+
+
+## Saved courses by runner: the asker first, then newest saves first.
+func _catalog_for(asker: String) -> Array:
+	var out: Array = []
+	for who in _shared:
+		var mine: Array = _shared[who]
+		var acc: Dictionary = _accounts.get(who, {})
+		if mine.is_empty() or (who != asker and not bool(acc.get("named", false))):
+			continue
+		var cs: Array = []
+		var newest := 0
+		for e in mine:
+			var c: Dictionary = (e as Dictionary).duplicate()
+			c["key"] = shared_key(str(e.cid))
+			var es := _entries(c.key)
+			c["runs"] = es.size()
+			c["top"] = es.slice(0, 3).map(func(x): return [str(x.name), float(x.time)])
+			cs.append(c)
+			newest = maxi(newest, int(e.get("date", 0)))
+		out.append({"uid": who, "name": str(acc.get("name", "Runner")), "color": int(acc.get("color", 0)), "courses": cs, "_t": newest})
+	out.sort_custom(func(a, b): return a.uid == asker or (b.uid != asker and int(a._t) > int(b._t)))
+	for p in out:
+		p.erase("_t")
+	return out
+
+
+## A board the server keeps: a built-in course, or a course someone saved.
+func _has_course(course: String) -> bool:
+	if courses.has(course):
+		return true
+	var cid := course.get_slice(":", 0)
+	return is_shared_id(cid) and course == shared_key(cid) and FileAccess.file_exists(_course_path(cid))
+
+
+func _save_shared() -> void:
+	var f := FileAccess.open(server_dir + "/shared.json", FileAccess.WRITE)
+	if f:
+		f.store_string(JSON.stringify(_shared))
 
 
 func _entries(course: String) -> Array:
@@ -731,17 +989,23 @@ func _load_server_state() -> void:
 			acc["named"] = true
 		else:
 			acc["named"] = false
+	var sh = JSON.parse_string(FileAccess.get_file_as_string(server_dir + "/shared.json")) if FileAccess.file_exists(server_dir + "/shared.json") else null
+	_shared = {}
+	if sh is Dictionary:
+		for who in sh:
+			if sh[who] is Array:
+				_shared[who] = (sh[who] as Array).filter(func(e): return e is Dictionary and FileAccess.file_exists(_course_path(str(e.get("cid", ""))))).slice(0, SHARE_MAX)
 	var st = JSON.parse_string(FileAccess.get_file_as_string(server_dir + "/stats.json")) if FileAccess.file_exists(server_dir + "/stats.json") else null
 	_stats = {}
 	if st is Dictionary:
 		for k in st:
-			if courses.has(k):
+			if _has_course(k):
 				_stats[k] = st[k]
 	var b = JSON.parse_string(FileAccess.get_file_as_string(server_dir + "/boards.json")) if FileAccess.file_exists(server_dir + "/boards.json") else null
 	_boards = {}
 	if b is Dictionary:
 		for k in b:
-			if courses.has(k):   # boards of old courses / physics versions drop off
+			if _has_course(k):   # boards of old courses / physics versions drop off
 				_boards[k] = b[k]
 
 

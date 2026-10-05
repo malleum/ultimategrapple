@@ -157,6 +157,14 @@ online services; same host as PLAY ONLINE, UDP port 24682) for:
   by side (fastest per split in gold), **RACE TICKED** to run the course against all of them
   as named ghosts, or **WATCH TICKED** to watch them run together. Each row also shows how
   much that runner has played the course: tries, clears and chrons.
+- **Saved courses.** **SAVE COURSE** on the results card of any course that isn't a main
+  one puts it in your courses online (up to 7; when full it asks which to replace, and
+  REMOVE drops one). The whole course is stored, not a seed, so a later generator can't
+  change it. **COURSES** on the title screen has tabs: MAIN (the built-in courses), MY
+  COURSES, one tab per runner who saved some, and PINNED (this computer). Every saved course
+  can be played and has its own leaderboard (BOARD), with its gold / silver / bronze shown
+  in the list; your run on it is posted when you save it. A course nobody has saved any
+  more is dropped from the server with its board.
 - **Who's online**, and **SEND** (above): the server only relays, it keeps nothing.
 
 **Names.** On first start the game asks for your name (pre-filled with a random one like
@@ -166,9 +174,9 @@ default "Runner" isn't a name: until you choose one you're left off the online l
 boards; your runs are kept and show up under the name once you pick it. A name whose owner
 hasn't been online for 180 days can be taken by someone else.
 
-The server stores only the boards: per built-in course and runner, the best time, splits
-and 30 Hz ghost frames (top 100), plus tries / clears / seconds played, in its state
-directory. A board is keyed by the course
+The server stores only the boards and the saved courses: per course (built-in or saved)
+and runner, the best time, splits and 30 Hz ghost frames (top 100), plus tries / clears /
+seconds played, and up to 7 saved courses per runner, in its state directory. A board is keyed by the course
 file's hash and the physics version, so an edited course or a physics change starts a fresh
 board. Each install makes a random online id and secret (`user://online_id.json`); the
 server keeps the secret's hash so nobody else can post as you. `tools/test_services.gd`

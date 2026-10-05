@@ -1202,6 +1202,61 @@ func _fav_button(rep: Dictionary) -> Button:
 	return b
 
 
+## SAVE COURSE: keep this course online in your courses (up to
+## Online.SHARE_MAX; when full, pick one to replace). Everyone can play it
+## and it gets a leaderboard; your run so far goes onto it.
+func _save_course_button() -> Button:
+	var b := UI.button("SAVE COURSE", func(): pass)
+	var saved := func():
+		b.text = "★ IN YOUR COURSES"
+		b.disabled = true
+	var lid: String = level.level_id
+	for c in Online.my_courses():
+		if str(c.cid) == lid:
+			saved.call()
+	var on_result := func(ok: bool, msg: String, cid: String):
+		if not is_instance_valid(b):
+			return
+		if ok:
+			saved.call()
+			# keep playing it as the saved course: later runs count on its board
+			level.level_data["id"] = cid
+			level.level_id = cid
+			popup("SAVED TO YOUR COURSES", Color(0.5, 2.0, 1.0), 2.0)
+		else:
+			b.text = "SAVE COURSE"
+			popup(msg.to_upper(), Color(2.0, 0.6, 0.4), 2.5)
+	b.pressed.connect(func():
+		if not Online.share_result.is_connected(on_result):
+			Online.share_result.connect(on_result)
+		var mine := Online.my_courses()
+		if mine.size() < Online.SHARE_MAX:
+			b.text = "SAVING..."
+			Online.share_course(level.level_data, -1)
+		else:
+			_replace_dialog(mine, b))
+	Online.request_catalog()   # fresh list of mine for the check above / replacing
+	return b
+
+
+## Your courses are full: pick one to replace (or cancel).
+func _replace_dialog(mine: Array, b: Button) -> void:
+	var pop := PopupPanel.new()
+	pop.theme = UI.theme()
+	var v := UI.vbox(8)
+	pop.add_child(v)
+	v.add_child(UI.label("You have %d saved courses. Replace one:" % Online.SHARE_MAX, 20, UI.NEON))
+	for i in mine.size():
+		var slot := i
+		v.add_child(UI.button("REPLACE  %s" % str(mine[i].name), func():
+			b.text = "SAVING..."
+			Online.share_course(level.level_data, slot)
+			pop.queue_free(), 18))
+	v.add_child(UI.button("CANCEL", func(): pop.queue_free(), 18))
+	root.add_child(pop)
+	pop.popup_centered()
+
+
 ## old_pb: the personal best this run beat (-1 for a first clear / no PB).
 func show_results(tm: float, medal: String, is_pb: bool, old_pb := -1.0) -> void:
 	await get_tree().create_timer(0.9).timeout
@@ -1321,6 +1376,8 @@ func show_results(tm: float, medal: String, is_pb: bool, old_pb := -1.0) -> void
 		h.add_child(UI.button("NEXT  [N]", _next))
 		if not Game.is_pinned(level.level_id):
 			h.add_child(UI.button("PIN  [P]", func(): level.pin_current()))
+		if Online.is_online() and not bool(level.level_data.get("_builtin", false)):
+			h.add_child(_save_course_button())
 		if not runner.last_replay.is_empty():
 			# this run (PB or not), with your PB ghost alongside
 			h.add_child(UI.button("REPLAY", func(): Game.play_replay_data(runner.last_replay)))

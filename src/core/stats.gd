@@ -75,6 +75,18 @@ static func add_level(id: String, key: String, n := 1.0, name := "") -> void:
 	_dirty = true
 
 
+## A course got a new id (saved online): its numbers go with it.
+static func copy_level(from: String, to: String) -> void:
+	if not enabled:
+		return
+	_ensure()
+	var lv: Dictionary = data.lv
+	if lv.get(from) is Dictionary and not (lv.get(to) is Dictionary and float(lv[to].get("play", 0.0)) > 0.0):
+		lv[to] = (lv[from] as Dictionary).duplicate()
+		_dirty = true
+		save()
+
+
 static func get_n(key: String) -> float:
 	return float(g().get(key, 0.0))
 

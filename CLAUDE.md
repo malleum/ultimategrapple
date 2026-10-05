@@ -19,7 +19,7 @@
   - `godot4 --headless --fixed-fps 120 -s tools/test_splits.gd` (split lines along the route, PB splits + gold segments)
   - `godot4 --headless --fixed-fps 120 -s tools/test_rival.gd` (share a run file, import it, race the friend's ghost)
   - `godot4 --headless --fixed-fps 120 -s tools/test_favorites.gd` (keep a non-PB run as a favorite, play it back; PB ghost follows the run clock through recalls)
-  - `godot4 --headless -s tools/test_services.gd` (online services over loopback: leaderboard post/rank/fetch, relay to another client, impostor refused, names: Runner hidden, lookalikes refused, rename shows old runs, restart migration)
+  - `godot4 --headless -s tools/test_services.gd` (online services over loopback: leaderboard post/rank/fetch, relay to another client, impostor refused, names: Runner hidden, lookalikes refused, rename shows old runs, restart migration, saved courses: save/catalog/download/7 max/replace/remove)
   - `godot4 --headless --fixed-fps 120 -s tools/test_roll.gd` (rollers run down slopes, set off when set down on one, still stop on the flat)
   - `godot4 --headless --fixed-fps 120 -s tools/test_stats.gd` (local stats: attempts, restarts, jumps, throw types, snaps, chrons, save/reload)
   - `godot4 --headless --fixed-fps 120 -s tools/test_puzzles.gd` (chase gap needs the throw, roller plate + fence, slick wall, sunken basket)
@@ -33,5 +33,5 @@
 - Replays re-simulate recorded input (`PlayerInput` recording, `src/core/replay_input.gd`). Gameplay must stay reproducible: read time via `inp.now_us()` (never `Time.*` in gameplay), use the seeded `_rng`s, step world objects in `_physics_process`, and reset any new per-run player state in `Player.reset_run_state()`.
 - Controls are rebindable (`src/core/bindings.gd`, saved in settings.json). Never hard-code key names in UI; use `Bindings.label()/labels()`.
 - Performance: `--perf-log` (src/core/perf.gd) logs SEC/SPIKE/LEVEL/SUMMARY lines; wrap new per-frame work in `Perf.begin()`/`Perf.end("name", t0)`. World props must not `queue_redraw()` every tick unless they animate, and then only when `View.sees(...)` (src/world/view.gd, set by `Level.update_view()`). `tools/perf_scan.gd` compares script cost per course.
-- Online services (`src/net/online.gd`, autoload Online): leaderboards for the built-in courses + presence + relay, on its own ENet port (24682) and MultiplayerAPI branch, separate from the lobby (Net). One script for client and server so the RPC tables match: add RPCs to it in matching pairs. Changing it means the server needs a bump.
+- Online services (`src/net/online.gd`, autoload Online): leaderboards for the built-in courses + presence + relay, on its own ENet port (24682) and MultiplayerAPI branch, separate from the lobby (Net). One script for client and server so the RPC tables match: add RPCs to it in matching pairs. Prefer a new `kind` on the generic `ask`/`answer` pair (no RPC table change, old servers just ignore it) over a new RPC. Changing it means the server needs a bump.
 - Per-player state (gates, glass, grapple points) lives in `src/level/runner.gd` on per-runner physics/visibility layer bits; shared world in `src/level/level.gd`.

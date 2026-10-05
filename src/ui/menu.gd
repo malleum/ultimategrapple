@@ -208,44 +208,15 @@ func _page_title() -> void:
 
 # ------------------------------------------------------------------ courses
 
+const CoursesPage = preload("res://src/ui/courses_page.gd")
+
+
 func _page_courses() -> void:
 	var c := _clear()
-	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(1100, 760)
-	c.add_child(panel)
-	var v := UI.vbox(12)
-	panel.add_child(v)
-	v.add_child(UI.label("COURSES", 48, UI.NEON))
-	var levels := Game.list_pinned_levels()
-	if levels.is_empty():
-		v.add_child(UI.label("No pinned courses yet.\nPlay random courses and press P (or PIN on the results screen) to keep the ones you like.\nPinned courses are saved to user://pinned and, when running from source, to levels/ in the repo.", 20, UI.DIM))
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	v.add_child(scroll)
-	var list := UI.vbox(8)
-	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(list)
-	for i in levels.size():
-		var d: Dictionary = levels[i]
-		var th := Themes.get_theme(d.get("theme", "cyber"))
-		var rec = Game.get_record(str(d.get("id", "")))
-		var row := UI.hbox(16)
-		var idx := i
-		var b := UI.button("%02d  %s" % [i + 1, d.get("name", "Course")], func(): Game.start_pinned(idx), 24)
-		b.custom_minimum_size = Vector2(440, 0)
-		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		row.add_child(b)
-		row.add_child(UI.label(th.name, 20, th.accent2))
-		row.add_child(UI.label("D%d" % int(round(float(d.get("difficulty", 0.5)) * 10)), 20, UI.DIM))
-		if rec:
-			var ml := UI.label("%s  %s" % [Game.format_time(float(rec.time)), UI.medal_name(str(rec.medal))], 20, UI.medal_color(str(rec.medal)))
-			ml.add_theme_font_override("font", UI.mono_font())
-			row.add_child(ml)
-		else:
-			row.add_child(UI.label("unplayed", 20, UI.DIM))
-		list.add_child(row)
-	v.add_child(_back_button())
+	var cp := CoursesPage.new()
+	cp.back_fn = func(): show_page("title")
+	cp.board_fn = func(list: Array, key: String): _open_boards(list, key)
+	c.add_child(cp)
 
 
 # ------------------------------------------------------------------ random
@@ -799,9 +770,17 @@ func _page_stats() -> void:
 
 
 func _page_leaderboards() -> void:
+	_open_boards([], "", "title")
+
+
+## The boards of these courses ([] = the built-ins), opened on `key`.
+func _open_boards(list: Array, key: String, back := "courses") -> void:
+	page = "leaderboards"
 	var c := _clear()
 	var lp := LeaderboardPage.new()
-	lp.back_fn = func(): show_page("title")
+	lp.course_list = list
+	lp.start_key = key
+	lp.back_fn = func(): show_page(back)
 	lp.name_fn = func(): _name_prompt("")
 	c.add_child(lp)
 
