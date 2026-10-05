@@ -273,10 +273,11 @@ func restart() -> void:
 		_stat_attempt()
 
 
-## Watching your PB run itself: no ghost of it on top of it.
+## Watching your PB run itself: no ghost of it on top of it, and no splits
+## (they'd only compare the run with itself).
 func _replay_is_pb() -> bool:
 	var rec = Game.get_record(level.level_id)
-	return rec == null or absf(float(rec.time) - float(level.replay.get("time", -1.0))) < 0.0005
+	return rec == null or Game.centis(float(rec.time)) == Game.centis(float(level.replay.get("time", -1.0)))
 
 
 func _setup_pb_ghost() -> void:
@@ -287,7 +288,7 @@ func _setup_pb_ghost() -> void:
 		rg.stop()
 		rg.setup_replay(rv.frames, rv.color)
 		rg.visual.name_tag = str(rv.name)
-		rg.visual.alpha = 0.6
+		rg.visual.alpha = Ghost.ALPHA_OTHER
 		rg.clock = _ghost_clock
 		rg.rewind()
 	pb_ghost.stop()

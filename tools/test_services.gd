@@ -242,12 +242,15 @@ func _process(_dt: float) -> bool:
 				_check("download", str(lvd.get("id", "")) == str(share_ids[0]) and (lvd.get("solids", []) as Array).size() > 3,
 					"downloaded the whole course: %d solids, %d entities" % [(lvd.get("solids", []) as Array).size(), (lvd.get("entities", []) as Array).size()])
 				got.erase("share")
+				got.erase("cat1")
 				c1.share_course(shares.pop_front(), -1)
 				phase = "share_fill"
 		"share_fill":
-			if got.has("share"):
+			# every save answers with its result, then the catalog: wait for both
+			if got.has("share") and got.has("cat1"):
 				share_ids.append(str(got.share[2]))
 				got.erase("share")
+				got.erase("cat1")
 				if not shares.is_empty():
 					c1.share_course(shares.pop_front(), -1)
 				else:
@@ -256,7 +259,7 @@ func _process(_dt: float) -> bool:
 					c1.share_course(m_extra, -1)
 					phase = "share_full"
 		"share_full":
-			if got.has("share"):
+			if got.has("share") and got.has("cat1"):
 				_check("full", not bool(got.share[0]) and str(got.share[1]).contains("7") and c1.my_courses().size() == 7, "an 8th save: %s" % got.share[1])
 				got.erase("share")
 				got.erase("cat1")

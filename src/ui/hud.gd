@@ -43,6 +43,8 @@ var level: Node:
 var root: Control
 var draw_layer: Control
 var results: Control = null
+var results_cam: Control = null     # the disc cam beside the results card
+var results_cam_played := false     # ... has played through (into the chains) once
 var key_glow := {}        # replay keystroke overlay: action -> 0..1 afterglow
 var pause_menu: Control = null
 var countdown_until := 0.0
@@ -637,6 +639,8 @@ func _split_color(i: int, d: float) -> Color:
 func _draw_splits(ci: Control, vs: Vector2) -> void:
 	if not level.is_timetrial():
 		return
+	if level.mode == "replay" and runner._replay_is_pb():
+		return   # the PB run against its own splits: nothing to compare
 	var n: int = runner.split_count()
 	if n == 0:
 		return
@@ -1413,6 +1417,9 @@ func show_results(tm: float, medal: String, is_pb: bool, old_pb := -1.0) -> void
 		var cam := DiscCam.new()
 		cam_panel.add_child(cam)
 		cam.setup(level, runner.pov_frames(), runner.player.visual.color, runner.disc.color)
+		results_cam = cam
+		results_cam_played = false
+		cam.played.connect(func(): results_cam_played = true)
 		row.add_child(cam_panel)
 		results.add_child(row)
 	else:

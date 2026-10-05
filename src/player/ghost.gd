@@ -27,6 +27,11 @@ var disc_vel := Vector2.ZERO
 var _prev_disc := Vector2.ZERO
 var _prev_disc_ok := false
 var cur: Array = []
+## How solid ghosts look: your PB ghost, and other runners (online players,
+## raced friends / leaderboard runs). Their discs follow (DISC_ALPHA x this).
+const ALPHA_GHOST := 0.32
+const ALPHA_OTHER := 0.45
+const DISC_ALPHA := 0.9
 var history: Array = []     # remote: [[time, frame], ...] for the last HISTORY_S (disc cam)
 const HISTORY_S := 12.0
 var full: Array = []        # remote: every [time, frame] this round (match recording)
@@ -37,7 +42,7 @@ func _init() -> void:
 	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	visual = PlayerVisual.new()
 	visual.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
-	visual.alpha = 0.45
+	visual.alpha = ALPHA_GHOST
 	add_child(visual)
 	z_index = -1
 	visible = false   # until it has something to show
@@ -54,7 +59,7 @@ func setup_remote(p_name: String, color: Color) -> void:
 	remote = true
 	visible = true
 	visual.color = color
-	visual.alpha = 0.6
+	visual.alpha = ALPHA_OTHER
 	visual.name_tag = p_name
 	disc_color = color
 
@@ -269,6 +274,21 @@ func _draw() -> void:
 
 func _draw_timed() -> void:
 	if disc_vis:
+		# the disc as it flew: tilted and squashed like the real one (frames
+		# carry its pose; older ghosts without it show it flat)
 		var lp := disc_pos - position
-		draw_circle(lp, 8.0, Color(disc_color, 0.35))
-		draw_arc(lp, 10.0, 0, TAU, 16, Color(disc_color * 1.5, 0.6), 2.0)
+		var ang := 0.0
+		var sq := 0.3
+		if cur.size() > 12:
+			ang = float(cur[11])
+			sq = float(cur[12])
+		var a: float = visual.alpha * DISC_ALPHA
+		var rx := 14.0
+		var ry := maxf(14.0 * absf(sq), 1.5)
+		var pts := PackedVector2Array()
+		for i in 18:
+			var t := TAU * i / 18.0
+			pts.append(lp + Vector2(cos(t) * rx, sin(t) * ry).rotated(ang))
+		draw_colored_polygon(pts, Color(disc_color.r * 0.5, disc_color.g * 0.5, disc_color.b * 0.5, a * 0.8))
+		pts.append(pts[0])
+		draw_polyline(pts, Color(disc_color * 1.4, a), 2.0, true)

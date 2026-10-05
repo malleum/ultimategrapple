@@ -96,19 +96,33 @@ func _process(dt: float) -> void:
 		fps_label.text = "%d FPS  |  %.2f ms" % [Engine.get_frames_per_second(), 1000.0 / maxf(1.0, Engine.get_frames_per_second())]
 
 
+var _render_done_t := 0.0
+
+
+## MP4 render: the video runs until the results card's disc cam has shown the
+## disc going into the chains (it plays through once), then a beat more.
 func _render_watch(dt: float) -> void:
 	var lvl = Game.current_scene
 	if lvl == null or not is_instance_valid(lvl) or lvl.runners.is_empty():
 		return
 	var r = lvl.runners[0]
 	if r.done:
-		# finished: hold for the results card (it pops in ~0.9s after the chains)
-		if render_end_t < 0.0 or render_end_t > 4.5:
-			render_end_t = 4.5
+		_render_done_t += dt
+		var hud = r.hud
+		var cam_ok: bool = hud.results_cam != null and is_instance_valid(hud.results_cam)
+		if cam_ok and hud.results_cam_played:
+			if render_end_t < 0.0 or render_end_t > 0.8:
+				render_end_t = 0.8
+		elif _render_done_t > 2.0 and not cam_ok and render_end_t < 0.0:
+			render_end_t = 2.5   # no disc cam (too short a clip): just the card
+		elif _render_done_t > 60.0:
+			get_tree().quit()   # never hang
+			return
 	elif r.inp.finished() and render_end_t < 0.0:
 		# inputs ran out without a finish (shouldn't happen): don't hang
 		render_end_t = 6.0
 	if render_end_t >= 0.0:
 		render_end_t -= dt
 		if render_end_t < 0.0:
+			print("render: stopping %.1f s after the finish" % _render_done_t)
 			get_tree().quit()
