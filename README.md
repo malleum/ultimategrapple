@@ -44,8 +44,9 @@ Carry the disc, throw it, chase it, catch it, and chain your movement until it h
 - **Instant restart** with `R`. Recall the disc with `T` for a +3s penalty. Out of bounds
   costs +2s. In multiplayer these freeze you for that long instead, so everyone's clock
   stays comparable.
-- **Medals** are based on a par time (ACE, GOLD = par, SILVER, BRONZE), ticked on the
-  timer's progress bar along with your PB. Personal-best ghosts replay against you on the
+- **Medals** are disc golf scores against an estimated time: ACE, EAGLE (the estimate),
+  BIRDIE and PAR, ticked on the timer's progress bar along with your PB. GOLD, SILVER and
+  BRONZE are kept for 1st, 2nd and 3rd place on an online leaderboard. Personal-best ghosts replay against you on the
   run clock: a recall or out-of-bounds in the PB run shows as the ghost standing still for
   the penalty, and one in your run jumps the ghost ahead with your timer.
 - **Splits.** Each course is cut into 3-8 splits along its route (a long throw carries you
@@ -208,19 +209,40 @@ saves a replay which, when watched, finishes in the same time.
 
 ## Course generator (`src/level/generator.gd`)
 
-A seeded, deterministic walker places segments from a weighted grammar. There are 27 segment
+A seeded, deterministic walker places segments from a weighted grammar. There are 31 segment
 types: gaps, stairs, wall-jump chimneys, swing chains, zip ledges, zip towers, slide tunnels,
 moving platforms, bounce pads, disc gates (throw through a ring to open a door), disc bridges
 (about half are 52-66 tiles long, beyond any double jump), updrafts, crosswinds, laser
 gauntlets, saws, breakable glass (only a disc breaks it), drop shafts, hammer walls, ramp
 jumps, grip ceilings, pillar hops, booster gaps, rope-wrap blocks, fairways (open field,
-valley, or high tailwind lane), tunnels and slope runs.
+valley, or high tailwind lane), tunnels and slope runs, plus the throw puzzles:
+
+- **Roller lanes** (sign: ROLLER): a yellow target plate on the floor of a low tunnel, behind
+  a fence. Only a disc *rolling* over the plate sets it off, so it takes a roller; then the
+  fence drops. Half start with a ramp down into the tunnel.
+- **Lob walls** (LOB): a tall wall with a door at its foot and the ring low down right behind
+  it. Flat throws sail past; it takes a steep, fast-dropping throw (hammer, thumber or a
+  lofted stall).
+- **Chase gaps** (CHASE): wider than any jump with the disc in hand (carrying reaches ~19
+  tiles, empty-handed ~34; the gaps are 24-28). Throw it across, then jump.
+- **Stacked lanes** (3 LANES): three lanes on top of each other that join again: grapple
+  swings over a spiked roof, a corridor door with a ring, or a roller-plate fence below.
+
+Two pieces make these stick against the (infinite) wall jump: **slick walls** (glossy,
+diagonal streaks) can't be wall-jumped, and **fences** (chain-link mesh) stop runners but
+let discs fly through. Gate walls, doors and glass in new courses are slick, and ring
+windows are fenced, so the throw is the way through. No sky shortcut passes over a throw
+puzzle. `tools/piece_check.gd` throws every type at every angle at a puzzle and counts which
+open it; `tools/reach_table.gd` measures jump reach carrying vs empty-handed;
+`tools/test_puzzles.gd` plays them with the real runner.
 
 - Difficulty scales gap sizes, heights, hazard timing and which segments are allowed.
 - Each theme biases segment weights.
 - The generator keeps the course inside a vertical band and forces a disc challenge at least
   every 5 segments.
-- It adds optional high-skill sky shortcuts, decoration and one of five basket finales.
+- It adds optional high-skill sky shortcuts, decoration and one of seven basket finales,
+  among them a sunken basket whose chains sit level with the lip you stand on (roll or skip
+  it in) and a bowl with a ramp running down to the basket.
 - Par and medal times are estimated per segment.
 - `src/level/validator.gd` checks for unfair geometry: ceiling spikes too low to slide
   under, gaps too tight to crawl through, buried or floating spikes, route points inside

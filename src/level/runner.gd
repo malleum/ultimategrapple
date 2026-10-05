@@ -27,6 +27,8 @@ const POV_AFTER := 100    # ... and a moment after
 const RECALL_PENALTY := 3.0
 const OOB_PENALTY := 2.0
 const FIRST_PERSONAL_BIT := 10   # physics + visibility layer bit for runner 0
+const FIRST_FENCE_BIT := 20      # physics layer of runner 0's fence doors (runners only, discs pass)
+const Solid = preload("res://src/world/solid.gd")
 
 var level: Node = null
 var index := 0
@@ -96,6 +98,11 @@ func personal_layer() -> int:
 	return 1 << (FIRST_PERSONAL_BIT + index)
 
 
+## This runner's fence doors: only its own body collides with them.
+func personal_fence_layer() -> int:
+	return 1 << (FIRST_FENCE_BIT + index)
+
+
 func setup(p_level: Node, p_index: int, p_input, p_view: Viewport, p_root: Node, p_container: Control) -> void:
 	level = p_level
 	index = p_index
@@ -122,7 +129,7 @@ func _ready() -> void:
 				gt.setup(e, th)
 				gt.level = self
 				_personal(gt)
-				gt.set_physics_layer(personal_layer())
+				gt.set_physics_layer(personal_fence_layer() if gt.fence else personal_layer())
 				gates.append(gt)
 			"glass":
 				var gl := Glass.new()
@@ -168,7 +175,7 @@ func _ready() -> void:
 	player.runner = self
 	player.inp = inp
 	player.disc = disc
-	player.collision_mask = 1 | personal_layer()
+	player.collision_mask = 1 | personal_layer() | Solid.FENCE_LAYER | personal_fence_layer()
 	add_child(player)
 	player.fx.connect(_on_player_fx)
 	player.died.connect(_on_player_died)
@@ -577,7 +584,7 @@ func on_gate(g: Node) -> void:
 	var th: Dictionary = level.th
 	play_sfx("gate", g.ring_pos)
 	spawn_burst(g.ring_pos, th.get("basket", Color(2, 2, 0.3)), 30)
-	hud.popup("GATE OPEN" if g.mode == "open" else "BRIDGE ONLINE", th.get("basket", Color(2, 2, 0.3)))
+	hud.popup(("TARGET HIT" if g.plate else "GATE OPEN") if g.mode == "open" else "BRIDGE ONLINE", th.get("basket", Color(2, 2, 0.3)))
 	hud.flow_event("GATE")
 	shake(4.0)
 

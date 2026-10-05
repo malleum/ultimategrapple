@@ -3,6 +3,10 @@ extends StaticBody2D
 
 const Perf = preload("res://src/core/perf.gd")
 
+## "fence" pieces live on this layer: runners collide with it (their mask has
+## it), discs don't, so a disc flies through a fence a runner can't pass.
+const FENCE_LAYER := 1 << 4
+
 var kind := "ground"
 var rect := Rect2()
 var poly := PackedVector2Array()
@@ -45,6 +49,10 @@ func setup(p_kind: String, p_rect: Rect2, p_theme: Dictionary, p_poly := PackedV
 		set_meta("grip", true)
 	if kind == "ice":
 		set_meta("ice", true)
+	if kind == "slick":
+		set_meta("slick", true)   # no wall slide / wall jump on it
+	if kind == "fence":
+		collision_layer = FENCE_LAYER
 
 
 func _col(key: String) -> Color:
@@ -67,6 +75,11 @@ func _draw_timed() -> void:
 			_draw_oneway()
 		"grip":
 			_draw_grip()
+		"fence":
+			draw_fence(self, rect, _col("accent2"))
+		"slick":
+			_draw_block()
+			_draw_slick()
 		_:
 			_draw_block()
 
@@ -228,6 +241,68 @@ func _draw_oneway() -> void:
 	while x < r.end.x - 4:
 		draw_line(Vector2(x, r.position.y + 3), Vector2(x + 6, r.end.y), Color(c, 0.5), 2.0)
 		x += 14.0
+
+
+## Polished panel: glossy diagonal streaks and a bright rim on the sides,
+## so it reads as "too smooth to wall-jump".
+func _draw_slick() -> void:
+	var r := rect
+	var c := _col("accent2")
+	draw_rect(r, Color(0.75, 0.9, 1.0, 0.16))
+	var step := 26.0
+	var x := r.position.x - r.size.y
+	while x < r.end.x:
+		var a := Vector2(maxf(x, r.position.x), r.position.y + maxf(0.0, r.position.x - x))
+		var b := Vector2(minf(x + r.size.y, r.end.x), r.position.y + minf(r.size.y, r.end.x - x))
+		if b.x > a.x:
+			draw_line(a, b, Color(1.6, 1.8, 2.0, 0.18), 5.0)
+		x += step * 3.0
+	draw_line(r.position, Vector2(r.position.x, r.end.y), Color(c, 0.9), 3.0)
+	draw_line(Vector2(r.end.x, r.position.y), r.end, Color(c, 0.9), 3.0)
+
+
+## Chain-link mesh (shared with fence doors in gate.gd).
+static func draw_fence(ci: CanvasItem, r: Rect2, c: Color, alpha := 1.0) -> void:
+	ci.draw_rect(r, Color(c.r * 0.12, c.g * 0.12, c.b * 0.12, 0.35 * alpha))
+	var s := 14.0
+	var k := -ceilf(r.size.y / s)
+	while k * s < r.size.x:
+		var x0 := r.position.x + k * s
+		# "\\" and "/" strands clipped to the rect
+		for dirv in [1.0, -1.0]:
+			var a := Vector2(x0, r.position.y) if dirv > 0.0 else Vector2(x0 + r.size.y, r.position.y)
+			var b := a + Vector2(r.size.y * dirv, r.size.y)
+			var seg := _clip(a, b, r)
+			if seg.size() == 2:
+				ci.draw_line(seg[0], seg[1], Color(c, 0.55 * alpha), 1.5)
+		k += 1
+	ci.draw_rect(r, Color(c, 0.95 * alpha), false, 3.0)
+
+
+static func _clip(a: Vector2, b: Vector2, r: Rect2) -> PackedVector2Array:
+	var t0 := 0.0
+	var t1 := 1.0
+	var d := b - a
+	for i in 4:
+		var p: float
+		var q: float
+		match i:
+			0: p = -d.x; q = a.x - r.position.x
+			1: p = d.x; q = r.end.x - a.x
+			2: p = -d.y; q = a.y - r.position.y
+			_: p = d.y; q = r.end.y - a.y
+		if absf(p) < 0.0001:
+			if q < 0.0:
+				return PackedVector2Array()
+			continue
+		var tt := q / p
+		if p < 0.0:
+			t0 = maxf(t0, tt)
+		else:
+			t1 = minf(t1, tt)
+	if t0 > t1:
+		return PackedVector2Array()
+	return PackedVector2Array([a + d * t0, a + d * t1])
 
 
 func _draw_grip() -> void:

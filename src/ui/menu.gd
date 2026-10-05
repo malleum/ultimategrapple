@@ -239,7 +239,7 @@ func _page_courses() -> void:
 		row.add_child(UI.label(th.name, 20, th.accent2))
 		row.add_child(UI.label("D%d" % int(round(float(d.get("difficulty", 0.5)) * 10)), 20, UI.DIM))
 		if rec:
-			var ml := UI.label("%s  %s" % [Game.format_time(float(rec.time)), str(rec.medal).to_upper()], 20, UI.medal_color(str(rec.medal)))
+			var ml := UI.label("%s  %s" % [Game.format_time(float(rec.time)), UI.medal_name(str(rec.medal))], 20, UI.medal_color(str(rec.medal)))
 			ml.add_theme_font_override("font", UI.mono_font())
 			row.add_child(ml)
 		else:

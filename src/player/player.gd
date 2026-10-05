@@ -583,10 +583,19 @@ func _move(_dt: float) -> void:
 			fx.emit("land", global_position, pre_vel.y)
 	wall_dir = 0
 	if not on_floor:
-		if test_move(global_transform, Vector2(3, 0)):
+		if _grippy_wall(1):
 			wall_dir = 1
-		elif test_move(global_transform, Vector2(-3, 0)):
+		elif _grippy_wall(-1):
 			wall_dir = -1
+
+
+## A wall right beside us that can be wall-jumped (slick walls can't).
+func _grippy_wall(dir: int) -> bool:
+	var c := move_and_collide(Vector2(dir * 3.0, 0), true, 0.08)   # same test as test_move()
+	if c == null:
+		return false
+	var o := c.get_collider()
+	return not (o and o.has_meta("slick"))
 
 
 func _set_low(low: bool) -> void:

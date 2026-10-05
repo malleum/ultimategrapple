@@ -20,8 +20,10 @@ const Disc = preload("res://src/disc/disc.gd")
 const Bindings = preload("res://src/core/bindings.gd")
 
 const MEDALS := ["ace", "gold", "silver", "bronze"]
-const MEDAL_LETTER := {"ace": "A", "gold": "G", "silver": "S", "bronze": "B"}
-const MEDAL_LDR := {"ace": Color(0.95, 0.45, 1.0), "gold": Color(1.0, 0.82, 0.25), "silver": Color(0.78, 0.84, 0.95), "bronze": Color(0.9, 0.55, 0.3), "": Color(0.55, 0.58, 0.65)}
+## Shown as ACE / EAGLE / BIRDIE / PAR (see UI.MEDAL_NAMES): gold, silver
+## and bronze are for leaderboard places.
+const MEDAL_LETTER := {"ace": "A", "gold": "E", "silver": "B", "bronze": "P"}
+const MEDAL_LDR := {"ace": Color(0.95, 0.45, 1.0), "gold": Color(0.3, 0.9, 1.0), "silver": Color(0.45, 1.0, 0.5), "bronze": Color(0.55, 0.65, 1.0), "": Color(0.55, 0.58, 0.65)}
 const FLOW_COLORS := [Color(0.9, 0.95, 1.0), Color(0.35, 0.95, 1.0), Color(1.0, 0.4, 0.85), Color(1.0, 0.82, 0.3), Color(0.6, 1.0, 0.5)]
 const FLOW_WINDOW := 4.0
 
@@ -506,14 +508,11 @@ func _draw_timer(ci: Control, vs: Vector2) -> void:
 			ci.draw_line(Vector2(pbx, by - 7), Vector2(pbx, by + 13), Color(0.02, 0.0, 0.06, 0.8), 6.0)
 			ci.draw_line(Vector2(pbx, by - 7), Vector2(pbx, by + 13), Color(0.55, 1.0, 0.75, 0.35 if pgone else 1.0), 3.0)
 			_text(ci, Vector2(pbx - 30, by - 10), "PB", 11, Color(0.55, 1.0, 0.75, 0.4 if pgone else 0.95), HORIZONTAL_ALIGNMENT_CENTER, 60, _bold, 3)
-		if m.has("par"):
-			var px := bx + bwid * clampf(float(m.par) / top, 0.0, 1.0)
-			_text(ci, Vector2(px - 30, by + 22), "PAR", 11, Color(1, 1, 1, 0.5), HORIZONTAL_ALIGNMENT_CENTER, 60, _bold, 0)
 		ci.draw_circle(Vector2(bx + bwid * frac, by + 3), 4.0, Color(1, 1, 1))
 		# next medal countdown chip
 		if cur != "" and not runner.done:
 			var left := float(m[cur]) - tm
-			var chip := "%s  %ss" % [cur.to_upper(), Game.short_time(left)]
+			var chip := "%s  %ss" % [UI.medal_name(cur), Game.short_time(left)]
 			var cw := _text_w(chip, 15, _bold) + 26.0
 			var cr := Rect2(vs.x * 0.5 - cw * 0.5, r.end.y + 4, cw, 24)
 			_slab(ci, cr, 8.0, Color(mcol.r * 0.25, mcol.g * 0.25, mcol.b * 0.25, 0.85), Color(mcol, 0.7))
@@ -587,21 +586,19 @@ func _draw_medal_ladder(ci: Control, vs: Vector2) -> void:
 		var lit: bool = Game.centis(tm) <= Game.centis(mt)
 		var col: Color = MEDAL_LDR[key]
 		_medal_coin(ci, Vector2(x + 34, y + 9), 13.0, key, lit, medal_flash.get(key, 0.0))
-		_text(ci, Vector2(x + 56, y + 15), key.to_upper(), 14, Color(col, 1.0 if lit else 0.4), HORIZONTAL_ALIGNMENT_LEFT, -1, _bold, 0)
+		_text(ci, Vector2(x + 56, y + 15), UI.medal_name(key), 14, Color(col, 1.0 if lit else 0.4), HORIZONTAL_ALIGNMENT_LEFT, -1, _bold, 0)
 		_text(ci, Vector2(x + 132, y + 15), Game.format_time(mt), 15, Color(1, 1, 1, 0.9 if lit else 0.35), HORIZONTAL_ALIGNMENT_LEFT, -1, _mono, 0)
 		if not lit:
 			ci.draw_line(Vector2(x + 130, y + 10), Vector2(x + 236, y + 10), Color(1, 0.4, 0.4, 0.5), 1.5)
 		y += 34.0
-	if m.has("par"):
-		_text(ci, Vector2(x + 24, r.end.y - 9), "PAR  " + Game.format_time(float(m.par)), 12, Color(1, 1, 1, 0.5), HORIZONTAL_ALIGNMENT_LEFT, -1, _bold, 0)
-	# your PB beside par, struck through once the clock is past it
+	# your PB under the ladder, struck through once the clock is past it
 	if pb_mark > 0.0 and level.mode == "solo":
 		var plit: bool = Game.centis(tm) <= Game.centis(pb_mark)
 		var pc := Color(0.55, 1.0, 0.75, 0.95 if plit else 0.4)
 		var ptxt := "PB  " + Game.format_time(pb_mark)
-		_text(ci, Vector2(x + 140, r.end.y - 9), ptxt, 12, pc, HORIZONTAL_ALIGNMENT_LEFT, -1, _bold, 0)
+		_text(ci, Vector2(x + 24, r.end.y - 9), ptxt, 12, pc, HORIZONTAL_ALIGNMENT_LEFT, -1, _bold, 0)
 		if not plit:
-			ci.draw_line(Vector2(x + 138, r.end.y - 13), Vector2(x + 142 + _text_w(ptxt, 12, _bold), r.end.y - 13), Color(1, 0.4, 0.4, 0.5), 1.5)
+			ci.draw_line(Vector2(x + 22, r.end.y - 13), Vector2(x + 26 + _text_w(ptxt, 12, _bold), r.end.y - 13), Color(1, 0.4, 0.4, 0.5), 1.5)
 
 
 # ---------------------------------------------------------------- splits
@@ -1184,7 +1181,7 @@ class MedalBadge:
 		draw_arc(c, r, 0, TAU, 40, col.lightened(0.3), 4.0, true)
 		draw_arc(c, r - 12, 0, TAU, 40, Color(1, 1, 1, 0.25), 2.0, true)
 		draw_arc(c, r - 4, -2.5, -1.1, 12, Color(1, 1, 1, 0.6), 3.0, true)
-		var letter := medal.substr(0, 1).to_upper() if medal != "" else "–"
+		var letter: String = MEDAL_LETTER.get(medal, "–")
 		var f := ThemeDB.fallback_font
 		draw_string_outline(f, c + Vector2(-r, r * 0.38), letter, HORIZONTAL_ALIGNMENT_CENTER, r * 2.0, int(r * 1.1), 6, Color(0, 0, 0, 0.5))
 		draw_string(f, c + Vector2(-r, r * 0.38), letter, HORIZONTAL_ALIGNMENT_CENTER, r * 2.0, int(r * 1.1), Color(1, 1, 1))
@@ -1242,7 +1239,7 @@ func show_results(tm: float, medal: String, is_pb: bool, old_pb := -1.0) -> void
 	badge.colors = MEDAL_LDR
 	badge.custom_minimum_size = Vector2(0, 200)
 	v.add_child(badge)
-	var mtxt := (medal.to_upper() + " MEDAL") if medal != "" else "NO MEDAL — KEEP RUNNING"
+	var mtxt := UI.medal_name(medal) if medal != "" else "OVER PAR — KEEP RUNNING"
 	v.add_child(UI.label(mtxt, 26, mcol.lightened(0.2), HORIZONTAL_ALIGNMENT_CENTER))
 	var tl := UI.label(Game.format_time(0.0), 68, Color(1, 1, 1), HORIZONTAL_ALIGNMENT_CENTER)
 	tl.add_theme_font_override("font", _mono)
@@ -1264,9 +1261,6 @@ func show_results(tm: float, medal: String, is_pb: bool, old_pb := -1.0) -> void
 			v.add_child(UI.label("first clear", 18, UI.DIM, HORIZONTAL_ALIGNMENT_CENTER))
 	var chips := UI.hbox(26)
 	chips.alignment = BoxContainer.ALIGNMENT_CENTER
-	if level.par_time() > 0.0:
-		var dp: float = _shown_diff(tm, level.par_time())
-		chips.add_child(UI.label("%ss PAR" % Game.delta_text(tm, level.par_time()), 20, Color(1, 0.55, 0.4) if dp > 0 else Color(0.5, 1, 0.7)))
 	chips.add_child(UI.label("◎ %d throws" % runner.player.throws, 20, Color(0.6, 0.9, 1.0)))
 	chips.add_child(UI.label("✕ %d deaths" % runner.deaths, 20, Color(1, 0.6, 0.6)))
 	if runner.penalty > 0.0:
@@ -1284,7 +1278,11 @@ func show_results(tm: float, medal: String, is_pb: bool, old_pb := -1.0) -> void
 				if rank <= 0:
 					ol.text = "Posted. Choose a name in the menu to show up on the leaderboard."
 				else:
-					ol.text = ("ONLINE  #%d OF %d" % [rank, total]) + ("" if improved else "  (your online best)")
+					# gold / silver / bronze are the top three places online
+					var pod := UI.podium(rank)
+					ol.text = ("%sONLINE  #%d OF %d" % [pod + "  ·  " if pod != "" else "", rank, total]) + ("" if improved else "  (your online best)")
+					if pod != "":
+						ol.add_theme_color_override("font_color", UI.podium_color(rank))
 		var ls: Dictionary = Online.last_submit
 		if str(ls.get("course", "")) == ck and Time.get_ticks_msec() - int(ls.get("ms", 0)) < 5000:
 			show_rank.call(ck, int(ls.rank), int(ls.total), bool(ls.improved))
@@ -1308,7 +1306,7 @@ func show_results(tm: float, medal: String, is_pb: bool, old_pb := -1.0) -> void
 			Color(0.5, 1, 0.7) if place == 1 else Color(1, 0.8, 0.5), HORIZONTAL_ALIGNMENT_CENTER))
 	for m in ["bronze", "silver", "gold", "ace"]:
 		if level.medals.has(m) and Game.centis(tm) > Game.centis(float(level.medals[m])):
-			v.add_child(UI.label("Next: %s at %s  (−%ss)" % [m.to_upper(), Game.format_time(float(level.medals[m])), Game.gap_text(tm, float(level.medals[m]))], 18, UI.DIM, HORIZONTAL_ALIGNMENT_CENTER))
+			v.add_child(UI.label("Next: %s at %s  (−%ss)" % [UI.medal_name(m), Game.format_time(float(level.medals[m])), Game.gap_text(tm, float(level.medals[m]))], 18, UI.DIM, HORIZONTAL_ALIGNMENT_CENTER))
 			break
 	var h := UI.hbox(14)
 	h.alignment = BoxContainer.ALIGNMENT_CENTER

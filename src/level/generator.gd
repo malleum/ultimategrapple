@@ -15,10 +15,24 @@ const Themes = preload("res://src/core/theme_db.gd")
 const T := 32                 # tile size in px
 const RUN_TILES_PER_SEC := 17.0
 ## 2: slide tunnels got a 48px ceiling (older saves are repaired on load)
-const VERSION := 3            # 3: long disc bridges
+## 3: long disc bridges
+## 4: throw puzzles (roller plates, hammer lobs, chase gaps), stacked lanes,
+##    slick gate walls (no wall-jumping over them), sunken baskets
+const VERSION := 4
 ## Long disc bridges span at least this many tiles (> max double-jump reach).
 const LONG_BRIDGE_MIN := 52
 const SLIDE_CEIL := 1.5        # slide tunnel ceiling height, tiles
+## Chase gaps: wider than any jump with the disc in hand (~19.4 tiles even off a
+## slide), well inside an empty-handed jump + double jump (~33.7 tiles from a
+## run). tools/reach_table.gd measures both.
+const CHASE_GAP_MIN := 24
+const CHASE_GAP_MAX := 28
+## Slick walls this tall can't be jumped over (jump + double jump ~9 tiles).
+const WALL_TALL := 12
+## Lob wall ring: tiles behind the wall's back face / above the floor
+## (tuned with tools/piece_check.gd so a hammer gets there and flat throws don't).
+const LOB_RING_X := [3.0, 5.0]
+const LOB_RING_Y := [1.5, 2.5]
 
 # Player movement envelope, in tiles (kept conservative so levels are fair).
 const SAFE_JUMP_UP := 4
@@ -55,16 +69,25 @@ const SEGMENTS := {
 	"tunnel":        {"w": 6.0,  "min_d": 0.0, "dir": 0, "style": "carry"},
 	"slope_run":     {"w": 4.0,  "min_d": 0.0, "dir": 1},
 	"crosswind":     {"w": 2.0,  "min_d": 0.2, "dir": 0, "style": "throw"},
+	# throw puzzles: the runner can't get past without the right throw
+	"roll_lane":     {"w": 5.0,  "min_d": 0.0, "dir": 1, "disc": true, "style": "throw"},
+	"lob_wall":      {"w": 4.0,  "min_d": 0.15, "dir": 0, "disc": true, "style": "throw"},
+	"chase_gap":     {"w": 4.0,  "min_d": 0.1, "dir": 0, "disc": true, "style": "throw"},
+	"stacked":       {"w": 3.0,  "min_d": 0.25, "dir": 0, "disc": true},
 }
 
+## Segments that end at speed (slopes, boosters, pads): a chase gap right
+## after one could be cleared with the disc in hand.
+const FAST_EXITS := ["slope_run", "ramp_jump", "booster_gap", "bounce", "slide_tunnel", "roll_lane"]
+
 const THEME_BIAS := {
-	"field": {"run_gaps": 1.5, "disc_gate": 1.6, "hammer_wall": 1.5, "bounce": 1.2},
-	"cyber": {"lasers": 2.0, "slide_tunnel": 1.5, "zip_ledge": 1.4, "glass": 1.5},
-	"fantasy": {"swing_chain": 1.6, "grip_ceiling": 1.8, "pillars": 1.4, "wrap_block": 1.5},
-	"heaven": {"bounce": 1.8, "updraft": 2.0, "disc_bridge": 1.6, "zip_tower": 1.4},
-	"foundry": {"saws": 2.0, "movers": 1.8, "chimney": 1.4, "booster_gap": 1.3},
-	"frost": {"ramp_jump": 2.0, "slide_tunnel": 1.6, "drop": 1.5, "booster_gap": 1.5, "slope_run": 3.0},
-	"canyon": {"fairway": 1.8, "crosswind": 4.0, "swing_chain": 1.3, "bounce": 1.3, "hammer_wall": 1.3},
+	"field": {"run_gaps": 1.5, "disc_gate": 1.6, "hammer_wall": 1.5, "bounce": 1.2, "chase_gap": 1.5, "lob_wall": 1.4},
+	"cyber": {"lasers": 2.0, "slide_tunnel": 1.5, "zip_ledge": 1.4, "glass": 1.5, "roll_lane": 1.5, "stacked": 1.4},
+	"fantasy": {"swing_chain": 1.6, "grip_ceiling": 1.8, "pillars": 1.4, "wrap_block": 1.5, "lob_wall": 1.3},
+	"heaven": {"bounce": 1.8, "updraft": 2.0, "disc_bridge": 1.6, "zip_tower": 1.4, "chase_gap": 1.4},
+	"foundry": {"saws": 2.0, "movers": 1.8, "chimney": 1.4, "booster_gap": 1.3, "roll_lane": 1.6, "stacked": 1.3},
+	"frost": {"ramp_jump": 2.0, "slide_tunnel": 1.6, "drop": 1.5, "booster_gap": 1.5, "slope_run": 3.0, "roll_lane": 1.8},
+	"canyon": {"fairway": 1.8, "crosswind": 4.0, "swing_chain": 1.3, "bounce": 1.3, "hammer_wall": 1.3, "lob_wall": 1.5, "chase_gap": 1.3},
 }
 
 const DECOR := {
@@ -101,13 +124,19 @@ var route: Array = []
 var reserves: Array = []   # Array[Rect2] in tiles
 var seg_log: Array = []
 var sections: Array = []   # [{x0, x1, style}] in px: "throw" / "carry" / ""
+var locks: Array = []      # [x0, x1] in tiles: no sky shortcut may skip these
 var est_time := 0.0
+## Tools: place exactly these segments (in order) instead of picking, and
+## this finale variant (-1: random).
+var force_segments: Array = []
+var force_finale := -1
 
 # staging buffers for the segment currently being attempted
 var _s_solids: Array = []
 var _s_polys: Array = []
 var _s_ents: Array = []
 var _s_route: Array = []
+var _s_locks: Array = []
 var _s_est := 0.0
 var _s_box := Rect2()
 var _s_has_box := false
@@ -121,7 +150,7 @@ func generate(seed_value: int, theme_id: String = "", difficulty: float = 0.5, l
 	theme = theme_id if Themes.THEMES.has(theme_id) else Themes.random_id(rng)
 	ice_mode = theme == "frost"
 	length = clampi(length, 3, 40)
-	solids.clear(); polys.clear(); ents.clear(); route.clear(); reserves.clear(); seg_log.clear(); sections.clear()
+	solids.clear(); polys.clear(); ents.clear(); route.clear(); reserves.clear(); seg_log.clear(); sections.clear(); locks.clear()
 	est_time = 0.0
 
 	# --- start pad
@@ -136,11 +165,15 @@ func generate(seed_value: int, theme_id: String = "", difficulty: float = 0.5, l
 	# --- main body
 	var last := ["", ""]
 	var since_disc := 0
+	if not force_segments.is_empty():
+		length = force_segments.size()
 	for i in length:
 		var force_disc := since_disc >= 4
 		var placed := false
 		for attempt in 8:
 			var seg := _pick_segment(cur, last, force_disc and attempt < 5)
+			if not force_segments.is_empty():
+				seg = str(force_segments[i])
 			_begin()
 			var nxt: Vector2i = call("seg_" + seg, cur.x, cur.y)
 			if _box_ok():
@@ -205,7 +238,7 @@ func generate(seed_value: int, theme_id: String = "", difficulty: float = 0.5, l
 # ============================================================ staging
 
 func _begin() -> void:
-	_s_solids = []; _s_polys = []; _s_ents = []; _s_route = []
+	_s_solids = []; _s_polys = []; _s_ents = []; _s_route = []; _s_locks = []
 	_s_est = 0.0
 	_s_has_box = false
 
@@ -235,6 +268,7 @@ func _commit(seg: String) -> void:
 	polys.append_array(_s_polys)
 	ents.append_array(_s_ents)
 	route.append_array(_s_route)
+	locks.append_array(_s_locks)
 	est_time += _s_est
 	if _s_has_box:
 		reserves.append(_s_box)
@@ -263,6 +297,21 @@ func ground(x0: float, x1: float, y: float, kind := "") -> void:
 
 func block(x: float, y: float, w: float, h: float) -> void:
 	_solid(x, y, w, h, "block")
+
+
+## Too smooth to wall-jump on (Player._grippy_wall).
+func slick(x: float, y: float, w: float, h: float) -> void:
+	_solid(x, y, w, h, "slick")
+
+
+## Runners can't pass a fence, discs fly straight through it.
+func fence(x: float, y: float, w: float, h: float) -> void:
+	_solid(x, y, w, h, "fence")
+
+
+## No sky shortcut may pass over tiles x0..x1 (the throw is the point).
+func lock(x0: float, x1: float) -> void:
+	_s_locks.append([x0, x1])
 
 
 func oneway(x: float, y: float, w: float) -> void:
@@ -358,6 +407,8 @@ func _pick_segment(cur: Vector2i, last: Array, force_disc: bool) -> String:
 		if seg == last[1] or (seg == last[0] and seg != "run_gaps"):
 			continue
 		if force_disc and not info.get("disc", false):
+			continue
+		if seg == "chase_gap" and last[1] in FAST_EXITS:
 			continue
 		var w: float = info.w * bias.get(seg, 1.0)
 		var dir: int = info.dir
@@ -601,21 +652,25 @@ func seg_disc_gate(x: int, y: int) -> Vector2i:
 	var gid := rng.randi()
 	ground(cx, cx + 22, y)
 	var wx := cx + 12
+	# the wall and door are slick (no wall-jumping over them): the throw is the
+	# only way through
 	if chance(0.6):
-		# window variant: ring in a window in the wall, door below
+		# window variant: ring in a fenced window in the wall, door below
 		var win_top := y - ri(9, 11)
-		block(wx, y - 22, 1, win_top - (y - 22))
-		_ent({"t": "gate", "ring": _p(wx + 0.5, win_top + 1.5), "door": [int(wx * T), int((win_top + 3) * T), T, int((y - win_top - 3) * T)], "mode": "open", "id": gid},
+		slick(wx, y - 24, 1, win_top - (y - 24))
+		fence(wx, win_top, 1, 3)
+		_ent({"t": "gate", "ring": _p(wx + 0.5, win_top + 1.5), "door": [int(wx * T), int((win_top + 3) * T), T, int((y - win_top - 3) * T)], "mode": "open", "slick": true, "id": gid},
 			wx, win_top, 1, y - win_top)
 	else:
 		# high ring variant: ring floating before a full-height door
-		block(wx, y - 22, 1, 12)
-		_ent({"t": "gate", "ring": _p(cx + ri(4, 8), y - ri(7, 10)), "door": [int(wx * T), int((y - 10) * T), T, 10 * T], "mode": "open", "id": gid},
+		slick(wx, y - 24, 1, 14)
+		_ent({"t": "gate", "ring": _p(cx + ri(4, 8), y - ri(7, 10)), "door": [int(wx * T), int((y - 10) * T), T, 10 * T], "mode": "open", "slick": true, "id": gid},
 			wx, y - 10, 1, 10)
 	if chance(0.4):
 		oneway(cx + 4, y - 4, 3)
 	cx += 22
 	_route(cx, y)
+	lock(x, cx)
 	_s_est += 22 / RUN_TILES_PER_SEC + 1.4
 	return Vector2i(cx, y)
 
@@ -640,6 +695,8 @@ func seg_disc_bridge(x: int, y: int) -> Vector2i:
 	ground(cx, cx + 6, y)
 	cx += 6
 	_route(cx, y)
+	if wide:
+		lock(x, cx)
 	_s_est += 2.0 + gap / RUN_TILES_PER_SEC
 	return Vector2i(cx, y)
 
@@ -705,9 +762,10 @@ func seg_saws(x: int, y: int) -> Vector2i:
 
 func seg_glass(x: int, y: int) -> Vector2i:
 	ground(x, x + 16, y)
-	block(x + 9, y - 22, 1, 13)
-	_ent({"t": "glass", "r": [int((x + 9) * T), int((y - 9) * T), T, 9 * T]}, x + 9, y - 9, 1, 9)
+	slick(x + 9, y - 24, 1, 15)
+	_ent({"t": "glass", "r": [int((x + 9) * T), int((y - 9) * T), T, 9 * T], "slick": true}, x + 9, y - 9, 1, 9)
 	_route(x + 16, y)
+	lock(x, x + 16)
 	_s_est += 16 / RUN_TILES_PER_SEC + 0.3
 	return Vector2i(x + 16, y)
 
@@ -994,10 +1052,143 @@ func seg_crosswind(x: int, y: int) -> Vector2i:
 	return Vector2i(cx, y)
 
 
+
+# ============================================================ throw puzzles
+
+## A ramp down from row y over l tiles to row y + h (the slope faces right).
+func _ramp_down(x: float, y: float, l: float, h: float) -> void:
+	_s_polys.append({"pts": [x * T, y * T, (x + l) * T, (y + h) * T, x * T, (y + h) * T], "k": "ice" if ice_mode else "ramp"})
+	_grow(x, y, l, h)
+
+
+## Roller target: a yellow plate on the floor of a low tunnel, behind a fence.
+## Only a disc ROLLING over the plate sets it off (rollers), and the fence
+## (runners can't pass, discs fly through) drops once it has. The tunnel's
+## roof is slick and too high to jump onto. Half start with a ramp down into
+## the tunnel that a roller picks up speed on.
+func seg_roll_lane(x: int, y: int) -> Vector2i:
+	var cx := x
+	ground(cx, cx + 6, y)
+	cx += 6
+	var fy := y
+	if chance(0.5):
+		var l := ri(8, 12)
+		var h := ri(3, 5)
+		_ramp_down(cx, y, l, h)
+		fy = y + h
+		ground(cx, cx + l, fy)
+		cx += l
+	add_sign(cx - 2, fy, "ROLLER")
+	var ceil_h := 3
+	var tl := ri(20, 26)
+	ground(cx, cx + tl + 6, fy)
+	slick(cx, fy - ceil_h - 10, tl, 10)
+	var fx := cx + ri(7, 10)
+	var px := fx + ri(3, 5)
+	_ent({"t": "gate", "plate": [int(px * T), int(fy * T) - 6, 3 * T, 6], "door": [int(fx * T), int((fy - ceil_h) * T), T, ceil_h * T],
+		"mode": "open", "fence": true, "id": rng.randi()}, fx, fy - ceil_h, px + 3 - fx, ceil_h)
+	_route(cx + 2, fy)
+	cx += tl + 6
+	_route(cx, fy)
+	lock(x, cx)
+	_s_est += float(cx - x) / RUN_TILES_PER_SEC + 1.2
+	return Vector2i(cx, fy)
+
+
+## Hammer lob: a tall slick wall with a door at its foot and the ring low
+## down just behind it. A flat throw sails over and away; the disc has to drop
+## steeply behind the wall: a hammer (flips and dives) or a stalled lob.
+func seg_lob_wall(x: int, y: int) -> Vector2i:
+	var l := ri(28, 32)
+	ground(x, x + l, y)
+	var wx := x + ri(13, 16)
+	var h := ri(WALL_TALL, WALL_TALL + 2)
+	var door_h := 4
+	slick(wx, y - h, 2, h - door_h)
+	_ent({"t": "gate", "ring": _p(wx + 2 + rf(LOB_RING_X[0], LOB_RING_X[1]), y - rf(LOB_RING_Y[0], LOB_RING_Y[1])),
+		"door": [int(wx * T), int((y - door_h) * T), 2 * T, door_h * T], "mode": "open", "slick": true, "id": rng.randi()},
+		wx, y - h, 8, h)
+	add_sign(wx - 3, y, "LOB")
+	_route(x + l, y)
+	lock(x, x + l)
+	_s_est += float(l) / RUN_TILES_PER_SEC + 1.6
+	return Vector2i(x + l, y)
+
+
+## Chase gap: wider than any jump with the disc in hand, an easy jump without
+## it. Throw the disc across, run, jump, pick it up. Slick cliff faces (no
+## wall-jumping out of the pit), long run-ups and run-outs with nothing to
+## grapple, so it's the throw or nothing.
+func seg_chase_gap(x: int, y: int) -> Vector2i:
+	var cx := x
+	var run_up := ri(20, 24)
+	ground(cx, cx + run_up, y)
+	add_sign(cx + run_up - 4, y, "CHASE")
+	cx += run_up
+	var gap := ri(CHASE_GAP_MIN, CHASE_GAP_MIN + dl(0, CHASE_GAP_MAX - CHASE_GAP_MIN))
+	var dy := ri(-1, 3)        # a little down is fine: still out of reach carrying
+	var depth := 8
+	slick(cx - 1, y, 1, depth + 6)
+	pit(cx, cx + gap, y + maxi(0, dy))
+	cx += gap
+	var ly := y + dy
+	slick(cx, ly, 1, depth + 6 - dy)
+	ground(cx + 1, cx + 22, ly)
+	_grow(cx - gap, ly - 6, gap, 6)
+	cx += 22
+	_route(cx, ly)
+	lock(x, cx)
+	_s_est += float(cx - x) / RUN_TILES_PER_SEC + 1.4
+	return Vector2i(cx, ly)
+
+
+## Three stacked lanes to pick from, joining again at the end:
+##   high  grapple swings over a spiked roof (fast, risky)
+##   mid   a corridor closed by a door: hit its ring (any throw)
+##   low   a tunnel closed by a fence: roll a roller over its plate
+## The lanes are sealed from each other (solid slabs), so each lane's way
+## through is its own.
+func seg_stacked(x: int, y: int) -> Vector2i:
+	var cx := x
+	ground(cx, cx + 8, y)
+	cx += 8
+	var w := ri(34, 42)
+	var x0 := cx
+	var xe := cx + w
+	ground(x0, xe + 8, y)
+	# mid floor / low ceiling: 4 tiles of headroom below, top at y-5
+	block(x0, y - 5, w, 1)
+	# high floor / mid ceiling: top at y-12, spikes along it
+	block(x0, y - 12, w, 1)
+	spikes(x0 + 3, y - 12, w - 3, "up")
+	# low lane: fence + roller plate near its end
+	var fx := xe - 7
+	_ent({"t": "gate", "plate": [int((fx + 3) * T), int(y * T) - 6, 3 * T, 6], "door": [int(fx * T), int((y - 4) * T), T, 4 * T],
+		"mode": "open", "fence": true, "id": rng.randi()}, fx, y - 4, 7, 4)
+	# mid lane: a door near its end, its ring hanging in the corridor
+	var dx := xe - 3
+	_ent({"t": "gate", "ring": _p(dx - ri(8, 14), y - 8), "door": [int(dx * T), int((y - 11) * T), T, 6 * T], "mode": "open", "slick": true, "id": rng.randi()},
+		dx - 14, y - 11, 15, 6)
+	# high lane: floating ledges and grapple points above the spiked roof
+	grapple_pt(x0 - 3, y - 19, "static")
+	var hx := x0 + 2
+	while hx < xe - 8:
+		oneway(hx, y - 16, 4)
+		grapple_pt(hx + ri(6, 9), y - ri(21, 23), "static")
+		hx += ri(11, 14)
+	add_sign(x0 - 4, y, "3 LANES")
+	_route(x0 + 1, y)
+	_route(xe + 8, y)
+	lock(x, xe + 8)
+	_s_est += float(xe + 8 - x) / RUN_TILES_PER_SEC + 1.5
+	return Vector2i(xe + 8, y)
+
 # ============================================================ finale
 
 func _finale(x: int, y: int) -> Vector2:
-	var variant := ri(0, 4)
+	var variant := ri(0, 6)
+	if force_finale >= 0:
+		variant = force_finale
 	var bx: float
 	var by: float
 	var end_y := y
@@ -1025,17 +1216,34 @@ func _finale(x: int, y: int) -> Vector2:
 			ground(x, x + 28, y)
 			block(x + 14, y - 14, 14, 9)
 			bx = x + 23; by = y
-		_:  # guarded: moving blocker in front of the basket
+		4:  # guarded: moving blocker in front of the basket
 			ground(x, x + 28, y)
 			_ent({"t": "mover", "r": [int((x + 16) * T), int((y - 8) * T), T, 3 * T], "move": _p(0, 5), "period": 2.4, "phase": 0.0},
 				x + 16, y - 9, 1, 9)
 			bx = x + 22; by = y
+		5:  # sunken: the basket sits in a dip, its chains level with the lip
+			# you stand on, so a roller rolls straight off the lip into them
+			# (and a skip skips in)
+			ground(x, x + 20, y)
+			var sink := 3
+			ground(x + 20, x + 34, y + sink)
+			bx = x + 22.5; by = y + sink
+			end_y = y + sink
+		_:  # bowl: a ramp runs down into the basket (rollers love it)
+			ground(x, x + 10, y)
+			var drop := ri(3, 5)
+			_ramp_down(x + 10, y, 9, drop)
+			ground(x + 10, x + 34, y + drop)
+			bx = x + 22; by = y + drop
+			end_y = y + drop
 	_grow(bx - 1, by - 4, 2, 4)
 	_route(bx, by)
 	_s_est += 2.5
 	var end_x := x + 34
 	ground(x + 28, end_x, end_y)
 	block(end_x, end_y - 40, 2, 40)
+	if variant >= 5:
+		lock(x, end_x)   # no sky line straight to the chains
 	return Vector2(bx * T, by * T)
 
 
@@ -1054,7 +1262,7 @@ func _add_shortcuts() -> void:
 		var b: Array = route[j]
 		var ax: float = a[0] / float(T)
 		var bx: float = b[0] / float(T)
-		if bx - ax < 18:
+		if bx - ax < 18 or _locked(ax - GRAPPLE_RANGE, bx + GRAPPLE_RANGE):
 			continue
 		var top: float = minf(a[1], b[1]) / T
 		for k in range(i, j + 1):
@@ -1075,6 +1283,14 @@ func _add_shortcuts() -> void:
 		for p in pts:
 			var kind := "boost" if chance(0.25) else "static"
 			ents.append({"t": "grapple", "p": [int(p.x * T), int(p.y * T)], "k": kind, "sky": true})
+
+
+## Any locked span (throw puzzles) overlapping tiles x0..x1?
+func _locked(x0: float, x1: float) -> bool:
+	for lk in locks:
+		if x1 > float(lk[0]) and x0 < float(lk[1]):
+			return true
+	return false
 
 
 func _hits_solid(r: Rect2) -> bool:

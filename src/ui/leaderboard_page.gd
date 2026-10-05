@@ -178,13 +178,17 @@ func _rebuild() -> void:
 				picked.erase(uid)
 			_rebuild_splits())
 		h.add_child(cb)
-		var rl := UI.label("#%d" % rank, 20, UI.GOLD if rank == 1 else UI.DIM)
+		# gold / silver / bronze: the top three places
+		var rl := UI.label("#%d" % rank, 20, UI.podium_color(rank))
 		rl.custom_minimum_size = Vector2(56, 0)
 		h.add_child(rl)
+		var pl0 := UI.label(UI.podium(rank), 15, UI.podium_color(rank))
+		pl0.custom_minimum_size = Vector2(70, 0)
+		h.add_child(pl0)
 		h.add_child(UI.label("●", 20, Game.player_palette(int(e.get("color", 0)))))
 		var me := uid == Online.uid
 		var nl := UI.label(str(e.name) + ("  (you)" if me else ""), 20, UI.NEON if me else Color(0.9, 0.97, 1))
-		nl.custom_minimum_size = Vector2(300, 0)
+		nl.custom_minimum_size = Vector2(250, 0)
 		nl.clip_text = true
 		h.add_child(nl)
 		var tl := UI.label(Game.format_time(float(e.time)), 20, UI.GOLD)

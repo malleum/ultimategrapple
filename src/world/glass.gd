@@ -19,6 +19,8 @@ func setup(data: Dictionary, p_theme: Dictionary) -> void:
 	body.collision_mask = 0
 	body.set_meta("glass", true)
 	body.set_meta("rect", rect)
+	if bool(data.get("slick", false)):
+		body.set_meta("slick", true)
 	var cs := CollisionShape2D.new()
 	var sh := RectangleShape2D.new()
 	sh.size = rect.size

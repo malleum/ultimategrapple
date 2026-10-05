@@ -138,9 +138,9 @@ static func sections() -> Array:
 		["Clear rate", "%d%%" % int(100.0 * comp / att) if att > 0.0 else "-"],
 		["Restarts", n.call("restarts")],
 		["Personal bests", n.call("pbs")],
-		["Ace medals", n.call("medal_ace")],
-		["Gold medals", n.call("medal_gold")],
-		["Silver / bronze", "%s / %s" % [n.call("medal_silver"), n.call("medal_bronze")]],
+		["Aces", n.call("medal_ace")],
+		["Eagles", n.call("medal_gold")],
+		["Birdies / pars", "%s / %s" % [n.call("medal_silver"), n.call("medal_bronze")]],
 	]])
 	out.append(["MOVEMENT", [
 		["Distance run", "%.2f km" % (get_n("run_px") / PX_PER_M / 1000.0)],

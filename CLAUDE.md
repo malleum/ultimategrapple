@@ -22,8 +22,10 @@
   - `godot4 --headless -s tools/test_services.gd` (online services over loopback: leaderboard post/rank/fetch, relay to another client, impostor refused, names: Runner hidden, lookalikes refused, rename shows old runs, restart migration)
   - `godot4 --headless --fixed-fps 120 -s tools/test_roll.gd` (rollers run down slopes, set off when set down on one, still stop on the flat)
   - `godot4 --headless --fixed-fps 120 -s tools/test_stats.gd` (local stats: attempts, restarts, jumps, throw types, snaps, chrons, save/reload)
+  - `godot4 --headless --fixed-fps 120 -s tools/test_puzzles.gd` (chase gap needs the throw, roller plate + fence, slick wall, sunken basket)
   - `nix build .#default` (pck export + wrapper)
 - Avoid `:=` on Variant values (Dictionary/Array element access) — Godot treats failed inference as a parse error.
+- Throw puzzles: check new/changed ones with `tools/piece_check.gd -- <segment> <seeds>` (which throw types open them) and `tools/reach_table.gd` (jump reach carrying vs empty, sizes chase gaps). Slick (no wall-jump) and fence (runners only) solids are what stop the wall jump from skipping them; lock() keeps sky shortcuts off them.
 - Course fairness checks live in `src/level/validator.gd` (used by test_gen on generated + `levels/*.json`). Changing generator geometry: bump `Gen.VERSION` and add a `Validator.repair()` step so old pinned saves get fixed on load.
 - Disc tuning tools: `tools/range_table.gd` (max range per throw), `tools/snap_table.gd` (range vs snap timing), `tools/flight_path.gd -- out.png` (steep throws/comebacks, plots). Re-run them after touching `disc.gd` / `throw_types.gd`.
 - Changing movement, physics or the input ACTIONS list: bump `Game.REPLAY_VERSION` (old replays can't re-simulate).

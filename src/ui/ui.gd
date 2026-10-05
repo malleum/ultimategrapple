@@ -5,7 +5,13 @@ const NEON := Color(0.3, 2.0, 2.2)
 const PINK := Color(2.2, 0.4, 1.6)
 const GOLD := Color(2.2, 1.8, 0.4)
 const DIM := Color(0.7, 0.75, 0.85)
-const MEDAL_COLORS := {"ace": Color(2.2, 0.6, 2.0), "gold": Color(2.2, 1.8, 0.3), "silver": Color(1.5, 1.6, 1.8), "bronze": Color(1.6, 0.8, 0.4), "": Color(0.6, 0.6, 0.6)}
+## Time medals keep their save keys (ace / gold / silver / bronze) but are
+## shown with disc golf names: gold, silver and bronze mean 1st / 2nd / 3rd
+## on an online leaderboard.
+const MEDAL_COLORS := {"ace": Color(2.2, 0.6, 2.0), "gold": Color(0.4, 1.9, 2.2), "silver": Color(0.6, 2.0, 0.7), "bronze": Color(0.8, 1.0, 2.2), "": Color(0.6, 0.6, 0.6)}
+const MEDAL_NAMES := {"ace": "ACE", "gold": "EAGLE", "silver": "BIRDIE", "bronze": "PAR"}
+const PODIUM := ["GOLD", "SILVER", "BRONZE"]
+const PODIUM_COLORS := [Color(2.2, 1.8, 0.3), Color(1.5, 1.6, 1.8), Color(1.6, 0.8, 0.4)]
 
 static var _theme: Theme = null
 static var _mono: Font = null
@@ -149,3 +155,17 @@ static func slider(minv: float, maxv: float, val: float, step: float, cb: Callab
 
 static func medal_color(m: String) -> Color:
 	return MEDAL_COLORS.get(m, MEDAL_COLORS[""])
+
+
+## "EAGLE" for "gold" etc. ("" for no medal).
+static func medal_name(m: String) -> String:
+	return str(MEDAL_NAMES.get(m, ""))
+
+
+## Online leaderboard place 1..3 -> "GOLD" / "SILVER" / "BRONZE" ("" otherwise).
+static func podium(rank: int) -> String:
+	return PODIUM[rank - 1] if rank >= 1 and rank <= 3 else ""
+
+
+static func podium_color(rank: int) -> Color:
+	return PODIUM_COLORS[rank - 1] if rank >= 1 and rank <= 3 else DIM

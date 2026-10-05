@@ -570,7 +570,7 @@ func _check_gates() -> void:
 	if runner == null:
 		return
 	for g in runner.gates:
-		if not g.triggered and g.ring_pos.distance_to(global_position) < 46.0:
+		if not g.triggered and g.hit_by(global_position, state == ROLL):
 			g.trigger()
 			impact.emit("gate", velocity.length())
 

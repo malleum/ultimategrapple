@@ -1,9 +1,12 @@
 extends Node2D
 ## Disc gate: throwing the disc through the ring opens a door ("open") or
-## materialises a bridge ("bridge").
+## materialises a bridge ("bridge"). Instead of a ring it can have a target
+## plate on the floor ("plate") that only a ROLLING disc sets off (rollers).
+## A "fence" door stops runners but lets discs through (see Solid.FENCE_LAYER).
 
 const Perf = preload("res://src/core/perf.gd")
 const View = preload("res://src/world/view.gd")
+const Solid = preload("res://src/world/solid.gd")
 
 var ring_pos := Vector2.ZERO
 var door_rect := Rect2()
@@ -14,11 +17,19 @@ var body: StaticBody2D
 var anim := 0.0
 var t := 0.0
 var level: Node = null
+var plate := Rect2()        # roll target (size 0: a ring gate)
+var fence := false
 
 
 func setup(data: Dictionary, p_theme: Dictionary) -> void:
 	th = p_theme
-	ring_pos = Vector2(data.ring[0], data.ring[1])
+	if data.get("plate") is Array:
+		var pr: Array = data.plate
+		plate = Rect2(pr[0], pr[1], pr[2], pr[3])
+		ring_pos = plate.get_center()
+	else:
+		ring_pos = Vector2(data.ring[0], data.ring[1])
+	fence = bool(data.get("fence", false))
 	var r: Array = data.door
 	door_rect = Rect2(r[0], r[1], r[2], r[3])
 	mode = data.get("mode", "open")
@@ -32,12 +43,21 @@ func setup(data: Dictionary, p_theme: Dictionary) -> void:
 	cs.position = door_rect.get_center()
 	body.add_child(cs)
 	body.set_meta("rect", door_rect)
+	if bool(data.get("slick", false)):
+		body.set_meta("slick", true)   # no wall-jumping up the door
 	add_child(body)
 	_apply()
 
 
 func set_physics_layer(bits: int) -> void:
 	body.collision_layer = bits
+
+
+## Does a disc at `p` in this state set the gate off?
+func hit_by(p: Vector2, rolling: bool) -> bool:
+	if plate.size.x > 0.0:
+		return rolling and plate.grow_individual(4.0, 30.0, 4.0, 6.0).has_point(p)
+	return ring_pos.distance_to(p) < 46.0
 
 
 func _apply() -> void:
@@ -82,19 +102,24 @@ func _draw_timed() -> void:
 	var c: Color = th.get("accent", Color(2, 0.5, 1.5))
 	var gc: Color = th.get("basket", Color(2, 2, 0.4))
 	var ring_c := gc if not triggered else Color(0.4, 2.2, 0.8)
-	# ring
 	var pulse := 0.5 + 0.5 * sin(t * 5.0)
-	draw_arc(ring_pos, 34.0, 0, TAU, 32, Color(ring_c, 0.25), 10.0)
-	draw_arc(ring_pos, 34.0, 0, TAU, 32, ring_c, 3.0, true)
-	if not triggered:
-		draw_arc(ring_pos, 40.0 + pulse * 6.0, 0, TAU, 32, Color(ring_c, 0.35 * (1.0 - pulse)), 2.0)
-		draw_circle(ring_pos, 5.0, Color(ring_c, 0.8))
+	if plate.size.x > 0.0:
+		_draw_plate(ring_c, pulse)
+	else:
+		# ring
+		draw_arc(ring_pos, 34.0, 0, TAU, 32, Color(ring_c, 0.25), 10.0)
+		draw_arc(ring_pos, 34.0, 0, TAU, 32, ring_c, 3.0, true)
+		if not triggered:
+			draw_arc(ring_pos, 40.0 + pulse * 6.0, 0, TAU, 32, Color(ring_c, 0.35 * (1.0 - pulse)), 2.0)
+			draw_circle(ring_pos, 5.0, Color(ring_c, 0.8))
 	# link line ring -> door
 	draw_dashed_line(ring_pos, door_rect.get_center(), Color(ring_c, 0.12), 2.0, 12.0)
 	# door / bridge
 	if mode == "open":
 		var vis := 1.0 - anim if triggered else 1.0
-		if vis > 0.01:
+		if vis > 0.01 and fence:
+			Solid.draw_fence(self, Rect2(door_rect.position, Vector2(door_rect.size.x, door_rect.size.y * vis)), c, 1.0)
+		elif vis > 0.01:
 			var r := Rect2(door_rect.position, Vector2(door_rect.size.x, door_rect.size.y * vis))
 			draw_rect(r, Color(c.r * 0.3, c.g * 0.3, c.b * 0.3, 0.9))
 			draw_rect(r, c, false, 2.5)
@@ -109,3 +134,29 @@ func _draw_timed() -> void:
 			draw_line(r2.position, Vector2(r2.end.x, r2.position.y), c, 3.0)
 		else:
 			draw_dashed_line(door_rect.position, Vector2(door_rect.end.x, door_rect.position.y), Color(c, 0.35), 2.0, 14.0)
+
+
+## Roll target: a yellow striped plate on the floor with a bullseye and
+## "roll in" chevrons; green once hit.
+func _draw_plate(c: Color, pulse: float) -> void:
+	var r := plate
+	var yel := Color(2.2, 1.9, 0.2) if not triggered else c
+	draw_rect(r, Color(yel.r * 0.25, yel.g * 0.25, yel.b * 0.25, 0.95))
+	var x := r.position.x
+	var i := 0
+	while x < r.end.x:
+		var w := minf(14.0, r.end.x - x)
+		if i % 2 == 0:
+			draw_rect(Rect2(x, r.position.y, w, r.size.y), Color(yel, 0.85))
+		x += 14.0
+		i += 1
+	draw_rect(r, yel, false, 2.0)
+	var cpos := Vector2(r.get_center().x, r.position.y - 18.0)
+	draw_arc(cpos, 14.0, 0, TAU, 24, Color(yel, 0.9), 3.0, true)
+	draw_arc(cpos, 7.0, 0, TAU, 16, Color(yel, 0.9), 2.0, true)
+	if not triggered:
+		draw_arc(cpos, 18.0 + pulse * 6.0, 0, TAU, 24, Color(yel, 0.4 * (1.0 - pulse)), 2.0)
+		for k in 3:
+			var ax := r.position.x - 26.0 - k * 16.0 + pulse * 6.0
+			var ay := r.position.y - 8.0
+			draw_polyline(PackedVector2Array([Vector2(ax - 5, ay - 6), Vector2(ax + 2, ay), Vector2(ax - 5, ay + 6)]), Color(yel, 0.5 - k * 0.12), 2.5)
