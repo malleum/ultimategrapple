@@ -86,6 +86,9 @@ func _update_hint() -> void:
 		return
 	var p: Dictionary = puppets[follow]
 	var res := "  ·  %s" % Game.format_time(p.time) if p.time >= 0.0 else "  ·  DNF"
+	if Game.render_mode:
+		hint.text = "%s%s" % [p.name.to_upper(), res]   # a video: no keys to press
+		return
 	hint.text = "%s  WATCHING %s%s  %s     %s re-watch" % [Bindings.label("move_left"), p.name.to_upper(), res,
 		Bindings.label("move_right"), Bindings.label("restart")]
 
@@ -174,7 +177,8 @@ func _show_card() -> void:
 	else:
 		h.add_child(UI.button("REPLAYS", func(): Game.goto_menu("replays"), 22))
 	h.add_child(UI.button("MENU", func(): Game.goto_menu(), 22))
-	v.add_child(h)
+	if not Game.render_mode:
+		v.add_child(h)
 	card = CenterContainer.new()
 	card.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	card.mouse_filter = Control.MOUSE_FILTER_IGNORE

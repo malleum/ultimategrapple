@@ -175,7 +175,9 @@ online services; same host as PLAY ONLINE, UDP port 24682) for:
   course is posted automatically (Settings → post my PBs) with its splits and ghost; the
   results card shows your online rank. Tick any number of runs to compare their splits side
   by side (fastest per split in gold), **RACE TICKED** to run the course against all of them
-  as named ghosts, or **WATCH TICKED** to watch them run together. Each row also shows how
+  as named ghosts, **WATCH TICKED** to watch them run together, or **EXPORT MP4** to
+  render that overlay to a video (Videos/Ultimate Grapple). Match recordings on the REPLAYS
+  page have an MP4 button too. Each row also shows how
   much that runner has played the course: tries, clears and chrons.
 - **Saved courses.** **SAVE COURSE** on the results card of any course that isn't a main
   one puts it in your courses online (up to 7; when full it asks which to replace, and

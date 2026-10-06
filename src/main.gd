@@ -80,7 +80,7 @@ func _ready() -> void:
 		w.content_scale_size = RENDER_SIZE
 		w.unresizable = true   # most tiling WMs float fixed-size windows
 		w.size = RENDER_SIZE
-		if not Game.play_replay(render_id):
+		if not Game.play_any(render_id):
 			push_error("no replay for %s" % render_id)
 			get_tree().quit(1)
 		return
@@ -108,6 +108,7 @@ func _process(dt: float) -> void:
 
 
 var _render_done_t := 0.0
+var _render_t := 0.0
 
 
 ## MP4 render: the video runs until the results card's disc cam has shown the
@@ -117,7 +118,13 @@ func _render_watch(dt: float) -> void:
 	if lvl == null or not is_instance_valid(lvl) or lvl.runners.is_empty():
 		return
 	var r = lvl.runners[0]
-	if r.done:
+	_render_t += dt
+	if lvl.mode == "match":
+		# a match recording: until its finishing-order card has been up a moment
+		var mp = lvl.match_playback
+		if mp and mp.card != null and render_end_t < 0.0:
+			render_end_t = 3.0
+	elif r.done:
 		_render_done_t += dt
 		var hud = r.hud
 		var cam_ok: bool = hud.results_cam != null and is_instance_valid(hud.results_cam)
@@ -135,5 +142,5 @@ func _render_watch(dt: float) -> void:
 	if render_end_t >= 0.0:
 		render_end_t -= dt
 		if render_end_t < 0.0:
-			print("render: stopping %.1f s after the finish" % _render_done_t)
+			print("render: stopping at %.1f s, %.1f s after the finish" % [_render_t, _render_done_t])
 			get_tree().quit()

@@ -31,6 +31,7 @@ var board_box: VBoxContainer
 var split_grid: GridContainer
 var race_btn: Button
 var watch_btn: Button
+var export_btn: Button
 
 
 func _ready() -> void:
@@ -65,6 +66,9 @@ func _ready() -> void:
 	watch_btn = UI.button("WATCH TICKED", func(): _fetch_then("watch"), 22)
 	b.add_child(race_btn)
 	b.add_child(watch_btn)
+	export_btn = UI.button("EXPORT MP4", func(): _fetch_then("export"), 22)
+	export_btn.tooltip_text = "Render the ticked runs together (like WATCH TICKED) to a video in your Videos folder"
+	b.add_child(export_btn)
 	b.add_child(UI.button("REFRESH", func():
 		if Online.is_online():
 			Online.request_board(course)
@@ -240,6 +244,7 @@ func _rebuild_splits() -> void:
 			rows.append(e)
 	race_btn.disabled = picked.is_empty()
 	watch_btn.disabled = picked.is_empty()
+	export_btn.disabled = picked.is_empty()
 	if rows.is_empty():
 		split_grid.columns = 1
 		split_grid.add_child(UI.label("Tick runs above to compare their splits.", 17, UI.DIM))
@@ -338,9 +343,21 @@ func _launch() -> void:
 		for r in runs:
 			rs.append({"name": str(r.info.name), "color": Game.player_palette(int(r.info.get("color", 0))),
 				"frames": r.frames, "time": float(r.info.time), "throws": int(r.info.get("throws", 0))})
-		Game.play_match_data({"kind": "match", "mode": "board", "level": data, "name": str(data.get("name", "Course")),
+		var rec := {"kind": "match", "mode": "board", "level": data, "name": str(data.get("name", "Course")),
 			"theme": str(data.get("theme", "")), "date": int(Time.get_unix_time_from_system()), "runners": rs,
-			"winner": str(runs[0].info.name), "countdown": 3.0})
+			"winner": str(runs[0].info.name), "countdown": 3.0}
+		if what == "export":
+			# the same overlay WATCH TICKED shows, rendered to a video
+			if not Game.export_status.is_connected(_on_export_status):
+				Game.export_status.connect(_on_export_status)
+			Game.export_match_mp4(rec)
+		else:
+			Game.play_match_data(rec)
+
+
+func _on_export_status(text: String, _done: bool) -> void:
+	if is_instance_valid(status):
+		status.text = text
 
 
 static func _n(v) -> String:

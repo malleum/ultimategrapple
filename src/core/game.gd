@@ -444,6 +444,10 @@ func load_any_replay(key: String) -> Dictionary:
 		rep = load_favorite(key.substr(4))
 	elif key == "tmp:last":
 		rep = _read_rep(TMP_REPLAY)
+	elif key.begins_with("match:"):
+		rep = load_match(key.substr(6))   # a match recording (kind "match")
+	elif key == "tmp:match":
+		rep = _read_match(TMP_MATCH)
 	else:
 		rep = load_replay(key)
 	if not rep.is_empty():
@@ -452,6 +456,47 @@ func load_any_replay(key: String) -> Dictionary:
 
 
 const TMP_REPLAY := "user://replays/_last_run.rep"
+const TMP_MATCH := "user://replays/_last_match.rep"
+
+
+## A match recording held in memory (leaderboard runs watched together) as
+## a key the MP4 renderer can load: "tmp:match".
+func match_key_for(rec: Dictionary) -> String:
+	if str(rec.get("id", "")) != "" and FileAccess.file_exists(MATCH_DIR + "/" + str(rec.id).validate_filename() + ".rep"):
+		return "match:" + str(rec.id)
+	var f := FileAccess.open_compressed(TMP_MATCH, FileAccess.WRITE, FileAccess.COMPRESSION_ZSTD)
+	if f == null:
+		return ""
+	f.store_var(rec)
+	f.close()
+	return "tmp:match"
+
+
+func _read_match(path: String) -> Dictionary:
+	if not FileAccess.file_exists(path):
+		return {}
+	var f := FileAccess.open_compressed(path, FileAccess.READ, FileAccess.COMPRESSION_ZSTD)
+	if f == null:
+		return {}
+	var v = f.get_var()
+	return v if v is Dictionary and str(v.get("kind", "")) == "match" and v.get("runners") is Array else {}
+
+
+## Render a match recording (or leaderboard runs watched together) to MP4.
+func export_match_mp4(rec: Dictionary) -> void:
+	var key := match_key_for(rec)
+	if key == "":
+		export_status.emit("Couldn't store the recording to render", true)
+		return
+	export_replay_mp4(key)
+
+
+## What the renderer plays for a key: a replay or a match recording.
+func play_any(key: String) -> bool:
+	var rep := load_any_replay(key)
+	if str(rep.get("kind", "")) == "match":
+		return play_match_data(rep)
+	return play_replay_data(rep)
 
 
 func _read_rep(path: String) -> Dictionary:
@@ -887,7 +932,8 @@ func export_replay_mp4(level_id: String) -> void:
 	DirAccess.make_dir_recursive_absolute(videos_dir())
 	var render_dir := OS.get_user_data_dir().path_join("render")
 	DirAccess.make_dir_recursive_absolute(render_dir)
-	var base := "%s %s" % [str(rep.name), format_time(float(rep.time)).replace(":", "m")]
+	var base := "%s %s" % [str(rep.name), format_time(float(rep.time)).replace(":", "m")] if rep.has("time") else \
+		"%s %s %s" % [str(rep.name), "leaderboard" if str(rep.get("mode", "")) == "board" else "match", Time.get_datetime_string_from_system().replace(":", "-")]
 	base = base.validate_filename().replace(" ", "_")
 	var avi := render_dir.path_join(level_id.validate_filename() + ".avi")
 	var mp4 := videos_dir().path_join(base + ".mp4")

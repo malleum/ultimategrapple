@@ -899,6 +899,7 @@ func _match_row(e: Dictionary) -> Control:
 	wl.clip_text = true
 	mh.add_child(wl)
 	mh.add_child(UI.button("WATCH", func(): Game.play_match(mid), 20))
+	mh.add_child(UI.button("MP4", func(): Game.export_replay_mp4("match:" + mid), 20))
 	mh.add_child(_send_button("match", str(e.get("name", "Course")), func(): return Game.load_match(mid)))
 	mh.add_child(UI.button("★ UNSTAR" if fav else "★", func(): Game.set_match_favorite(mid, not fav); show_page("replays"), 20))
 	mh.add_child(UI.button("DELETE", func(): Game.delete_match(mid); show_page("replays"), 20))
