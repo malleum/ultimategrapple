@@ -17,6 +17,10 @@ const RECENT_MAX := 40
 ## Bump when movement / physics / input layout change: older replays can't
 ## re-simulate faithfully any more. 2: no dash, double jump, faster running.
 const REPLAY_VERSION := 8   # 3: bigger basket, 3x air pivot; 4: speeds, mantle, smoother jumps; 5: slower zip, rope through platforms; 6: rollers run downhill; 7: no grapple through walls; 8: hazards wait for the run to start
+## Older replays this build can still play back exactly: each version above
+## it keeps its old behaviour behind a check on the replay's "v" (8: the
+## hazard clock, Level.world_clock_on). Raise it only when that legacy code goes.
+const REPLAY_MIN_VERSION := 7
 ## Online leaderboards are keyed by this, not REPLAY_VERSION: bump it only when
 ## times stop being comparable (a replay-only change keeps everyone's boards).
 const BOARD_VERSION := 7
@@ -348,6 +352,11 @@ func _replay_path(level_id: String) -> String:
 	return REPLAY_DIR + "/" + level_id.validate_filename() + ".rep"
 
 
+## Can this build play a replay recorded with version `v`?
+static func replay_ok(v) -> bool:
+	return int(v) >= REPLAY_MIN_VERSION and int(v) <= REPLAY_VERSION
+
+
 func save_replay(rep: Dictionary) -> void:
 	var id: String = rep.level_id
 	var f := FileAccess.open_compressed(_replay_path(id), FileAccess.WRITE, FileAccess.COMPRESSION_ZSTD)
@@ -371,7 +380,7 @@ func load_replay(level_id: String) -> Dictionary:
 	if f == null:
 		return {}
 	var v = f.get_var()
-	if not (v is Dictionary and v.has("input")) or int(v.get("v", 1)) != REPLAY_VERSION:
+	if not (v is Dictionary and v.has("input")) or not replay_ok(v.get("v", 1)):
 		return {}
 	return v
 
@@ -391,13 +400,13 @@ func list_replays() -> Array:
 		recent = []
 	var out := []
 	for id in recent:
-		if idx.has(id) and has_replay(id) and int(idx[id].get("v", 1)) == REPLAY_VERSION:
+		if idx.has(id) and has_replay(id) and replay_ok(idx[id].get("v", 1)):
 			var e: Dictionary = idx[id].duplicate()
 			e["id"] = id
 			out.append(e)
 	var rest := []
 	for id in idx:
-		if not recent.has(id) and has_replay(id) and int(idx[id].get("v", 1)) == REPLAY_VERSION:
+		if not recent.has(id) and has_replay(id) and replay_ok(idx[id].get("v", 1)):
 			var e2: Dictionary = idx[id].duplicate()
 			e2["id"] = id
 			rest.append(e2)
@@ -452,7 +461,7 @@ func _read_rep(path: String) -> Dictionary:
 	if f == null:
 		return {}
 	var v = f.get_var()
-	return v if v is Dictionary and v.has("input") and int(v.get("v", 1)) == REPLAY_VERSION else {}
+	return v if v is Dictionary and v.has("input") and replay_ok(v.get("v", 1)) else {}
 
 
 ## A key the MP4 renderer can load for any replay: its own, or (a run that
@@ -477,7 +486,7 @@ func play_replay(key: String) -> bool:
 ## Watch a replay held in memory (e.g. the run just finished, PB or not).
 ## Your PB ghost runs alongside as usual.
 func play_replay_data(rep: Dictionary) -> bool:
-	if rep.is_empty() or not rep.has("input") or int(rep.get("v", 0)) != REPLAY_VERSION:
+	if rep.is_empty() or not rep.has("input") or not replay_ok(rep.get("v", 0)):
 		return false
 	var who := {"input": ReplayInput.new(rep.input), "name": str(rep.get("player", "Runner")), "color": rep.get("color", player_color())}
 	play_level(rep.level, "replay", [who], rep)
@@ -545,7 +554,7 @@ func list_favorites() -> Array:
 	for e in _fav_index():
 		if e is Dictionary and FileAccess.file_exists(_fav_path(str(e.get("id", "")))):
 			var c: Dictionary = e.duplicate()
-			c["old"] = int(e.get("v", 1)) != REPLAY_VERSION
+			c["old"] = not replay_ok(e.get("v", 1))
 			out.append(c)
 	return out
 
@@ -558,7 +567,7 @@ func load_favorite(id: String) -> Dictionary:
 	if f == null:
 		return {}
 	var v = f.get_var()
-	if not (v is Dictionary and v.has("input")) or int(v.get("v", 1)) != REPLAY_VERSION:
+	if not (v is Dictionary and v.has("input")) or not replay_ok(v.get("v", 1)):
 		return {}
 	return v
 
@@ -718,7 +727,7 @@ func race_rival(id: String) -> bool:
 ## Watch the friend's run (when it was recorded with this replay version).
 func watch_rival(id: String) -> bool:
 	var v := load_rival(id)
-	if v.is_empty() or int(v.get("v", 0)) != REPLAY_VERSION or not v.has("input"):
+	if v.is_empty() or not replay_ok(v.get("v", 0)) or not v.has("input"):
 		return false
 	var who := {"input": ReplayInput.new(v.input), "name": str(v.get("player", "Friend")), "color": v.get("color", Color(1, 0.6, 0.2))}
 	play_level(v.level, "replay", [who], v)

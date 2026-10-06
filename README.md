@@ -53,7 +53,8 @@ Carry the disc, throw it, chase it, catch it, and chain your movement until it h
 - **Same start every time.** Moving platforms, saws, lasers and moving grapple points wait
   at their start position until your run starts (your first input; GO in a race), so each
   attempt meets them in the same place. RETRY on the results card waits until you've let
-  go of every key / button, so the press that hit it doesn't start the run.
+  go of every key / button, so the press that hit it doesn't start the run. Replays saved
+  before this still play back with the hazards running from the restart, as they did.
 - **Instant restart** with `R`. Recall the disc with `T` for a +3s penalty. Out of bounds
   costs +2s. In multiplayer these freeze you for that long instead, so everyone's clock
   stays comparable.

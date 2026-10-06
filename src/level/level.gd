@@ -340,6 +340,9 @@ func is_timetrial() -> bool:
 ## until the run starts (the first input in a time trial, GO in a race), so
 ## every attempt meets them in the same place.
 func world_clock_on() -> bool:
+	# replays from before v8: hazards ran from the restart, not the run start
+	if mode == "replay" and int(replay.get("v", Game.REPLAY_VERSION)) < 8:
+		return true
 	if is_timetrial():
 		return not runners.is_empty() and (runners[0].running or runners[0].done)
 	return race_live

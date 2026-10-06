@@ -3,6 +3,8 @@ extends SceneTree
 ## aim, including throws with snaps), saves the run as a replay through the
 ## normal save/load path, plays it back and compares the player's position
 ## on every tick. Any drift is a bug.
+## Also: a replay from the previous version (Game.REPLAY_MIN_VERSION) still
+## plays, with that version's behaviour.
 ## godot --headless --fixed-fps 120 -s tools/test_replay.gd -- [courses] [ticks]
 
 const ACTIONS := ["move_left", "move_right", "jump", "grapple", "zip", "throw", "snap", "pivot", "move_down", "move_up", "throw_next", "recall"]
@@ -190,13 +192,33 @@ func _e2e_tick() -> bool:
 			lvl.restart()
 			e2e_t = 0
 		return false
+	if phase == "e2e_play" and e2e_t == 1:
+		data_lag["clock8"] = lvl.world_clock_on()
+	if phase == "e2e_legacy":
+		if e2e_t == 1:
+			data_lag["clock7"] = lvl.world_clock_on()
+		if r.done or e2e_t > 900:
+			# a replay from before the hazard-clock change (v7) still plays, with
+			# the hazards running from the restart like they did then
+			var ok7: bool = r.done and absf(r.finish_time - e2e_time) < 0.0001 and bool(data_lag.clock7) and not bool(data_lag.clock8)
+			print("%s legacy: a v%d replay plays back (finished %s at %.3fs); hazard clock before the start: v7 %s, v%d %s" % [
+				"OK  " if ok7 else "FAIL", int(lvl.replay.v), r.done, r.finish_time, data_lag.clock7, G.REPLAY_VERSION, data_lag.clock8])
+			if not OS.get_cmdline_user_args().has("--keep"):
+				G.delete_replay(E2E_ID)
+			G.save_ghost(E2E_ID, [])
+			quit(0 if ok7 and fails == 0 else 1)
+			return true
+		return false
 	if r.done or e2e_t > 900:
 		var ok: bool = r.done and absf(r.finish_time - e2e_time) < 0.0001
 		print("%s e2e: PB %.3fs saved as a replay (attempt %d); watching it finished %s at %.3fs, keys shown: %s" % [
 			"OK  " if ok else "FAIL", e2e_time, e2e_attempt + 1, "too" if r.done else "NOT", r.finish_time, str(lvl.replay.labels.kbm.throw)])
-		if not OS.get_cmdline_user_args().has("--keep"):
-			G.delete_replay(E2E_ID)
-		G.save_ghost(E2E_ID, [])
-		quit(0 if ok and fails == 0 else 1)
-		return true
+		if not ok:
+			fails += 1
+		var old_rep: Dictionary = G.load_replay(E2E_ID)
+		old_rep["v"] = G.REPLAY_MIN_VERSION
+		G.play_replay_data(old_rep)
+		lvl = G.current_scene
+		phase = "e2e_legacy"
+		e2e_t = 0
 	return false
