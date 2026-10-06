@@ -263,6 +263,7 @@ func _build_world() -> void:
 					wind_zones.append(z)
 			"mover":
 				var m := Mover.new()
+				m.level = self
 				m.setup(e, th)
 				world.add_child(m)
 				shared_resettables.append(m)
@@ -335,7 +336,35 @@ func is_timetrial() -> bool:
 	return mode == "solo" or mode == "replay"
 
 
+## Moving hazards, platforms and grapple points stand still at their start
+## until the run starts (the first input in a time trial, GO in a race), so
+## every attempt meets them in the same place.
+func world_clock_on() -> bool:
+	if is_timetrial():
+		return not runners.is_empty() and (runners[0].running or runners[0].done)
+	return race_live
+
+
+## Restart from a button (RETRY / WATCH AGAIN): wait until every gameplay
+## input is let go first, so the press that clicked the button (A on a pad is
+## also jump) doesn't start the new run on the spot.
+var _restart_pending := false
+const HELD_ACTIONS := ["jump", "throw", "snap", "grapple", "zip", "pivot", "recall", "move_left", "move_right", "move_down", "move_up"]
+
+
+func restart_when_released() -> void:
+	_restart_pending = true
+
+
+func _inputs_held() -> bool:
+	for a in HELD_ACTIONS:
+		if InputMap.has_action(a) and Input.is_action_pressed(a):
+			return true
+	return false
+
+
 func restart() -> void:
+	_restart_pending = false
 	if is_timetrial():
 		for s in shared_resettables:
 			if is_instance_valid(s) and s.has_method("reset"):
@@ -371,6 +400,8 @@ func update_view() -> void:
 
 
 func _physics_process_timed(dt: float) -> void:
+	if _restart_pending and not _inputs_held():
+		restart()
 	update_view()
 	if countdown > 0.0:
 		countdown -= dt

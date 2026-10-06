@@ -71,7 +71,7 @@ func _ready() -> void:
 	Online.name_needed.connect(func(msg): _name_prompt(msg))
 	# saved-course sources in the couch / lobby pickers come from the catalog
 	Online.catalog_received.connect(func(_l):
-		if page == "multi":
+		if page in ["multi", "lan"]:
 			_build_lobby()
 		elif page == "couch":
 			show_page("couch"))
@@ -220,14 +220,23 @@ func _clear() -> Control:
 func show_page(p: String) -> void:
 	Net.stop_discovery()
 	page = p
+	# where "MENU" from a course / replay brings you back to (the boards keep
+	# their own entry, with the course you were on)
+	if p != "leaderboards":
+		Game.return_to = {"page": p}
 	match p:
 		"couch": _page_couch()
 		"courses": _page_courses()
 		"random": _page_random()
-		"multi": _page_multi()
+		"multi", "lan": _page_multi()
 		"controls": _page_controls()
 		"replays": _page_replays()
-		"leaderboards": _page_leaderboards()
+		"leaderboards":
+			var rt: Dictionary = Game.return_to
+			if str(rt.get("page", "")) == "leaderboards":
+				_open_boards(rt.get("list", []), str(rt.get("key", "")), str(rt.get("back", "title")))
+			else:
+				_page_leaderboards()
 		"stats": _page_stats()
 		"bindings": _page_bindings()
 		"settings": _page_settings()
@@ -255,17 +264,17 @@ func _page_title() -> void:
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
 	v.add_child(col)
 	col.add_child(UI.button("COURSES", func(): show_page("courses"), 30))
-	col.add_child(UI.button("RANDOM COURSE", func(): show_page("random"), 30))
-	col.add_child(UI.button("QUICK RANDOM", func(): Game.start_random(randi() % 1000000, "", 0.5, 12), 30))
-	col.add_child(UI.button("LEADERBOARDS", func(): show_page("leaderboards"), 30))
+	col.add_child(UI.button("RANDOM", func(): show_page("random"), 30))
+	col.add_child(UI.button("LEADERBOARDS", func(): _page_leaderboards(), 30))   # the main boards (not the last list)
 	col.add_child(UI.button("REPLAYS", func(): show_page("replays"), 30))
-	col.add_child(UI.button("STATS", func(): show_page("stats"), 24))
-	col.add_child(UI.button("COUCH VERSUS", func(): show_page("couch"), 30))
-	col.add_child(UI.button("ONLINE / LAN", func(): show_page("multi"), 30))
-	col.add_child(UI.button("CONTROLS", func(): show_page("controls"), 24))
-	col.add_child(UI.button("SETTINGS", func(): show_page("settings"), 24))
-	col.add_child(UI.button("QUIT", func(): get_tree().quit(), 24))
+	col.add_child(UI.button("STATS", func(): show_page("stats"), 30))
+	col.add_child(UI.button("MULTIPLAYER", func(): show_page("multi"), 30))
+	col.add_child(UI.button("SETTINGS", func(): show_page("settings"), 30))
 	v.add_child(UI.label("F3 fps · F11 fullscreen", 16, UI.DIM, HORIZONTAL_ALIGNMENT_CENTER))
+	# quit, out of the way in the top-right corner
+	var q := UI.button("QUIT", func(): get_tree().quit(), 20)
+	page_root.add_child(q)
+	q.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_MINSIZE, 20)
 
 
 # ------------------------------------------------------------------ courses
@@ -318,6 +327,7 @@ func _page_random() -> void:
 	v.add_child(UI.slider(4, 30, r_len, 1, func(x): r_len = int(x); ll.text = "Length  %d segments" % int(x)))
 	var h := UI.hbox()
 	h.add_child(UI.button("PLAY", func(): Game.start_random(r_seed, r_theme, r_diff, r_len), 30))
+	h.add_child(UI.button("QUICK RANDOM", func(): Game.start_random(randi() % 1000000, "", 0.5, 12), 30))
 	h.add_child(_back_button())
 	v.add_child(h)
 	v.add_child(UI.label("Tip: same seed + settings = same course. Press P in-game to pin it.", 16, UI.DIM))
@@ -333,6 +343,7 @@ func _page_multi() -> void:
 	var v := UI.vbox(12)
 	panel.add_child(v)
 	v.add_child(UI.label("MULTIPLAYER", 48, UI.NEON))
+	v.add_child(_multi_tabs())
 	if Net.champion_text != "":
 		v.add_child(UI.label(Net.champion_text, 32, UI.GOLD))
 	var who := UI.hbox()
@@ -362,6 +373,30 @@ func _page_multi() -> void:
 	v.add_child(lobby_box)
 	_build_lobby()
 	v.add_child(_back_button())
+	# ONLINE: straight onto the public server the first time it's opened
+	if page == "multi" and not Net.in_lobby and Net.peer == null and not _auto_joined:
+		_auto_joined = true
+		Net.join(_online_address())
+
+
+static var _auto_joined := false
+
+
+func _online_address() -> String:
+	var a := str(Game.settings.online_server).strip_edges()
+	return a if a != "" else Net.ONLINE_SERVER
+
+
+## ONLINE (public server) · COUCH (split-screen) · LAN (host / join nearby)
+func _multi_tabs() -> HBoxContainer:
+	var tabs := UI.hbox(12)
+	for tb in [["multi", "ONLINE"], ["couch", "COUCH VERSUS"], ["lan", "LAN"]]:
+		var id: String = tb[0]
+		var b := UI.button(("▸ " if page == id else "") + str(tb[1]), func(): show_page(id), 20)
+		if page == id:
+			b.add_theme_color_override("font_color", UI.GOLD)
+		tabs.add_child(b)
+	return tabs
 
 
 func _build_lobby() -> void:
@@ -369,18 +404,20 @@ func _build_lobby() -> void:
 		return
 	for ch in lobby_box.get_children():
 		ch.queue_free()
-	if not Net.in_lobby:
-		Net.start_discovery()
+	if not Net.in_lobby and page == "multi":
 		var on := UI.hbox()
 		var srv := LineEdit.new()
 		srv.text = str(Game.settings.online_server)
 		srv.placeholder_text = Net.ONLINE_SERVER
 		srv.custom_minimum_size = Vector2(320, 0)
 		srv.text_changed.connect(func(tx): Game.settings.online_server = tx.strip_edges(); Game.save_settings())
-		on.add_child(UI.button("PLAY ONLINE", func(): Net.join(srv.text.strip_edges() if srv.text.strip_edges() != "" else Net.ONLINE_SERVER), 26))
+		on.add_child(UI.button("PLAY ONLINE", func(): Net.join(_online_address()), 26))
 		on.add_child(srv)
 		lobby_box.add_child(on)
 		lobby_box.add_child(UI.label("Joins the public server. No port forwarding needed. The first player in picks the settings and starts.", 16, UI.DIM))
+		return
+	if not Net.in_lobby:
+		Net.start_discovery()
 		var h := UI.hbox()
 		h.add_child(UI.button("HOST GAME", func(): Net.host(), 26))
 		var ip := LineEdit.new()
@@ -508,11 +545,12 @@ func _page_couch() -> void:
 			couch_players.append({"device": int(p.device), "name": p.name, "color": int(p.color)})
 	var c := _clear()
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(1000, 640)
+	panel.custom_minimum_size = Vector2(1100, 640)
 	c.add_child(panel)
 	var v := UI.vbox(14)
 	panel.add_child(v)
-	v.add_child(UI.label("COUCH VERSUS", 48, UI.NEON))
+	v.add_child(UI.label("MULTIPLAYER", 48, UI.NEON))
+	v.add_child(_multi_tabs())
 	if Game.couch_champion != "":
 		v.add_child(UI.label(Game.couch_champion, 32, UI.GOLD))
 	v.add_child(UI.label("Split-screen race, up to %d players. Everyone has their own gates, glass and grapple points.\nPress A on a controller (or SPACE on the keyboard) to join. B / BACKSPACE to leave. X / C to change color." % Game.COUCH_MAX, 18, UI.DIM))
@@ -690,7 +728,7 @@ func _page_controls() -> void:
 		right.add_child(_ctrl_row(l[0], l[1]))
 	var h := UI.hbox(16)
 	h.add_child(UI.button("REBIND CONTROLS", func(): capture = {}; bind_status = ""; show_page("bindings"), 22))
-	h.add_child(_back_button())
+	h.add_child(UI.button("BACK", func(): show_page("settings"), 20))
 	v.add_child(h)
 
 
@@ -889,6 +927,7 @@ func _page_leaderboards() -> void:
 ## The boards of these courses ([] = the built-ins), opened on `key`.
 func _open_boards(list: Array, key: String, back := "courses") -> void:
 	page = "leaderboards"
+	Game.return_to = {"page": "leaderboards", "list": list, "key": key, "back": back}
 	var c := _clear()
 	var lp := LeaderboardPage.new()
 	lp.course_list = list
@@ -1139,4 +1178,7 @@ func _page_settings() -> void:
 	fo.item_selected.connect(func(i): Game.settings.max_fps = caps[i]; Game.save_settings())
 	fh.add_child(fo)
 	v.add_child(fh)
-	v.add_child(_back_button())
+	var sh := UI.hbox(16)
+	sh.add_child(UI.button("CONTROLS", func(): show_page("controls"), 22))
+	sh.add_child(_back_button())
+	v.add_child(sh)

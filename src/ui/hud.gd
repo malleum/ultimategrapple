@@ -1371,12 +1371,12 @@ func show_results(tm: float, medal: String, is_pb: bool, old_pb := -1.0) -> void
 	h.alignment = BoxContainer.ALIGNMENT_CENTER
 	if replaying:
 		if not Game.render_mode:
-			h.add_child(UI.button("WATCH AGAIN  [R]", func(): level.restart()))
+			h.add_child(UI.button("WATCH AGAIN  [R]", func(): level.restart_when_released()))
 			h.add_child(_fav_button(level.replay))
 			h.add_child(UI.button("EXPORT MP4", func(): Game.export_replay_mp4(Game.replay_key_for(level.replay))))
 			h.add_child(UI.button("REPLAYS", func(): Game.goto_menu("replays")))
 	else:
-		h.add_child(UI.button("RETRY  [R]", func(): level.restart()))
+		h.add_child(UI.button("RETRY  [R]", func(): level.restart_when_released()))
 		h.add_child(UI.button("NEXT  [N]", _next))
 		if not Game.is_pinned(level.level_id):
 			h.add_child(UI.button("PIN  [P]", func(): level.pin_current()))
@@ -1459,11 +1459,11 @@ func toggle_pause() -> void:
 		v.add_child(UI.label("RACE MENU" if level.mode == "multi" else ("REPLAY" if level.mode == "replay" else "PAUSED"), 40, UI.NEON, HORIZONTAL_ALIGNMENT_CENTER))
 		v.add_child(UI.button("RESUME", toggle_pause))
 		if level.mode == "replay":
-			v.add_child(UI.button("WATCH AGAIN", func(): toggle_pause(); level.restart()))
+			v.add_child(UI.button("WATCH AGAIN", func(): toggle_pause(); level.restart_when_released()))
 			v.add_child(UI.button("EXPORT MP4", func(): Game.export_replay_mp4(Game.replay_key_for(level.replay))))
 			v.add_child(UI.button("REPLAYS", func(): Game.goto_menu("replays")))
 		elif level.mode == "solo":
-			v.add_child(UI.button("RESTART", func(): toggle_pause(); level.restart()))
+			v.add_child(UI.button("RESTART", func(): toggle_pause(); level.restart_when_released()))
 			if not Game.is_pinned(level.level_id):
 				v.add_child(UI.button("PIN COURSE", func(): level.pin_current()))
 			v.add_child(UI.label("Seed %s" % str(level.level_data.get("seed", "?")), 16, UI.DIM, HORIZONTAL_ALIGNMENT_CENTER))

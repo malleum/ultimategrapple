@@ -46,7 +46,9 @@ func _physics_process(dt: float) -> void:
 
 
 func _physics_process_timed(dt: float) -> void:
-	t += dt
+	# (level is the runner here)
+	if level == null or level.level == null or level.level.world_clock_on():
+		t += dt
 	if kind == "moving":
 		position = base_pos + move * (0.5 - 0.5 * cos((t / period + phase) * TAU))
 	if break_t >= 0.0:
@@ -67,6 +69,8 @@ func reset() -> void:
 	respawn_t = -1.0
 	attached = false
 	t = 0.0
+	if kind == "moving":
+		position = base_pos + move * (0.5 - 0.5 * cos(phase * TAU))
 
 
 func on_attach(_p) -> void:

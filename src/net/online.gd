@@ -172,7 +172,7 @@ func _known(ck: String) -> bool:
 
 
 static func _replay_version() -> int:
-	return int(load("res://src/core/game.gd").REPLAY_VERSION)
+	return int(load("res://src/core/game.gd").BOARD_VERSION)
 
 
 static func pack(v) -> PackedByteArray:

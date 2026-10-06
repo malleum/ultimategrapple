@@ -228,6 +228,9 @@ func restart() -> void:
 		inp.rewind()
 	else:
 		run_seed = randi()
+		# forget what was held before the restart: the run starts on the next
+		# input as polled after it, not on a key the last poll still had down
+		inp.clear()
 	player.reset_run_state(run_seed)
 	disc.seed_rng(run_seed ^ 0x5bd1e995)
 	start_throw = player.throw_type

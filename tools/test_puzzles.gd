@@ -7,6 +7,9 @@ extends SceneTree
 ##             is open
 ##   slick     wall-jumping up a lob wall's slick face gets nowhere
 ##   sunken    a roller rolled off the lip of a sunken basket scores
+##   clock     saws stand still at their start until the run starts, and are
+##             back there after a restart; a RETRY while a key is held waits
+##             for it to be let go
 ## godot --headless --fixed-fps 120 -s tools/test_puzzles.gd
 
 const Gen = preload("res://src/level/generator.gd")
@@ -196,6 +199,34 @@ func _physics_process(_dt: float) -> bool:
 				_launch(r.player.hand(), Vector2(700, 60), "roller")
 			if f == 400:
 				_check("sunken", r.disc.state == Disc.SCORED and r.done, "roller off the lip: disc state %d, finished %s" % [r.disc.state, r.done])
+				phase = "clock_load"
+		"clock_load":
+			_play(_course(["saws"]))
+			phase = "clock"
+		"clock":
+			var saws: Array = []
+			for c in lvl.world.get_children():
+				if c.has_meta("saw"):
+					saws.append(c)
+			if f == 5:
+				m["p0"] = saws.map(func(z): return z.position)
+			if f == 200:
+				var still: bool = saws.map(func(z): return z.position) == m.p0
+				m["still"] = still
+				Input.action_press("move_right")
+			if f == 320:
+				var moved: bool = saws.map(func(z): return z.position) != m.p0
+				Input.action_press("jump")   # held through the RETRY
+				lvl.restart_when_released()
+				m["moved"] = moved
+			if f == 330:
+				m["waited"] = r.running
+				Input.action_release("jump")
+				Input.action_release("move_right")
+			if f == 340:
+				var back: bool = saws.map(func(z): return z.position) == m.p0
+				_check("clock", bool(m.still) and bool(m.moved) and back and bool(m.waited) and not r.running and saws.size() > 0,
+					"%d saws: still before the start %s, moving once running %s, RETRY waited for the key %s, back at the start %s" % [saws.size(), m.still, m.moved, m.waited, back])
 				print("puzzles: %d failures" % fails)
 				quit(0 if fails == 0 else 1)
 				return true

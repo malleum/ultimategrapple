@@ -170,7 +170,9 @@ func _on_server_gone() -> void:
 	_set_status("Server closed the connection")
 	var was_racing := round_active
 	leave()
-	if was_racing or Game.current_scene and Game.current_scene.has_method("restart"):
+	# only out of an online race (not out of a solo run or a replay)
+	var s = Game.current_scene
+	if was_racing or (s and is_instance_valid(s) and s.get("mode") == "multi"):
 		Game.goto_menu("multi")
 
 

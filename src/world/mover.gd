@@ -7,6 +7,7 @@ var base_pos := Vector2.ZERO
 var move := Vector2.ZERO
 var period := 3.0
 var phase := 0.0
+var level: Node = null   # its clock only runs once the run has started
 var size := Vector2(128, 16)
 var th: Dictionary = {}
 var t := 0.0
@@ -47,7 +48,8 @@ func _physics_process(dt: float) -> void:
 
 
 func _physics_process_timed(dt: float) -> void:
-	t += dt
+	if level == null or level.world_clock_on():
+		t += dt
 	position = base_pos + move * (0.5 - 0.5 * cos((t / period + phase) * TAU))
 	set_meta("rect", Rect2(position, size))
 

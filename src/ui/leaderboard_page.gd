@@ -136,6 +136,8 @@ func _on_state() -> void:
 
 func _select(k: String) -> void:
 	course = k
+	if str(Game.return_to.get("page", "")) == "leaderboards":
+		Game.return_to["key"] = k   # back from a race / watch: this course again
 	entries = []
 	picked.clear()
 	got.clear()

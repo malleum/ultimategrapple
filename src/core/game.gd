@@ -16,7 +16,10 @@ const RECENT_PATH := "user://recent.json"
 const RECENT_MAX := 40
 ## Bump when movement / physics / input layout change: older replays can't
 ## re-simulate faithfully any more. 2: no dash, double jump, faster running.
-const REPLAY_VERSION := 7   # 3: bigger basket, 3x air pivot; 4: speeds, mantle, smoother jumps; 5: slower zip, rope through platforms; 6: rollers run downhill; 7: no grapple through walls
+const REPLAY_VERSION := 8   # 3: bigger basket, 3x air pivot; 4: speeds, mantle, smoother jumps; 5: slower zip, rope through platforms; 6: rollers run downhill; 7: no grapple through walls; 8: hazards wait for the run to start
+## Online leaderboards are keyed by this, not REPLAY_VERSION: bump it only when
+## times stop being comparable (a replay-only change keeps everyone's boards).
+const BOARD_VERSION := 7
 const ReplayInput = preload("res://src/core/replay_input.gd")
 const GENERATOR_VERSION := 1
 
@@ -307,10 +310,17 @@ func change_scene(node: Node) -> void:
 	main.add_child(node)
 
 
-func goto_menu(page: String = "title") -> void:
+## The menu page to come back to (set by the menu as you move around, the
+## leaderboards with the course you were on): "MENU" from a course or a
+## replay goes back there.
+var return_to := {"page": "title"}
+
+
+## page "": back where you came from (return_to).
+func goto_menu(page: String = "") -> void:
 	Net.leave_if_solo()
 	var m := MenuScript.new()
-	m.start_page = page
+	m.start_page = page if page != "" else str(return_to.get("page", "title"))
 	change_scene(m)
 
 

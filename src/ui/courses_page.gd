@@ -101,12 +101,14 @@ func _row(name: String, d: Dictionary, theme_id: String, diff: float, best_id: S
 func _list_main() -> void:
 	var levels := Game.list_pinned_levels()
 	var board := _main_boards()
+	var num := 0
 	for i in levels.size():
 		var d: Dictionary = levels[i]
 		if not bool(d.get("_builtin", false)):
 			continue
 		var idx := i
-		var row := _row("%02d  %s" % [list.get_child_count() + 1, d.get("name", "Course")], d, str(d.get("theme", "")), float(d.get("difficulty", 0.5)), str(d.get("id", "")),
+		num += 1
+		var row := _row("%d  %s" % [num, d.get("name", "Course")], d, str(d.get("theme", "")), float(d.get("difficulty", 0.5)), str(d.get("id", "")),
 			func(): Game.start_pinned(idx))
 		var key := Online.course_key(str(d.get("id", "")))
 		if key != "":

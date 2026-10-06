@@ -142,7 +142,8 @@ func _physics_process(dt: float) -> void:
 
 
 func _physics_process_timed(dt: float) -> void:
-	t += dt
+	if level == null or not level.has_method("world_clock_on") or level.world_clock_on():
+		t += dt
 	if has_meta("laser"):
 		var cyc := on_time + off_time
 		var local := fposmod(t + phase * cyc, cyc)

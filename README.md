@@ -50,6 +50,10 @@ Carry the disc, throw it, chase it, catch it, and chain your movement until it h
   after it wins. In tight *tunnels*, throws just bounce off the walls, so carrying it and
   making one final throw wins. The generator builds both kinds of section and signposts them.
 - **Throwing while moving** adds aim sway, random spray and lost range.
+- **Same start every time.** Moving platforms, saws, lasers and moving grapple points wait
+  at their start position until your run starts (your first input; GO in a race), so each
+  attempt meets them in the same place. RETRY on the results card waits until you've let
+  go of every key / button, so the press that hit it doesn't start the run.
 - **Instant restart** with `R`. Recall the disc with `T` for a +3s penalty. Out of bounds
   costs +2s. In multiplayer these freeze you for that long instead, so everyone's clock
   stays comparable.
@@ -146,6 +150,12 @@ results card says who won and by how much. Older `.ugr` files can still be dropp
 window or loaded with IMPORT FRIEND'S RUN.
 
 ## Stats
+
+**Menu.** COURSES · RANDOM (seed / theme / difficulty, or QUICK RANDOM) · LEADERBOARDS ·
+REPLAYS · STATS · MULTIPLAYER (tabs: ONLINE, which joins the public server straight away,
+COUCH VERSUS and LAN) · SETTINGS (CONTROLS and rebinding inside); QUIT is in the top-right
+corner. Leaving a course or a replay takes you back to the page you came from (the same
+COURSES tab, the leaderboard course you were looking at, the replays list...).
 
 **STATS** on the title screen: time played in **chrons** (1 chron = 1% of a day = 14 min
 24 s) and counters for everything you do: attempts, clears, restarts, PBs and medals;

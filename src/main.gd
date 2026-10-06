@@ -9,6 +9,7 @@ var show_fps := false
 ## and quit when it is over. Used by the MP4 export.
 var render_id := ""
 var render_end_t := -1.0
+const RENDER_SIZE := Vector2i(1920, 1080)
 var _toast_box: VBoxContainer
 
 
@@ -69,6 +70,16 @@ func _ready() -> void:
 			render_id = a.get_slice("=", 1)
 	if render_id != "":
 		Game.render_mode = true
+		# Render at a fixed 1920x1080 whatever the window manager does to the
+		# window (a tiling WM squeezed it into a split and the video lost its
+		# top and bottom): the game draws into a fixed-size viewport, which is
+		# what the movie writer records, and the window only shows it scaled.
+		var w := get_window()
+		w.content_scale_mode = Window.CONTENT_SCALE_MODE_VIEWPORT
+		w.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_KEEP
+		w.content_scale_size = RENDER_SIZE
+		w.unresizable = true   # most tiling WMs float fixed-size windows
+		w.size = RENDER_SIZE
 		if not Game.play_replay(render_id):
 			push_error("no replay for %s" % render_id)
 			get_tree().quit(1)
