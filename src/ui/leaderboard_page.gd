@@ -331,6 +331,7 @@ func _launch() -> void:
 				"color": Game.player_palette(int(r.info.get("color", 0)))})
 		var rival: Dictionary = rv[0]
 		rival["more"] = rv.slice(1)
+		rival["no_pb"] = true   # only the ticked runs, not your own PB ghost on top
 		Game.play_level(data, "solo", [], {}, rival)
 	else:
 		var rs: Array = []

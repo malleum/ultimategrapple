@@ -296,8 +296,8 @@ func _setup_pb_ghost() -> void:
 		rg.rewind()
 	pb_ghost.stop()
 	pb_ghost.visible = false
-	if not Game.settings.get("show_ghost", true):
-		return
+	if not Game.settings.get("show_ghost", true) or bool(level.rival.get("no_pb", false)):
+		return   # (racing picked leaderboard runs: just them, not your PB too)
 	var frames := Game.load_ghost(level.level_id)
 	if frames.size() > 2:
 		pb_ghost.setup_replay(frames, Color(1, 1, 1))

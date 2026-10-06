@@ -1470,6 +1470,10 @@ func toggle_pause() -> void:
 			v.add_child(UI.button("QUIT TO MENU", func(): Game.goto_menu()))
 		elif level.mode == "couch":
 			v.add_child(UI.button("END COUCH SET", func(): Game.end_couch()))
+		elif level.mode == "match":
+			# watching a recording (a couch / online round, or leaderboard runs)
+			v.add_child(UI.button("WATCH AGAIN", func(): Game.play_match_data(level.replay)))
+			v.add_child(UI.button("BACK", func(): Game.goto_menu()))
 		else:
 			v.add_child(UI.button("LEAVE RACE", func(): Net.leave(); Game.goto_menu("multi")))
 		root.add_child(pause_menu)
