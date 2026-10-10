@@ -1284,11 +1284,20 @@ func _throw_settings(v: VBoxContainer) -> void:
 func _page_settings() -> void:
 	var c := _clear()
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(700, 0)
+	panel.custom_minimum_size = Vector2(1400, 0)
 	c.add_child(panel)
+	var outer := UI.vbox(12)
+	panel.add_child(outer)
+	outer.add_child(UI.label("SETTINGS", 44, UI.NEON))
+	# two columns: one tall list ran off the bottom of the screen
+	var cols := UI.hbox(40)
+	outer.add_child(cols)
 	var v := UI.vbox(12)
-	panel.add_child(v)
-	v.add_child(UI.label("SETTINGS", 44, UI.NEON))
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cols.add_child(v)
+	var right := UI.vbox(12)
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cols.add_child(right)
 	for key in ["master_volume", "music_volume", "sfx_volume", "screen_shake", "rumble"]:
 		var k: String = key
 		v.add_child(UI.label(k.replace("_", " ").capitalize(), 20))
@@ -1312,8 +1321,8 @@ func _page_settings() -> void:
 					Online.disconnect_services()
 			elif k2 == "share_records" and on:
 				Online.sync_local_records())
-		v.add_child(cb)
-	_throw_settings(v)
+		right.add_child(cb)
+	_throw_settings(right)
 	var fh := UI.hbox()
 	fh.add_child(UI.label("Max FPS", 20))
 	var fo := OptionButton.new()
@@ -1327,4 +1336,4 @@ func _page_settings() -> void:
 	var sh := UI.hbox(16)
 	sh.add_child(UI.button("CONTROLS", func(): show_page("controls"), 22))
 	sh.add_child(_back_button())
-	v.add_child(sh)
+	outer.add_child(sh)

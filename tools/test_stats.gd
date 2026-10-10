@@ -38,6 +38,8 @@ func _physics_process(_dt: float) -> bool:
 		DirAccess.remove_absolute(FILE)
 		Stats.use_file(FILE)
 		G.main = root
+		G.settings.default_throw = 0          # this machine's settings must not pick the throw
+		G.settings.throw_order = [0, 1, 2, 3, 4, 5]
 		G.records.erase(ID)
 		lvl = G.play_level(_level())
 		lvl.runners[0].inp.mouse_world_fn = func() -> Vector2: return aim

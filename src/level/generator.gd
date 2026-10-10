@@ -14,6 +14,9 @@ const Themes = preload("res://src/core/theme_db.gd")
 
 const T := 32                 # tile size in px
 const RUN_TILES_PER_SEC := 17.0
+## Running empty-handed (Player.RUN_SPEED 858 px/s): how most of a course is
+## run (throw it ahead, chase it). Timed pieces are synced to this.
+const RUN_EMPTY := 858.0 / T
 ## 2: slide tunnels got a 48px ceiling (older saves are repaired on load)
 ## 3: long disc bridges
 ## 4: throw puzzles (roller plates, hammer lobs, chase gaps), stacked lanes,
@@ -22,7 +25,11 @@ const RUN_TILES_PER_SEC := 17.0
 ##    mandatory hammer lobs, any-throw fence lanes (roller-only lanes are rare,
 ##    signposted early and end on an uphill backstop), jump / slide laser
 ##    hurdles, mixed-up stacked lanes, climbing and descending courses
-const VERSION := 5
+## 6: lob skylights (an optional forward lob through a mesa's skylight opens its tunnel),
+##    vent shafts (an updraft up an enclosed tunnel) and drop shafts, green
+##    waves, switchbacks, drop wells, glass floors, lift shafts, pad climbs,
+##    tailwind gaps, pit launches, slide chutes, ring ledges
+const VERSION := 6
 ## Long disc bridges span at least this many tiles (> max double-jump reach).
 const LONG_BRIDGE_MIN := 52
 const SLIDE_CEIL := 1.5        # slide tunnel ceiling height, tiles
@@ -33,6 +40,26 @@ const CHASE_GAP_MIN := 24
 const CHASE_GAP_MAX := 28
 ## Slick walls this tall can't be jumped over (jump + double jump ~9 tiles).
 const WALL_TALL := 12
+## Lob skylight: the mesa's tunnel headroom and length, how far in from its
+## front the skylight is, its width, and how far under the roof the ring
+## hangs (tools/piece_check.gd: forward lobs get through, flat throws don't).
+const LOB_TUNNEL_H := 4
+const LOB_MESA_L := [20, 26]
+const LOB_SKY_IN := [5, 8]
+const LOB_SKY_W := 3
+const LOB_SKY_RING_Y := 0.9
+## Tailwind gap: wider than an empty-handed slide jump (~37.7 tiles); the wind
+## (px/s^2 along x) adds ~16 tiles to a jump + double jump: empty-handed
+## (~33.7) clears it with room to spare, carrying the disc (~18.5) can't.
+const TAILWIND_GAP := [40, 44]
+## Pad climb: where the next island starts / where a full-speed empty-handed
+## flight off a pad comes down, in tiles past the pad.
+const PAD_LAND := [11, 30]
+const TAILWIND_FORCE := 650.0
+## Pit launch: pad aim, power, and how far above the entry floor the top is.
+const PIT_LAUNCH_DIR := [0.15, -1.0]
+const PIT_LAUNCH_POWER := 1850
+const PIT_LAUNCH_RISE := [8, 10]
 ## Lob wall ring: tiles behind the wall's back face / above the floor
 ## (tuned with tools/piece_check.gd so a hammer gets there and flat throws don't).
 const LOB_RING_X := [3.0, 5.0]
@@ -84,6 +111,22 @@ const SEGMENTS := {
 	# big height changes: mostly on climbing / descending courses (see PROFILES)
 	"climb_shaft":   {"w": 1.0,  "min_d": 0.0, "dir": -1},
 	"cascade":       {"w": 1.0,  "min_d": 0.0, "dir": 1},
+	# vertical tunnels: on any course
+	"vent_shaft":    {"w": 3.0,  "min_d": 0.1, "dir": -1},
+	"drop_shaft":    {"w": 3.0,  "min_d": 0.0, "dir": 1},
+	# optional forward lob: the throw is the fast way, the canyon the slow one
+	"lob_skylight":  {"w": 4.0,  "min_d": 0.15, "dir": 0, "disc": true, "style": "throw"},
+	# v6 pieces
+	"green_wave":    {"w": 3.0,  "min_d": 0.2, "dir": 0, "style": "throw"},
+	"switchback":    {"w": 2.5,  "min_d": 0.1, "dir": -1},
+	"drop_well":     {"w": 2.5,  "min_d": 0.0, "dir": 1},
+	"glass_floor":   {"w": 3.0,  "min_d": 0.1, "dir": 1, "disc": true, "style": "throw"},
+	"lift_shaft":    {"w": 2.5,  "min_d": 0.25, "dir": -1},
+	"pad_climb":     {"w": 2.5,  "min_d": 0.0, "dir": -1},
+	"tailwind_gap":  {"w": 2.0,  "min_d": 0.2, "dir": 0, "style": "throw"},
+	"pit_launch":    {"w": 2.5,  "min_d": 0.1, "dir": -1},
+	"slide_chute":   {"w": 3.0,  "min_d": 0.0, "dir": 1},
+	"ring_ledges":   {"w": 2.5,  "min_d": 0.15, "dir": -1, "disc": true},
 }
 
 ## Course shapes: most run along, some climb or descend a long way.
@@ -99,16 +142,16 @@ const PROFILE_ONLY := {"climb_shaft": "climb", "cascade": "descent"}
 
 ## Segments that end at speed (slopes, boosters, pads): a chase gap right
 ## after one could be cleared with the disc in hand.
-const FAST_EXITS := ["slope_run", "ramp_jump", "booster_gap", "bounce", "slide_tunnel", "roll_lane", "throw_lane", "bonus_ring", "cascade"]
+const FAST_EXITS := ["slide_chute", "tailwind_gap", "pit_launch", "slope_run", "ramp_jump", "booster_gap", "bounce", "slide_tunnel", "roll_lane", "throw_lane", "bonus_ring", "cascade"]
 
 const THEME_BIAS := {
-	"field": {"run_gaps": 1.5, "disc_gate": 1.6, "hammer_wall": 1.5, "bounce": 1.2, "chase_gap": 1.5, "bonus_ring": 1.4},
-	"cyber": {"lasers": 2.0, "slide_tunnel": 1.5, "zip_ledge": 1.4, "glass": 1.5, "throw_lane": 1.5, "stacked": 1.4},
-	"fantasy": {"swing_chain": 1.6, "grip_ceiling": 1.8, "pillars": 1.4, "wrap_block": 1.5, "bonus_ring": 1.3},
-	"heaven": {"bounce": 1.8, "updraft": 2.0, "disc_bridge": 1.6, "zip_tower": 1.4, "chase_gap": 1.4},
-	"foundry": {"saws": 2.0, "movers": 1.8, "chimney": 1.4, "booster_gap": 1.3, "throw_lane": 1.6, "stacked": 1.3},
-	"frost": {"ramp_jump": 2.0, "slide_tunnel": 1.6, "drop": 1.5, "booster_gap": 1.5, "slope_run": 3.0, "roll_lane": 1.8},
-	"canyon": {"fairway": 1.8, "crosswind": 4.0, "swing_chain": 1.3, "bounce": 1.3, "hammer_wall": 1.3, "bonus_ring": 1.5, "chase_gap": 1.3},
+	"field": {"run_gaps": 1.5, "disc_gate": 1.6, "hammer_wall": 1.5, "bounce": 1.2, "chase_gap": 1.5, "bonus_ring": 1.4, "lob_skylight": 1.4, "glass_floor": 1.2, "pad_climb": 1.2},
+	"cyber": {"lasers": 2.0, "slide_tunnel": 1.5, "zip_ledge": 1.4, "glass": 1.5, "throw_lane": 1.5, "stacked": 1.4, "drop_shaft": 1.4, "green_wave": 1.6, "switchback": 1.3},
+	"fantasy": {"swing_chain": 1.6, "grip_ceiling": 1.8, "pillars": 1.4, "wrap_block": 1.5, "bonus_ring": 1.3, "ring_ledges": 1.5, "switchback": 1.3},
+	"heaven": {"bounce": 1.8, "updraft": 2.0, "disc_bridge": 1.6, "zip_tower": 1.4, "chase_gap": 1.4, "vent_shaft": 1.6, "pad_climb": 1.5, "tailwind_gap": 1.6},
+	"foundry": {"saws": 2.0, "movers": 1.8, "chimney": 1.4, "booster_gap": 1.3, "throw_lane": 1.6, "stacked": 1.3, "vent_shaft": 1.5, "lift_shaft": 1.6, "drop_well": 1.3},
+	"frost": {"ramp_jump": 2.0, "slide_tunnel": 1.6, "drop": 1.5, "booster_gap": 1.5, "slope_run": 3.0, "roll_lane": 1.8, "slide_chute": 2.0},
+	"canyon": {"fairway": 1.8, "crosswind": 4.0, "swing_chain": 1.3, "bounce": 1.3, "hammer_wall": 1.3, "bonus_ring": 1.5, "chase_gap": 1.3, "lob_skylight": 1.5, "tailwind_gap": 1.8, "pit_launch": 1.3},
 }
 
 const DECOR := {
@@ -1377,6 +1420,409 @@ func _laser_row(x0: int, x1: int, floor_y: float, roof_y: float) -> void:
 			_ent({"t": "laser", "a": _p(lx, roof_y), "b": [int(lx * T), int(floor_y * T) - 32], "on": 1.0, "off": 0.0, "phase": 0.0}, lx, roof_y, 1, floor_y - roof_y)
 		prev = k
 		lx += ri(9, 11) if prev == "jump" else ri(6, 8)
+
+
+## Lob skylight: a mesa with a tunnel through it, its door shut. The slow way
+## is over the top: up the front, across a spiked roof, down the back. A
+## fenced skylight in the roof, a few tiles in from the front, has the ring
+## hanging under it: a forward lob that comes down steeply through the
+## skylight (a hammer, or a high soft scoober) opens the door, and the disc
+## drops onto the tunnel floor, right on your way through. Flat throws hit
+## the door or skim over the roof. Optional: miss and the roof still works.
+func seg_lob_skylight(x: int, y: int) -> Vector2i:
+	var cx := x
+	var run_up := ri(10, 14)
+	ground(cx, cx + run_up, y)
+	add_sign(cx + 2, y, "LOB")
+	cx += run_up
+	var mx := cx
+	var l := ri(LOB_MESA_L[0], LOB_MESA_L[1])
+	var roof := y - LOB_TUNNEL_H                 # underside of the roof
+	var top := roof - 2                           # the roof's top surface
+	var sk := mx + ri(LOB_SKY_IN[0], LOB_SKY_IN[1])
+	ground(cx, cx + l + 10, y)
+	block(mx, top, sk - mx, 2)
+	block(sk + LOB_SKY_W, top, mx + l - sk - LOB_SKY_W, 2)
+	fence(sk, top, LOB_SKY_W, 0.5)               # discs drop through, runners don't
+	oneway(mx - 5, y - 3, 3)                      # a step up to the roof
+	# the roof's hazards: hop the spike strips
+	var hx := sk + LOB_SKY_W + ri(3, 5)
+	while hx < mx + l - 6:
+		var sw := ri(2, 3)
+		spikes(hx, top, sw, "up")
+		hx += sw + ri(5, 7)
+	_ent({"t": "gate", "ring": _p(sk + LOB_SKY_W * 0.5, roof + LOB_SKY_RING_Y), "door": [int(mx * T), int(roof * T), T, LOB_TUNNEL_H * T],
+		"mode": "open", "slick": true, "id": rng.randi()}, mx, top, l, y - top)
+	_route(mx - 3, y)
+	_route(mx + 2, top)
+	cx = mx + l + 10
+	_route(cx, y)
+	lock(x, cx)   # no sky shortcut over the mesa: the lob is the shortcut
+	_s_est += float(cx - x) / RUN_TILES_PER_SEC + 1.8
+	return Vector2i(cx, y)
+
+# ============================================================ vertical tunnels
+
+## Vent shaft: in at the foot of an enclosed tunnel, up an updraft (hold jump
+## to rise) past spikes on the walls, out to the right under the roof at the
+## top. The walls are grippy too: wall-jumping up works, just slower.
+func seg_vent_shaft(x: int, y: int) -> Vector2i:
+	var h := ri(16, 20 + dl(0, 6))
+	var top := y - h
+	var sw := 6
+	var sx := x + 6
+	ground(x, sx + sw, y)
+	block(sx - 1, top - 6, 1, (y - 4) - (top - 6))       # left wall, open at the foot
+	ground(sx + sw, sx + sw + 12, top)                   # its fill is the right wall
+	block(sx - 1, top - 7, sw + 6, 1)                    # roof over the top and the way out
+	_ent({"t": "wind", "r": [int(sx * T), int((top - 6) * T), sw * T, int((y - top + 6) * T)], "force": [0, -3400]},
+		sx, top - 6, sw, y - top + 6)
+	# spikes on alternate walls, clear of the foot and the way out
+	var sy := y - 9    # room to slow down after running in
+	var left := chance(0.5)
+	var n := 0
+	while sy - 3 > top + 1 and n < 2 + dl(0, 3):
+		if left:
+			spikes(sx, sy - 3, 3, "right")
+		else:
+			spikes(sx + sw, sy - 3, 3, "left")
+		left = not left
+		sy -= ri(4, 6)
+		n += 1
+	_route(sx + 2, y)
+	_route(sx + sw + 10, top)
+	_s_est += 1.0 + h * 0.07
+	return Vector2i(sx + sw + 12, top)
+
+
+## Drop shaft: the floor ends at an enclosed tunnel straight down. Fall past
+## spikes on alternate walls (steer between them) and run out along the
+## corridor at the bottom.
+func seg_drop_shaft(x: int, y: int) -> Vector2i:
+	var h := ri(18, 24 + dl(0, 6))
+	var bottom := y + h
+	var sw := 5
+	var sx := x + 8
+	ground(x, sx, y)                                     # its fill is the left wall
+	block(sx + sw, y - 10, 2, (bottom - 4) - (y - 10))   # right wall, open at the bottom
+	ground(sx, sx + sw + 12, bottom)
+	# spikes on alternate walls, close enough together that you steer, not just
+	# fall. The first is on the near wall: running in, momentum takes you to
+	# the far one, so its spikes start lower down, once you've had time to steer.
+	var sy := y + 2
+	var left := true
+	var n := 0
+	while sy + 3 <= bottom - 5 and n < 2 + dl(0, 4):
+		if left:
+			spikes(sx, sy, 3, "right")
+		elif sy >= y + 6:
+			spikes(sx + sw, sy, 3, "left")
+		left = not left
+		sy += ri(4, 5)
+		n += 1
+	_route(sx - 2, y)
+	_route(sx + sw + 10, bottom)
+	_s_est += float(sx + sw + 12 - x) / RUN_TILES_PER_SEC + 0.6 + h * 0.02
+	return Vector2i(sx + sw + 12, bottom)
+
+
+# ============================================================ v6 pieces
+# Sized for running empty-handed (RUN_EMPTY): throw it ahead, chase it.
+
+## Green wave: a roofed corridor of full-height lasers blinking on and off,
+## each a little later than the one before, so a runner going flat out
+## empty-handed meets every one switched off. Carrying the disc (about half
+## the speed) falls out of step and has to stop and wait at each one. Throw
+## it down the corridor, wait for the first beam to go off, sprint.
+func seg_green_wave(x: int, y: int) -> Vector2i:
+	var n := ri(4, 5 + dl(0, 2))
+	var cyc := snappedf(rf(1.2, 1.5), 0.05)
+	var run_up := 10
+	var b0 := x + run_up
+	var beams: Array = []
+	var bx := b0
+	for i in n:
+		beams.append(bx)
+		bx += ri(9, 13)
+	var l: int = int(beams[-1]) + 8 - x
+	var roof := y - 5
+	ground(x, x + l, y)
+	block(x + run_up - 2, roof - 10, l - run_up + 2, 10)
+	var phase0 := rng.randf()
+	for b in beams:
+		# lit while (t + phase * cyc) mod cyc < on: each beam's window opens
+		# (b - b0) / RUN_EMPTY seconds after the first one's
+		var ph := fposmod(phase0 - float(b - b0) / (RUN_EMPTY * cyc), 1.0)
+		_ent({"t": "laser", "a": _p(b, roof), "b": _p(b, y), "on": cyc * 0.5, "off": cyc * 0.5, "phase": snappedf(ph, 0.001)},
+			b, roof, 1, y - roof)
+	add_sign(x + 2, y, "SPRINT")
+	_route(x + l, y)
+	lock(x, x + l)
+	_s_est += float(l) / RUN_EMPTY + cyc * 0.5 + 0.5
+	return Vector2i(x + l, y)
+
+
+## Switchback: a stairwell. Run right along the bottom, up through the gap at
+## the end, back left along the next floor, up again, and out to the right at
+## the top. Spike strips to hop on the floors of harder ones.
+func seg_switchback(x: int, y: int) -> Vector2i:
+	var k := 4 if d > 0.6 and chance(0.3) else 2    # climbs (even: the top floor runs right)
+	var w := ri(18, 24)
+	var hole := 5
+	var x0 := x + 6
+	var top := y - k * 6
+	ground(x, x0 + w, y)
+	block(x0 - 1, top - 6, 1, (y - 4) - (top - 6))     # left wall, open at the foot
+	block(x0 - 1, top - 7, w + 1, 1)                   # roof
+	ground(x0 + w, x0 + w + 10, top)                   # its fill is the right wall
+	for i in range(1, k + 1):
+		var fy := y - i * 6
+		var east := i % 2 == 1                         # where you come up into this floor
+		if east:
+			block(x0, fy, w - hole, 1)
+			oneway(x0 + w - hole + 1, fy + 3, 3)
+		else:
+			block(x0 + hole, fy, w - hole, 1)
+			oneway(x0 + 1, fy + 3, 3)
+	# hop the spikes on the floors (never under a gap you come up through)
+	if d > 0.35:
+		for i in range(0, k + 1):
+			if chance(0.5):
+				var fy2 := y - i * 6
+				spikes(x0 + hole + ri(3, w - hole * 2 - 5), fy2, 2, "up")
+	_route(x0 + w - 3, y)
+	_route(x0 + 3, y - 6)
+	_route(x0 + w + 8, top)
+	_s_est += float(w * (k + 1) + 16) / RUN_EMPTY + k * 0.45
+	return Vector2i(x0 + w + 10, top)
+
+
+## Drop well: the reverse. In along the top floor, down through the gap at its
+## end, back the other way, down again, out along the bottom. A roof keeps
+## you from hopping the wall and skipping it.
+func seg_drop_well(x: int, y: int) -> Vector2i:
+	var k := ri(2, 3)                                   # floors inside the well
+	var w := ri(18, 24)
+	var hole := 5
+	var x0 := x + 6
+	var bottom := y + k * 6
+	ground(x, x0, y)                                    # its fill is the left wall
+	block(x0, y - 5, w + 1, 1)                          # roof
+	block(x0 + w, y - 5, 1, (bottom - 4) - (y - 5))     # right wall, open at the foot
+	ground(x0, x0 + w + 10, bottom)
+	for i in k:
+		var fy := y + i * 6
+		var east := i % 2 == 0                          # the gap you drop through
+		if east:
+			block(x0, fy, w - hole, 1)
+		else:
+			block(x0 + hole, fy, w - hole, 1)
+		if d > 0.3 and chance(0.6):
+			spikes(x0 + hole + ri(3, w - hole * 2 - 5), fy, 2, "up")
+	_route(x0 + 2, y)
+	_route(x0 + w + 8, bottom)
+	_s_est += float(w * k + 16) / RUN_EMPTY + k * 0.3
+	return Vector2i(x0 + w + 10, bottom)
+
+
+## Glass floor: a pane in the floor ahead. Throw the disc down through it and
+## drop into the clear lane underneath (the disc lands in it too); or stay up
+## top and climb over the slick wall and the spikes, then drop down at the end.
+func seg_glass_floor(x: int, y: int) -> Vector2i:
+	var x0 := x + 8
+	var w := ri(34, 40)
+	var xe := x0 + w
+	var gx := x0 + ri(8, 11)
+	ground(x, x0, y)
+	block(x0, y, gx - x0, 1)
+	block(gx + 6, y, xe - gx - 6, 1)
+	_ent({"t": "glass", "r": [int(gx * T), int(y * T), 6 * T, T], "slick": true}, gx, y, 6, 1)   # wide: at full speed you still drop in
+	ground(x0, xe + 10, y + 5)
+	# up top: a slick wall to get over (the step before it helps) and spikes
+	var wx := gx + ri(11, 13)
+	slick(wx, y - 6, 1, 6)
+	oneway(wx - 5, y - 3, 3)
+	spikes(mini(wx + ri(4, 6), xe - 4), y, 3, "up")
+	add_sign(x + 2, y, "GLASS")
+	_route(x0 + 2, y)
+	_route(xe + 8, y + 5)
+	_s_est += float(xe + 10 - x) / RUN_EMPTY + 1.4
+	return Vector2i(xe + 10, y + 5)
+
+
+## Lift shaft: platforms riding up and down a shaft, one side then the other.
+## Step on one at the bottom of its run, ride it up, hop across to the next.
+## Out to the right at the top.
+func seg_lift_shaft(x: int, y: int) -> Vector2i:
+	var n := ri(2, 3)
+	var sw := 10
+	var sx := x + 6
+	var m := ri(6, 7)
+	ground(x, sx + sw, y)
+	var py := y - 2.0      # the first one bottoms out a jump up, with room to stand under it
+	var left := true
+	var period := snappedf(rf(2.6, 3.2) - d * 0.4, 0.1)
+	for i in n:
+		var px := sx + (1 if left else sw - 4)
+		_ent({"t": "mover", "r": [int(px * T), int(py * T), 3 * T, T / 2], "move": _p(0, -m), "period": period, "phase": snappedf(0.5 * i, 0.01)},
+			px, py - m - 1, 3, m + 2)
+		py -= m + 1
+		left = not left
+	var top := int(ceil(py)) + 1
+	block(sx - 1, top - 6, 1, (y - 4) - (top - 6))     # left wall, open at the foot
+	block(sx - 1, top - 7, sw + 7, 1)                  # roof
+	ground(sx + sw, sx + sw + 10, top)                 # its fill is the right wall
+	_route(sx + 2, y)
+	_route(sx + sw + 8, top)
+	_s_est += 1.0 + n * period * 0.9
+	return Vector2i(sx + sw + 10, top)
+
+
+## Pad climb: islands stepping up over a pit, a pad near the far end of each
+## that throws you up onto the next. The islands are long: a full-speed,
+## empty-handed runner flies about 28 tiles off a pad, one carrying the disc
+## about half that, and both land on the next island.
+func seg_pad_climb(x: int, y: int) -> Vector2i:
+	var cx := x
+	var cy := y
+	var n := ri(2, 3)
+	var start := cx
+	ground(cx, cx + 6, cy)
+	var pad_x := cx + 4
+	var dir := Vector2(0.45, -1.0).normalized()
+	for i in n:
+		_ent({"t": "pad", "p": _p(pad_x, cy), "dir": [dir.x, dir.y], "power": 1550}, pad_x - 1, cy - 14, 2, 14)
+		var land := pad_x + PAD_LAND[0]
+		var rise := ri(5, 6)
+		cy -= rise
+		var last := i == n - 1
+		var len := (PAD_LAND[1] - PAD_LAND[0]) + (10 if last else 2)
+		ground(land, land + len, cy)
+		_grow(pad_x, cy - 10, land - pad_x, 10)
+		_route(land + 2, cy)
+		pad_x = land + len - 3
+		cx = land + len
+	pit(start + 6, cx, y)
+	_route(cx, cy)
+	_s_est += 1.3 * n + 0.4
+	return Vector2i(cx, cy)
+
+
+## Tailwind gap: a gap too wide for any jump, with a strong tailwind blowing
+## across it. Flat out empty-handed (or off a slide) the wind carries you
+## over; carrying the disc it doesn't. Throw it over first: the wind takes the
+## disc too.
+func seg_tailwind_gap(x: int, y: int) -> Vector2i:
+	var cx := x
+	var run_up := ri(16, 20)
+	ground(cx, cx + run_up, y)
+	add_sign(cx + 2, y, "TAILWIND")
+	cx += run_up
+	var gap := ri(TAILWIND_GAP[0], TAILWIND_GAP[1])
+	pit(cx, cx + gap, y)
+	_ent({"t": "wind", "r": [int((cx - 2) * T), int((y - 14) * T), (gap + 2) * T, 16 * T], "force": [TAILWIND_FORCE, 0]},
+		cx - 2, y - 14, gap + 2, 16)
+	cx += gap
+	ground(cx, cx + 10, y)
+	cx += 10
+	_route(cx, y)
+	lock(x, cx)
+	_s_est += float(cx - x) / RUN_EMPTY + 0.6
+	return Vector2i(cx, y)
+
+
+## Pit launch: drop into a pit onto a pad that fires you straight back up, up
+## past a tall slick wall and onto the ledge high above it.
+func seg_pit_launch(x: int, y: int) -> Vector2i:
+	var cx := x
+	ground(cx, cx + 6, y)
+	cx += 6
+	var depth := ri(6, 8)
+	var pw := 8
+	var floor_y := y + depth
+	ground(cx, cx + pw, floor_y)
+	var dir := Vector2(PIT_LAUNCH_DIR[0], PIT_LAUNCH_DIR[1]).normalized()
+	# at the foot of the far wall: running in at full speed you land right on it
+	_ent({"t": "pad", "p": _p(cx + pw - 0.9, floor_y), "dir": [dir.x, dir.y], "power": PIT_LAUNCH_POWER}, cx + pw - 2, floor_y - 1, 2, 1)
+	cx += pw
+	var top := y - ri(PIT_LAUNCH_RISE[0], PIT_LAUNCH_RISE[1])
+	slick(cx, top + 1, 1, floor_y - top - 1)
+	ground(cx, cx + 12, top)
+	_grow(cx - pw, top - 10, pw + 6, 10)
+	_route(cx - pw + 2, floor_y)
+	cx += 12
+	_route(cx, top)
+	_s_est += float(cx - x) / RUN_EMPTY + 0.9
+	return Vector2i(cx, top)
+
+
+## Slide chute: a steep ramp down into a low tunnel hung with spikes (slide
+## through it at speed), out over a kicker and across a gap.
+func seg_slide_chute(x: int, y: int) -> Vector2i:
+	var cx := x
+	ground(cx, cx + 4, y)
+	cx += 4
+	var rl := ri(9, 12)
+	var rh := ri(6, 8)
+	_ramp_down(cx, y, rl, rh)
+	var fy := y + rh
+	ground(cx, cx + rl, fy)
+	cx += rl
+	var tl := ri(8, 12)
+	ground(cx, cx + tl + 6, fy)
+	block(cx, fy - SLIDE_CEIL - 8, tl, 8)
+	spikes(cx, fy - SLIDE_CEIL, tl, "down")
+	cx += tl
+	_route(cx + 1, fy)
+	cx += 2
+	var kl := 4
+	_ramp_up(cx, fy, kl, 1.5)
+	ground(cx, cx + kl, fy)
+	cx += kl
+	var gap := ri(14, 18)
+	pit(cx, cx + gap, fy)
+	cx += gap
+	var ly := fy + ri(0, 2)
+	ground(cx, cx + 8, ly)
+	_grow(cx - gap, ly - 8, gap, 8)
+	cx += 8
+	_route(cx, ly)
+	_s_est += float(cx - x) / (RUN_EMPTY * 1.1) + 0.3
+	return Vector2i(cx, ly)
+
+
+## Ring ledges: a tall slick cliff. The slow way up is the zig-zag of little
+## platforms in front of it. A ring hangs high by the cliff: hit it and a wide
+## ledge appears halfway up, a jump from the floor and a jump from the top.
+func seg_ring_ledges(x: int, y: int) -> Vector2i:
+	var cx := x
+	var run := ri(16, 20)
+	ground(cx, cx + run, y)
+	var wx := cx + run
+	var h := ri(12, 13)
+	var top := y - h
+	slick(wx, top, 1, h)          # no wall-jumping up the face
+	ground(wx + 1, wx + 12, top)
+	# the slow way: small platforms zig-zagging up in front of the cliff, a
+	# hop apart, back and forth
+	var py := y - 3
+	var left := true
+	while py > top + 1:
+		oneway(wx - (15 if left else 10), py, 3)
+		left = not left
+		py -= 3
+	# the fast way: a wide ledge a double jump up, a double jump below the top
+	# (~2 tiles to spare on each; the floor to the top is out of reach)
+	var gid := rng.randi()
+	var ledge_y := y - 6
+	_ent({"t": "gate", "ring": _p(wx - ri(5, 8), top - rf(1.5, 3.0)), "door": [int((wx - 7) * T), int(ledge_y * T), 7 * T, T / 2], "mode": "bridge", "id": gid},
+		wx - 9, top - 4, 9, y - top + 4)
+	add_sign(cx + 2, y, "RING")
+	_route(cx + 2, y)
+	cx = wx + 12
+	_route(cx, top)
+	_s_est += float(cx - x) / RUN_EMPTY + 1.6
+	return Vector2i(cx, top)
 
 
 # ============================================================ height

@@ -25,9 +25,11 @@
   - `godot4 --headless --fixed-fps 120 -s tools/test_puzzles.gd` (chase gap needs the throw, roller plate + fence, slick wall, sunken basket, laser slide/jump, bonus ring bridge, roller backstop)
   - `godot4 --headless --fixed-fps 120 -s tools/test_elo.gd` (Ranked (ELO) client vs a loopback mock of the web service: seeds, ghosts as rivals + their splits, restart key a no-op, forfeit = DNF, run kept as a replay, submit, lost-result retry, crash recovery)
   - `godot4 --headless -s tools/test_updater.gd` (self-update: newer-build check, asset pick, executable swap on Linux/Windows)
+  - `godot4 --headless --fixed-fps 120 -s tools/test_pieces.gd` (a scripted runner plays the v6 movement pieces on several seeds: green wave, tailwind gap (carrying must fail both), pad climb, pit launch, slide chute, vent/drop shafts, drop well, switchback, lift shaft, glass floor, ring ledges)
   - `tools/test_lobby.sh 14` (when touching Net: dedicated server + 14 clients, saved-course pool, all get round 1)
   - `nix build .#default` (pck export + wrapper)
 - Avoid `:=` on Variant values (Dictionary/Array element access) — Godot treats failed inference as a parse error.
+- Size pieces for running empty-handed (`Gen.RUN_EMPTY`, 858 px/s ~26.8 tiles/s; jump + double jump ~33.7 tiles, ~37.7 off a slide): that's how courses are mostly run (throw it ahead, chase it). Carrying (~15 tiles/s, ~18.5 tile jumps) is the slow case. Review new pieces with `tools/shot_segment.gd` (whole segment, zoomed to fit) and add a policy to `tools/test_pieces.gd`.
 - Throw puzzles: check new/changed ones with `tools/piece_check.gd -- <segment> <seeds>` (which throw types open them) and `tools/reach_table.gd` (jump reach carrying vs empty, sizes chase gaps). Slick (no wall-jump) and fence (runners only) solids are what stop the wall jump from skipping them; lock() keeps sky shortcuts off them.
 - Course fairness checks live in `src/level/validator.gd` (used by test_gen on generated + `levels/*.json`). Changing generator geometry: bump `Gen.VERSION` and add a `Validator.repair()` step so old pinned saves get fixed on load.
 - Disc tuning tools: `tools/range_table.gd` (max range per throw), `tools/snap_table.gd` (range vs snap timing), `tools/flight_path.gd -- out.png` (steep throws/comebacks, plots). Re-run them after touching `disc.gd` / `throw_types.gd`.

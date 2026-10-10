@@ -38,7 +38,8 @@ func _physics_process(dt: float) -> void:
 ## the small line under a course sign
 const SIGN_HINTS := {"FAIRWAY": "throw it ahead", "TUNNEL": "keep it in hand", "ROLLER": "roll it in early",
 	"THROW": "any throw through", "BONUS": "ring = booster bridge", "LASERS": "jump · slide", "CHASE": "throw it across",
-	"LOB": "drop it behind"}
+	"LOB": "drop it through the skylight", "SPRINT": "throw it, ride the wave", "GLASS": "throw it down through",
+	"TAILWIND": "full speed, empty-handed", "RING": "ring = ledge"}
 
 ## kinds whose drawing moves with time (the rest are drawn once)
 const ANIMATED := ["flag", "neon_sign", "antenna", "vent", "holo", "crystal", "cloud_puff", "chain", "ice_crystal", "tumbleweed", "sign"]
@@ -233,7 +234,7 @@ func _draw_timed() -> void:
 			draw_rect(rr, Color(0.02, 0.02, 0.05, 0.9))
 			draw_rect(rr, col * (0.85 + 0.15 * sin(t * 3.0)), false, 3.0)
 			draw_string(ThemeDB.fallback_font, Vector2(-w * 0.5, -80), text, HORIZONTAL_ALIGNMENT_CENTER, w, 20, col)
-			var hint: String = SIGN_HINTS.get(text, "pick a lane" if text.ends_with("LANES") else "keep it in hand")
+			var hint: String = SIGN_HINTS.get(text, "pick a lane" if text.ends_with("LANES") else "")
 			draw_string(ThemeDB.fallback_font, Vector2(-w * 0.5 - 20, -58), hint, HORIZONTAL_ALIGNMENT_CENTER, w + 40, 13, Color(0.9, 0.9, 1.0, 0.8))
 		_:
 			draw_circle(Vector2(0, -8), 8, dark)
