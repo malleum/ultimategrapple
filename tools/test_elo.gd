@@ -172,7 +172,9 @@ func _run() -> void:
 		"seed %s, no ghosts" % str(g1.get("seed")))
 	var q: Dictionary = _calls("/next-seed")[0]
 	_check("headers", str(q.headers.get("x-ug-uid", "")).length() == 16 and str(q.headers.get("x-ug-key", "")).length() == 32
-		and str(q.headers.get("x-ug-name", "")) != "", "identity headers sent")
+		and str(q.headers.get("x-ug-name", "")) != "" and str(q.headers.get("x-ug-uid", "")) == E.uid
+		and str(q.headers.get("x-ug-uid", "")) != root.get_node("Online").uid
+		and str(q.headers.get("x-ug-key", "")) != str(root.get_node("Online").get("_key")), "ELO-only identity headers sent, not the Online key")
 	_check("versions", int(q.body.get("gen_version", 0)) == LevelGen.VERSION and int(q.body.get("replay_version", 0)) == G.REPLAY_VERSION
 		and int(q.body.get("board_version", 0)) == G.BOARD_VERSION and str(q.body.get("request_id", "")) != "", "versions + request id in the body")
 	_check("open", E.is_open() and FileAccess.file_exists("user://elo.json"), "game is open and saved")

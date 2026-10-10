@@ -331,11 +331,6 @@ func _on_dropped() -> void:
 		_retry_t = RECONNECT_T
 
 
-## The secret half of our identity (the ELO service authenticates with it too).
-func key() -> String:
-	return _key
-
-
 func _my_name() -> String:
 	if name_override != "":
 		return name_override

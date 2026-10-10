@@ -4,8 +4,9 @@ extends Node
 ## restart, quit or crash on an open game is a DNF. Seeds already played by
 ## others come with the best / median / worst ghost to race.
 ##
-## Auth is the Online identity (user://online_id.json): X-UG-Uid / X-UG-Key
-## headers, X-UG-Name percent-encoded. Contract: POST next-seed, POST submit,
+## Auth is an ELO-only identity (user://elo_id.json, made on first use): X-UG-Uid /
+## X-UG-Key headers, X-UG-Name percent-encoded. Never the Online key: the ELO
+## service is run by someone else, and that key signs leaderboard runs. Contract: POST next-seed, POST submit,
 ## GET ghost/<run_id>, GET rating, GET ladder.
 ##
 ## Every call takes a callback and calls it once: cb(ok: bool, data: Dictionary).
@@ -15,11 +16,14 @@ const LevelGen = preload("res://src/level/generator.gd")
 
 const BASE_URL := "https://rhysfuller.com/ug"
 const STATE_PATH := "user://elo.json"
+const ID_PATH := "user://elo_id.json"
 const TIMEOUT := 20.0
 const GZIP_OVER := 4096          # request bodies bigger than this are gzipped
 const SET_SIZE := 3
 
 var base_url := BASE_URL
+var uid := ""                    # ELO identity, separate from Online.uid
+var _key := ""
 var open := {}                   # the game being played: {run_id, game_number, seed, ..., ghosts: [...]}
 var unsent := {}                 # a result the service has not acknowledged yet (submit body)
 var last_result := {}            # the latest submit answer
@@ -36,6 +40,7 @@ func _ready() -> void:
 			base_url = a.get_slice("=", 1).trim_suffix("/")
 	if Game.server_mode:
 		return
+	_load_identity()
 	_load_state()
 	recover()
 
@@ -255,7 +260,7 @@ func _call(method: int, path: String, body, cb: Callable) -> void:
 	var h := HTTPRequest.new()
 	h.timeout = TIMEOUT
 	add_child(h)
-	var headers := PackedStringArray(["X-UG-Uid: " + Online.uid, "X-UG-Key: " + Online.key(),
+	var headers := PackedStringArray(["X-UG-Uid: " + uid, "X-UG-Key: " + _key,
 		"X-UG-Name: " + my_name().uri_encode(), "Accept: application/json"])
 	var raw := PackedByteArray()
 	if body != null:
@@ -284,6 +289,21 @@ func _call(method: int, path: String, body, cb: Callable) -> void:
 
 
 # ------------------------------------------------------------------ persistence
+
+func _load_identity() -> void:
+	var f := FileAccess.open(ID_PATH, FileAccess.READ)
+	var d = JSON.parse_string(f.get_as_text()) if f else null
+	if d is Dictionary and str(d.get("uid", "")).length() == 16 and str(d.get("key", "")).length() == 32:
+		uid = str(d.uid)
+		_key = str(d.key)
+		return
+	var c := Crypto.new()
+	uid = c.generate_random_bytes(8).hex_encode()
+	_key = c.generate_random_bytes(16).hex_encode()
+	var w := FileAccess.open(ID_PATH, FileAccess.WRITE)
+	if w:
+		w.store_string(JSON.stringify({"uid": uid, "key": _key}))
+
 
 func _load_state() -> void:
 	var f := FileAccess.open(STATE_PATH, FileAccess.READ)

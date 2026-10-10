@@ -399,7 +399,7 @@ func _page_elo() -> void:
 			return
 		lt.queue_free()
 		for e in list:
-			var mine := str(e.get("uid", "")) == Online.uid
+			var mine := str(e.get("uid", "")) == Elo.uid
 			ladder.add_child(UI.label("%2d.  %-18s %5d   (%d games)" % [int(e.get("rank", 0)), str(e.get("name", "?")).substr(0, 18),
 				int(round(float(e.get("rating", 0)))), int(e.get("rated_games", 0))], 18, Color(1, 0.85, 0.35) if mine else Color(0.9, 0.97, 1))))
 
