@@ -323,6 +323,7 @@ var return_to := {"page": "title"}
 ## page "": back where you came from (return_to).
 func goto_menu(page: String = "") -> void:
 	Net.leave_if_solo()
+	Elo.forfeit()   # leaving an ELO game that is still open is a DNF
 	var m := MenuScript.new()
 	m.start_page = page if page != "" else str(return_to.get("page", "title"))
 	change_scene(m)
@@ -336,7 +337,7 @@ func play_level(data: Dictionary, mode: String = "solo", local_players: Array = 
 	lvl.local_players = local_players
 	lvl.replay = replay
 	lvl.rival = rival
-	if mode == "solo":
+	if mode == "solo" and not data.has("elo"):
 		_note_recent(str(data.get("id", "")))
 	change_scene(lvl)
 	return lvl
@@ -995,6 +996,17 @@ func _poll_export() -> void:
 func start_random(seed_value: int, theme: String, difficulty: float, length: int) -> void:
 	session = {"kind": "random", "theme": theme, "difficulty": difficulty, "length": length}
 	play_level(generate_level(seed_value, theme, difficulty, length))
+
+
+## An ELO run game from Elo.next_game: the seed's course, raced against the
+## ghosts the service sent. One go per seed, so nothing about it is saved
+## locally as a record (restart = DNF, see Level.user_restart).
+func start_elo(info: Dictionary) -> void:
+	session = {"kind": "elo"}
+	var data := generate_level(int(info.seed), str(info.get("theme", "")), float(info.get("difficulty", 0.5)), int(info.get("length", 12)))
+	data["elo"] = {"run_id": str(info.run_id), "game_number": int(info.get("game_number", 0)), "seed": int(info.seed)}
+	var ghosts: Array = info.get("ghost_runs", []) if info.get("ghost_runs") is Array else []
+	play_level(data, "solo", [], {}, Elo.rival_from(ghosts))
 
 
 func start_pinned(index: int) -> void:

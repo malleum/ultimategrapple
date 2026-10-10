@@ -150,9 +150,18 @@ Matches) with a notice, and they race your ghost, name and all, on the same cour
 results card says who won and by how much. Older `.ugr` files can still be dropped on the
 window or loaded with IMPORT FRIEND'S RUN.
 
+## ELO run
+
+Menu → ELO RUN. Each game is one run on a generated course whose seed the ELO service hands out; you never
+get the same seed twice. Seeds come in sets of 3 that everyone plays in a shuffled order, so players meet
+the same seeds at about the same time. A seed someone already played comes with the best, median and worst
+ghost to race. Restart (press twice), quit or a crash after the seed is shown is a DNF: the seed is spent.
+Your rating (Elo, start 1000) moves against the average time on each seed, and only counts once a second
+player has played that seed.
+
 ## Stats
 
-**Menu.** COURSES · RANDOM (seed / theme / difficulty, or QUICK RANDOM) · LEADERBOARDS ·
+**Menu.** COURSES · RANDOM (seed / theme / difficulty, or QUICK RANDOM) · ELO RUN (one run per seed, rated against everyone who played it) · LEADERBOARDS ·
 REPLAYS · STATS · MULTIPLAYER (tabs: ONLINE, which joins the public server straight away,
 COUCH VERSUS and LAN) · SETTINGS (CONTROLS and rebinding inside); QUIT is in the top-right
 corner. Leaving a course or a replay takes you back to the page you came from (the same

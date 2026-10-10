@@ -16,6 +16,7 @@ const Mover = preload("res://src/world/mover.gd")
 const Basket = preload("res://src/world/basket.gd")
 const Decor = preload("res://src/world/decor.gd")
 const Ghost = preload("res://src/player/ghost.gd")
+const Bindings = preload("res://src/core/bindings.gd")
 const Runner = preload("res://src/level/runner.gd")
 const PlayerInput = preload("res://src/core/player_input.gd")
 const Validator = preload("res://src/level/validator.gd")
@@ -359,6 +360,39 @@ func restart_when_released() -> void:
 	_restart_pending = true
 
 
+## ELO run game: one go per seed.
+func is_elo() -> bool:
+	return mode == "solo" and level_data.has("elo")
+
+
+var _elo_confirm := 0     # physics ticks left to confirm a forfeit
+const ELO_CONFIRM_TICKS := 240
+
+
+## The restart key in a time trial. In an ELO game, once the run has begun a
+## restart is the end of it (DNF), so it asks twice.
+func user_restart() -> void:
+	if not is_elo():
+		restart()
+		return
+	var r = runners[0]
+	if r.done:
+		return
+	if not r.running:   # nothing begun yet: a free reset
+		restart()
+		return
+	if _elo_confirm > 0:
+		elo_forfeit()
+	else:
+		_elo_confirm = ELO_CONFIRM_TICKS
+		r.hud.popup("%s AGAIN TO FORFEIT (DNF)" % Bindings.label("restart").to_upper(), Color(2, 0.5, 0.3))
+
+
+func elo_forfeit() -> void:
+	_elo_confirm = 0
+	Game.goto_menu("elo")   # leaving an open ELO game sends the DNF
+
+
 func _inputs_held() -> bool:
 	for a in HELD_ACTIONS:
 		if InputMap.has_action(a) and Input.is_action_pressed(a):
@@ -403,6 +437,8 @@ func update_view() -> void:
 
 
 func _physics_process_timed(dt: float) -> void:
+	if _elo_confirm > 0:
+		_elo_confirm -= 1
 	if _restart_pending and not _inputs_held():
 		restart()
 	update_view()
