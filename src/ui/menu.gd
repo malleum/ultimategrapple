@@ -267,7 +267,11 @@ func _page_title() -> void:
 	v.add_child(col)
 	col.add_child(UI.button("COURSES", func(): show_page("courses"), 30))
 	col.add_child(UI.button("RANDOM", func(): show_page("random"), 30))
-	col.add_child(UI.button("RANKED", func(): show_page("elo"), 30))
+	var ranked := UI.button("RANKED" if Elo.playable() else "RANKED  ·  WIP", func(): show_page("elo"), 30)
+	if not Elo.playable():
+		ranked.modulate = Color(1, 1, 1, 0.4)   # greyed: opens the ratings, play is closed
+		ranked.tooltip_text = "Work in progress: see the ratings"
+	col.add_child(ranked)
 	col.add_child(UI.button("LEADERBOARDS", func(): _page_leaderboards(), 30))   # the main boards (not the last list)
 	col.add_child(UI.button("REPLAYS", func(): show_page("replays"), 30))
 	col.add_child(UI.button("STATS", func(): show_page("stats"), 30))
@@ -341,24 +345,17 @@ func _page_random() -> void:
 func _page_elo() -> void:
 	var c := _clear()
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(820, 0)
+	panel.custom_minimum_size = Vector2(900, 0)
 	c.add_child(panel)
 	var v := UI.vbox(14)
 	panel.add_child(v)
 	v.add_child(UI.label("RANKED", 48, UI.NEON))
-	var rl := UI.label("Rating …", 34, Color(1, 0.85, 0.35))
-	v.add_child(rl)
-	var il := UI.label("", 20, UI.DIM)
-	v.add_child(il)
-	var rules := UI.label("One run per seed, ever: no restarts. Quitting (pause → forfeit) or a crash is a DNF and the seed is gone. " + \
-		"Seeds others have played come with the best, median and worst ghost and their splits. Your rating moves against the average time on each seed. Every ranked run is kept in REPLAYS.", 17, UI.DIM)
-	rules.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	v.add_child(rules)
-	var status := UI.label("", 20, Color(0.5, 0.9, 1.0))
+	var status := UI.label("" if Elo.playable() else "Work in progress: ranked games are closed for now. The ratings below are live from the ranked service.", 18, UI.DIM)
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(status)
 	var h := UI.hbox()
-	var play := UI.button("PLAY NEXT GAME", func(): pass, 30)
+	var play := UI.button("PLAY NEXT GAME" if Elo.playable() else "PLAY  ·  COMING SOON", func(): pass, 30)
+	play.disabled = not Elo.playable()
 	play.pressed.connect(func():
 		play.disabled = true
 		status.text = "Getting your seed…"
@@ -366,43 +363,66 @@ func _page_elo() -> void:
 			if ok:
 				Game.start_elo(d)
 			elif is_instance_valid(status):
-				play.disabled = false
+				play.disabled = not Elo.playable()
 				status.text = str(d.get("message", "No answer"))))
 	h.add_child(play)
+	h.add_child(UI.button("OPEN " + Elo.BASE_URL.trim_prefix("https://"), func(): OS.shell_open(Elo.BASE_URL + "/"), 20))
 	h.add_child(_back_button())
 	v.add_child(h)
-	v.add_child(UI.label("LADDER", 26, UI.NEON))
-	var ladder := UI.vbox(2)
-	v.add_child(ladder)
+	v.add_child(UI.label("RATINGS", 26, UI.NEON))
+	var grid := GridContainer.new()
+	grid.columns = Elo.SITE_COLS.size()
+	grid.add_theme_constant_override("h_separation", 26)
+	grid.add_theme_constant_override("v_separation", 6)
+	v.add_child(grid)
 	var lt := UI.label("Loading…", 18, UI.DIM)
-	ladder.add_child(lt)
+	v.add_child(lt)
 	if Elo.is_open():
 		status.text = "An unfinished game was forfeited."
 	Elo.recover()
-	Elo.fetch_rating(func(ok: bool, d: Dictionary):
-		if not is_instance_valid(rl):
-			return
-		if not ok:
-			rl.text = "Rating unavailable"
-			status.text = str(d.get("message", ""))
-			return
-		var gp := int(d.get("games_played", 0))
-		var rated := int(d.get("rated_games", 0))
-		rl.text = ("Rating %d" % int(round(float(d.get("rating", 1000))))) + ("  (provisional)" if bool(d.get("provisional", true)) else "") + \
-			("   ·   ladder #%d" % int(d.ladder_rank) if int(d.get("ladder_rank", 0)) > 0 else "")
-		il.text = "Next: game %d  ·  set %d, seed %d of 3  ·  %d rated, %d pending" % [gp + 1, Elo.set_of(gp + 1), Elo.set_position(gp + 1), rated, int(d.get("pending_games", 0))])
-	Elo.fetch_ladder(10, func(ok: bool, d: Dictionary):
+	if Elo.playable():
+		var rl := UI.label("Rating …", 26, Color(1, 0.85, 0.35))
+		v.add_child(rl)
+		v.move_child(rl, 1)
+		Elo.fetch_rating(func(ok: bool, d: Dictionary):
+			if not is_instance_valid(rl):
+				return
+			if not ok:
+				rl.text = "Rating unavailable"
+				return
+			var gp := int(d.get("games_played", 0))
+			rl.text = ("Rating %d" % int(round(float(d.get("rating", 1000))))) + ("  (provisional)" if bool(d.get("provisional", true)) else "") + \
+				"   ·   next: game %d, set %d, seed %d of 3" % [gp + 1, Elo.set_of(gp + 1), Elo.set_position(gp + 1)])
+	Elo.fetch_site_ratings(func(ok: bool, d: Dictionary):
 		if not is_instance_valid(lt):
 			return
-		var list: Array = d.get("entries", []) if ok and d.get("entries") is Array else []
-		if list.is_empty():
-			lt.text = "No rated players yet." if ok else "Ladder unavailable"
+		var rows: Array = d.get("rows", []) if ok else []
+		if rows.is_empty():
+			lt.text = "No rated players yet." if ok else str(d.get("message", "Ratings unavailable"))
 			return
-		lt.queue_free()
-		for e in list:
-			var mine := str(e.get("uid", "")) == Elo.uid
-			ladder.add_child(UI.label("%2d.  %-18s %5d   (%d games)" % [int(e.get("rank", 0)), str(e.get("name", "?")).substr(0, 18),
-				int(round(float(e.get("rating", 0)))), int(e.get("rated_games", 0))], 18, Color(1, 0.85, 0.35) if mine else Color(0.9, 0.97, 1))))
+		lt.text = "? = provisional (under 5 rated games). Pending = games waiting for a second player on that seed."
+		for head in ["#", "PLAYER", "UG RATING", "GAMES", "FINISHED", "DNF", "RATED", "PENDING"]:
+			grid.add_child(UI.label(head, 14, UI.DIM, HORIZONTAL_ALIGNMENT_LEFT if head == "PLAYER" else HORIZONTAL_ALIGNMENT_RIGHT))
+		var me := Elo.my_name()
+		for row in rows:
+			var name_col := Color.html(str(row.color)) if Color.html_is_valid(str(row.color)) else Color(0.9, 0.97, 1)
+			for k in Elo.SITE_COLS:
+				var txt := str(row.get(k, ""))
+				var col := Color(0.9, 0.97, 1)
+				if k == "name":
+					txt = "● " + txt
+					col = name_col
+				elif k == "rating":
+					col = Color(0.55, 0.65, 1.0)
+				elif k == "rank" and txt in ["1", "2", "3"]:
+					col = UI.podium_color(int(txt))
+				elif k == "pending":
+					col = UI.DIM
+				var l := UI.label(txt, 18, col, HORIZONTAL_ALIGNMENT_LEFT if k == "name" else HORIZONTAL_ALIGNMENT_RIGHT)
+				if k == "name" and str(row.get("name", "")) == me:
+					l.add_theme_color_override("font_outline_color", Color(1, 0.85, 0.35))
+					l.add_theme_constant_override("outline_size", 2)
+				grid.add_child(l))
 
 
 # ------------------------------------------------------------------ multiplayer

@@ -15,6 +15,9 @@ extends Node
 const LevelGen = preload("res://src/level/generator.gd")
 
 const BASE_URL := "https://rhysfuller.com/ug"
+## Ranked is a work in progress: no seeds from the live service until this is
+## flipped back on. (A test pointing base_url at its own mock still plays.)
+const PLAYABLE := false
 const STATE_PATH := "user://elo.json"
 const ID_PATH := "user://elo_id.json"
 const TIMEOUT := 20.0
@@ -64,6 +67,9 @@ static func set_position(game_number: int) -> int:
 ## Ask for the next seed (plus ghosts, downloaded). cb(true, game) where game =
 ## the service's answer + "ghost_runs": [{role, name, color, time, frames}].
 func next_game(cb: Callable) -> void:
+	if not playable():
+		_done.call_deferred(cb, false, {"code": 0, "error": "closed", "message": "Ranked is a work in progress: not open yet"})
+		return
 	if _busy:
 		_done(cb, false, {"message": "Already waiting for the service"})
 		return
@@ -235,6 +241,56 @@ func recover() -> void:
 
 
 # ------------------------------------------------------------------ rating / ladder
+
+func playable() -> bool:
+	return PLAYABLE or base_url != BASE_URL
+
+
+## The ratings table at the top of the service's public page, as rows of
+## {rank, name, color, rating, games, finished, dnf, rated, pending} (strings,
+## as shown there). Plain GET, no identity headers. cb(ok, {"rows": [...]}).
+func fetch_site_ratings(cb: Callable) -> void:
+	var h := HTTPRequest.new()
+	h.timeout = TIMEOUT
+	add_child(h)
+	h.request_completed.connect(func(result: int, code: int, _h: PackedStringArray, resp: PackedByteArray):
+		h.queue_free()
+		if result != HTTPRequest.RESULT_SUCCESS or code < 200 or code >= 300:
+			_done(cb, false, {"code": code, "error": "network", "message": "Can't reach %s" % BASE_URL})
+			return
+		_done(cb, true, {"rows": parse_site_ratings(resp.get_string_from_utf8())}))
+	if h.request(BASE_URL + "/") != OK:
+		h.queue_free()
+		_done.call_deferred(cb, false, {"code": 0, "error": "network", "message": "Can't reach %s" % BASE_URL})
+
+
+const SITE_COLS := ["rank", "name", "rating", "games", "finished", "dnf", "rated", "pending"]
+
+
+static func parse_site_ratings(html: String) -> Array:
+	var out: Array = []
+	var a := html.find("<table")
+	var b := html.find("</table>", a)
+	if a < 0 or b < 0:
+		return out
+	var table := html.substr(a, b - a)
+	var tr := RegEx.create_from_string("(?s)<tr>(.*?)</tr>")
+	var td := RegEx.create_from_string("(?s)<td[^>]*>(.*?)</td>")
+	var tag := RegEx.create_from_string("<[^>]*>")
+	var ws := RegEx.create_from_string("\\s+")
+	var col := RegEx.create_from_string("background:\\s*(#[0-9a-fA-F]{3,8})")
+	for m in tr.search_all(table):
+		var cells := td.search_all(m.get_string(1))
+		if cells.size() < SITE_COLS.size():
+			continue   # the header row (th) or something unexpected
+		var row := {}
+		for i in SITE_COLS.size():
+			row[SITE_COLS[i]] = ws.sub(tag.sub(cells[i].get_string(1), "", true), " ", true).strip_edges().replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&#39;", "'").replace("&quot;", "\"")
+		var cm := col.search(cells[1].get_string(1))
+		row["color"] = cm.get_string(1) if cm else ""
+		out.append(row)
+	return out
+
 
 func fetch_rating(cb: Callable) -> void:
 	_call(HTTPClient.METHOD_GET, "/rating", null, cb)

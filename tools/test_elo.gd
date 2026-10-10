@@ -205,7 +205,7 @@ func _run() -> void:
 	await _wait(func(): return not is_instance_id_valid(lvl_id) and _scene() != null and _scene().get("page") != null)
 	_check("menu", _scene().get("page") == "elo", "back on the ELO page")
 	await _wait(func(): return not _calls("/rating").is_empty() and not _calls("/ladder").is_empty())
-	_check("page", not _calls("/rating").is_empty() and not _calls("/ladder").is_empty(), "ELO page asked for rating + ladder")
+	_check("page", not _calls("/rating").is_empty(), "ELO page asked for your rating")
 
 	# --- second game: ghosts
 	r = await _next_game()
