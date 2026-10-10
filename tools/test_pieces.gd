@@ -4,8 +4,6 @@ extends SceneTree
 ## it with a simple per-piece policy, and checks it reaches the segment's end
 ## with no deaths (or, for carry cases that the piece is meant to stop, that
 ## it doesn't). Empty-handed is the common case (throw it ahead, chase it).
-##   green_wave    sprinting the wave empty-handed clears every beam; carrying
-##                 the disc falls out of step
 ##   tailwind_gap  the wind carries a full-speed jump over; carrying it doesn't
 ##   pad_climb, pit_launch, slide_chute, vent_shaft, drop_shaft, drop_well,
 ##   switchback, lift_shaft: the intended way through works, several seeds
@@ -48,11 +46,9 @@ func _initialize() -> void:
 	if OS.get_environment("SEED") != "":
 		seeds = [int(OS.get_environment("SEED"))]
 	for sd in seeds:
-		cases.append({"piece": "green_wave", "seed": sd, "carry": false, "pass": true})
 		cases.append({"piece": "tailwind_gap", "seed": sd, "carry": false, "pass": true})
 		for pc in ["pad_climb", "pit_launch", "slide_chute", "vent_shaft", "drop_shaft", "drop_well", "switchback", "lift_shaft", "glass_floor", "ring_ledges"]:
 			cases.append({"piece": pc, "seed": sd, "carry": false, "pass": true})
-	cases.append({"piece": "green_wave", "seed": 11, "carry": true, "pass": false})
 	cases.append({"piece": "tailwind_gap", "seed": 11, "carry": true, "pass": false})
 	if only != "":
 		cases = cases.filter(func(e): return e.piece == only)
@@ -153,21 +149,6 @@ func _drive() -> void:
 	if st.has("hop") and f - int(st.hop) == 14 and c.piece in ["drop_well", "switchback"]:
 		Input.action_release("jump")
 	match c.piece:
-		"green_wave":
-			# walk up to the first beam, wait for it to switch off, sprint
-			var beams: Array = _lasers()
-			var b0: float = beams[0].a.x if not beams.is_empty() else INF
-			if not st.has("go"):
-				var near := px > b0 - 3.0 * T
-				_hold("move_right", not near)
-				var z = beams[0] if not beams.is_empty() else null
-				if near and z and st.has("was_lit") and st.was_lit and not z.lit:
-					st["go"] = true
-				st["was_lit"] = z.lit if z else false
-				if f > 900:
-					st["go"] = true
-			else:
-				_hold("move_right", true)
 		"tailwind_gap":
 			_hold("move_right", true)
 			var edge := _gap_edge()
@@ -317,15 +298,6 @@ func _climb_zigzag() -> void:
 				st.erase("jt")
 		return
 	_hold("move_right", px < wall_x - 16.0 * T)
-
-
-func _lasers() -> Array:
-	var out: Array = []
-	for n in lvl.world.get_children():
-		if n.has_meta("laser"):
-			out.append(n)
-	out.sort_custom(func(a, b): return a.a.x < b.a.x)
-	return out
 
 
 func _gap_edge() -> float:

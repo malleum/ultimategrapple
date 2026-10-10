@@ -25,7 +25,7 @@
   - `godot4 --headless --fixed-fps 120 -s tools/test_puzzles.gd` (chase gap needs the throw, roller plate + fence, slick wall, sunken basket, laser slide/jump, bonus ring bridge, roller backstop)
   - `godot4 --headless --fixed-fps 120 -s tools/test_elo.gd` (Ranked (ELO) client vs a loopback mock of the web service: seeds, ghosts as rivals + their splits, restart key a no-op, forfeit = DNF, run kept as a replay, submit, lost-result retry, crash recovery)
   - `godot4 --headless -s tools/test_updater.gd` (self-update: newer-build check, asset pick, executable swap on Linux/Windows)
-  - `godot4 --headless --fixed-fps 120 -s tools/test_pieces.gd` (a scripted runner plays the v6 movement pieces on several seeds: green wave, tailwind gap (carrying must fail both), pad climb, pit launch, slide chute, vent/drop shafts, drop well, switchback, lift shaft, glass floor, ring ledges)
+  - `godot4 --headless --fixed-fps 120 -s tools/test_pieces.gd` (a scripted runner plays the v6 movement pieces on several seeds: tailwind gap (carrying must fail it), pad climb, pit launch, slide chute, vent/drop shafts, drop well, switchback, lift shaft, glass floor, ring ledges)
   - `tools/test_lobby.sh 14` (when touching Net: dedicated server + 14 clients, saved-course pool, all get round 1)
   - `nix build .#default` (pck export + wrapper)
 - Avoid `:=` on Variant values (Dictionary/Array element access) — Godot treats failed inference as a parse error.

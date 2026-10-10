@@ -26,10 +26,11 @@ const RUN_EMPTY := 858.0 / T
 ##    signposted early and end on an uphill backstop), jump / slide laser
 ##    hurdles, mixed-up stacked lanes, climbing and descending courses
 ## 6: lob skylights (an optional forward lob through a mesa's skylight opens its tunnel),
-##    vent shafts (an updraft up an enclosed tunnel) and drop shafts, green
-##    waves, switchbacks, drop wells, glass floors, lift shafts, pad climbs,
+##    vent shafts (an updraft up an enclosed tunnel) and drop shafts,
+##    switchbacks, drop wells, glass floors, lift shafts, pad climbs,
 ##    tailwind gaps, pit launches, slide chutes, ring ledges
-const VERSION := 6
+## 7: no green waves (blinking laser doors that make you wait)
+const VERSION := 7
 ## Long disc bridges span at least this many tiles (> max double-jump reach).
 const LONG_BRIDGE_MIN := 52
 const SLIDE_CEIL := 1.5        # slide tunnel ceiling height, tiles
@@ -117,7 +118,6 @@ const SEGMENTS := {
 	# optional forward lob: the throw is the fast way, the canyon the slow one
 	"lob_skylight":  {"w": 4.0,  "min_d": 0.15, "dir": 0, "disc": true, "style": "throw"},
 	# v6 pieces
-	"green_wave":    {"w": 3.0,  "min_d": 0.2, "dir": 0, "style": "throw"},
 	"switchback":    {"w": 2.5,  "min_d": 0.1, "dir": -1},
 	"drop_well":     {"w": 2.5,  "min_d": 0.0, "dir": 1},
 	"glass_floor":   {"w": 3.0,  "min_d": 0.1, "dir": 1, "disc": true, "style": "throw"},
@@ -146,7 +146,7 @@ const FAST_EXITS := ["slide_chute", "tailwind_gap", "pit_launch", "slope_run", "
 
 const THEME_BIAS := {
 	"field": {"run_gaps": 1.5, "disc_gate": 1.6, "hammer_wall": 1.5, "bounce": 1.2, "chase_gap": 1.5, "bonus_ring": 1.4, "lob_skylight": 1.4, "glass_floor": 1.2, "pad_climb": 1.2},
-	"cyber": {"lasers": 2.0, "slide_tunnel": 1.5, "zip_ledge": 1.4, "glass": 1.5, "throw_lane": 1.5, "stacked": 1.4, "drop_shaft": 1.4, "green_wave": 1.6, "switchback": 1.3},
+	"cyber": {"lasers": 2.0, "slide_tunnel": 1.5, "zip_ledge": 1.4, "glass": 1.5, "throw_lane": 1.5, "stacked": 1.4, "drop_shaft": 1.4, "switchback": 1.3},
 	"fantasy": {"swing_chain": 1.6, "grip_ceiling": 1.8, "pillars": 1.4, "wrap_block": 1.5, "bonus_ring": 1.3, "ring_ledges": 1.5, "switchback": 1.3},
 	"heaven": {"bounce": 1.8, "updraft": 2.0, "disc_bridge": 1.6, "zip_tower": 1.4, "chase_gap": 1.4, "vent_shaft": 1.6, "pad_climb": 1.5, "tailwind_gap": 1.6},
 	"foundry": {"saws": 2.0, "movers": 1.8, "chimney": 1.4, "booster_gap": 1.3, "throw_lane": 1.6, "stacked": 1.3, "vent_shaft": 1.5, "lift_shaft": 1.6, "drop_well": 1.3},
@@ -1451,7 +1451,10 @@ func seg_lob_skylight(x: int, y: int) -> Vector2i:
 		var sw := ri(2, 3)
 		spikes(hx, top, sw, "up")
 		hx += sw + ri(5, 7)
-	_ent({"t": "gate", "ring": _p(sk + LOB_SKY_W * 0.5, roof + LOB_SKY_RING_Y), "door": [int(mx * T), int(roof * T), T, LOB_TUNNEL_H * T],
+	# the door is set back in the tunnel mouth: flush with the front it met the
+	# roof block in a seam on the face you run into, and contacts on a seam
+	# between two bodies don't replay exactly
+	_ent({"t": "gate", "ring": _p(sk + LOB_SKY_W * 0.5, roof + LOB_SKY_RING_Y), "door": [int((mx + 2) * T), int(roof * T), T, LOB_TUNNEL_H * T],
 		"mode": "open", "slick": true, "id": rng.randi()}, mx, top, l, y - top)
 	_route(mx - 3, y)
 	_route(mx + 2, top)
@@ -1528,39 +1531,6 @@ func seg_drop_shaft(x: int, y: int) -> Vector2i:
 
 # ============================================================ v6 pieces
 # Sized for running empty-handed (RUN_EMPTY): throw it ahead, chase it.
-
-## Green wave: a roofed corridor of full-height lasers blinking on and off,
-## each a little later than the one before, so a runner going flat out
-## empty-handed meets every one switched off. Carrying the disc (about half
-## the speed) falls out of step and has to stop and wait at each one. Throw
-## it down the corridor, wait for the first beam to go off, sprint.
-func seg_green_wave(x: int, y: int) -> Vector2i:
-	var n := ri(4, 5 + dl(0, 2))
-	var cyc := snappedf(rf(1.2, 1.5), 0.05)
-	var run_up := 10
-	var b0 := x + run_up
-	var beams: Array = []
-	var bx := b0
-	for i in n:
-		beams.append(bx)
-		bx += ri(9, 13)
-	var l: int = int(beams[-1]) + 8 - x
-	var roof := y - 5
-	ground(x, x + l, y)
-	block(x + run_up - 2, roof - 10, l - run_up + 2, 10)
-	var phase0 := rng.randf()
-	for b in beams:
-		# lit while (t + phase * cyc) mod cyc < on: each beam's window opens
-		# (b - b0) / RUN_EMPTY seconds after the first one's
-		var ph := fposmod(phase0 - float(b - b0) / (RUN_EMPTY * cyc), 1.0)
-		_ent({"t": "laser", "a": _p(b, roof), "b": _p(b, y), "on": cyc * 0.5, "off": cyc * 0.5, "phase": snappedf(ph, 0.001)},
-			b, roof, 1, y - roof)
-	add_sign(x + 2, y, "SPRINT")
-	_route(x + l, y)
-	lock(x, x + l)
-	_s_est += float(l) / RUN_EMPTY + cyc * 0.5 + 0.5
-	return Vector2i(x + l, y)
-
 
 ## Switchback: a stairwell. Run right along the bottom, up through the gap at
 ## the end, back left along the next floor, up again, and out to the right at
