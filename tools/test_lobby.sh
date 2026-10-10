@@ -8,6 +8,18 @@ PORT=24697
 godot4 --headless --path . -- --server --port=$PORT >/tmp/ug_lobby_server.log 2>&1 &
 SRV=$!
 sleep 3
+# a race everyone walks out of must not leave the lobby stuck "racing", and
+# someone joining while it's on is dropped into it
+godot4 --headless -s tools/test_lobby.gd -- 127.0.0.1:$PORT "Quitter" 1 abandon >/tmp/ug_lobby_quit.log 2>&1 &
+QP=$!
+sleep 3
+godot4 --headless -s tools/test_lobby.gd -- 127.0.0.1:$PORT "Late" 1 late >/tmp/ug_lobby_late.log 2>&1 &
+LP=$!
+pre=0
+wait $QP || pre=$((pre + 1))
+wait $LP || pre=$((pre + 1))
+grep -h -E "OK|FAIL" /tmp/ug_lobby_quit.log /tmp/ug_lobby_late.log
+sleep 1
 pids=()
 for i in $(seq 1 "$N"); do
   godot4 --headless -s tools/test_lobby.gd -- 127.0.0.1:$PORT "P$i" "$N" >"/tmp/ug_lobby_$i.log" 2>&1 &
@@ -18,5 +30,6 @@ fails=0
 for p in "${pids[@]}"; do wait "$p" || fails=$((fails + 1)); done
 kill "$SRV" 2>/dev/null
 grep -h -E "OK|FAIL|lobby of" /tmp/ug_lobby_*.log | sort | uniq -c | sort -rn | head -5
+fails=$((fails + pre))
 echo "lobby: $N clients, $fails failures"
 exit $((fails > 0))

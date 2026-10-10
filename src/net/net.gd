@@ -6,6 +6,10 @@ extends Node
 const Themes = preload("res://src/core/theme_db.gd")
 
 const PORT := 24680
+## Lobby protocol: bump when the RPC list or a message's shape changes. The
+## server puts it in the lobby settings and checks the one a client registers
+## with, so a mismatch says so instead of silently doing nothing.
+const PROTOCOL := 1
 ## Public dedicated server (minimus, UDP 24680). Players can type another.
 const ONLINE_SERVER := "joshammer.com"
 const DISCOVERY_PORT := 24681
@@ -48,6 +52,9 @@ var _round_timer := -1.0
 var _round_holds := {}   # server: peer id -> time its disc cam hold expires
 const HOLD_MAX := 30.0
 var _join_seq := 0
+var _round_packed := PackedByteArray()   # server: the course being raced (for late joiners)
+var _round_size := 0
+var _round_ids := {}                     # server: who is racing it
 
 
 func _ready() -> void:
@@ -68,7 +75,7 @@ func my_id() -> int:
 
 
 func _my_info() -> Dictionary:
-	return {"name": str(Game.settings.player_name).substr(0, 16), "color": int(Game.settings.player_color), "wins": 0, "ready": false}
+	return {"name": str(Game.settings.player_name).substr(0, 16), "color": int(Game.settings.player_color), "wins": 0, "ready": false, "proto": PROTOCOL}
 
 
 func _set_status(t: String) -> void:
@@ -90,6 +97,7 @@ func host(port := PORT, as_dedicated := false) -> bool:
 		return false
 	multiplayer.multiplayer_peer = peer
 	dedicated = as_dedicated
+	settings["proto"] = PROTOCOL
 	players.clear()
 	if not dedicated:
 		players[1] = _my_info()
@@ -127,6 +135,8 @@ func leave() -> void:
 	players.clear()
 	in_lobby = false
 	round_active = false
+	_round_ids.clear()
+	pool_status = ""
 	set_winner = -1
 	_round_timer = -1.0
 	if _bcast:
@@ -166,10 +176,21 @@ func _on_failed() -> void:
 	leave()
 
 
+## A lobby that can't work: say why and drop the connection.
+func _fail(msg: String) -> void:
+	push_warning("Net: " + msg)
+	leave()
+	_set_status(msg)
+	var s = Game.current_scene
+	if s and is_instance_valid(s) and s.get("mode") == "multi":
+		Game.goto_menu("multi")
+
+
 func _on_server_gone() -> void:
-	_set_status("Server closed the connection")
+	var why := status if status.begins_with("VERSION MISMATCH") else "Server closed the connection"
 	var was_racing := round_active
 	leave()
+	_set_status(why)   # a version mismatch keeps its reason on screen
 	# only out of an online race (not out of a solo run or a replay)
 	var s = Game.current_scene
 	if was_racing or (s and is_instance_valid(s) and s.get("mode") == "multi"):
@@ -189,11 +210,19 @@ func _on_peer_disconnected(id: int) -> void:
 	if lvl:
 		lvl.remove_remote_ghost(id)
 	if is_server():
+		_round_ids.erase(id)
 		if dedicated and players.is_empty():
 			# everyone left: drop the set so the next group starts fresh
 			round_active = false
 			set_winner = -1
 			_round_timer = -1.0
+		elif round_active and _round_ids.is_empty():
+			# nobody racing this course is left: back to the lobby, or it
+			# would stay "racing" and refuse every setting and start
+			round_active = false
+			set_winner = -1
+			_round_timer = -1.0
+			_set_status("Race abandoned: everyone in it left")
 		_push_lobby()
 		_check_round_complete()
 
@@ -203,6 +232,16 @@ func register(info: Dictionary) -> void:
 	if not is_server():
 		return
 	var id := multiplayer.get_remote_sender_id()
+	var proto := int(info.get("proto", 1))
+	if proto != PROTOCOL:
+		_notice(id, "VERSION MISMATCH: %s (lobby protocol %d, the server is on %d)." % [
+			"your game is out of date, update it" if proto < PROTOCOL else "the server is out of date and needs an update", proto, PROTOCOL])
+		# let the notice go out before the drop
+		get_tree().create_timer(1.0).timeout.connect(func():
+			if peer and multiplayer.get_peers().has(id):
+				peer.disconnect_peer(id))
+		return
+	info.erase("proto")
 	info.wins = 0
 	info.ready = false
 	info.name = str(info.get("name", "Runner")).substr(0, 16)
@@ -212,6 +251,33 @@ func register(info: Dictionary) -> void:
 	players[id] = info
 	_set_status("%s joined" % info.name)
 	_push_lobby()
+	# a race is on and nobody has won it yet: join it
+	if round_active and round_winner == -1 and set_winner == -1 and not _round_packed.is_empty():
+		_round_ids[id] = true
+		rpc_id(id, "begin_round", _round_packed, _round_size, round_idx, players)
+	elif round_active:
+		_notice(id, "A race is on: you'll join the next course.")
+
+
+## Server -> one client: why its request did nothing (rides sync_lobby, so
+## older clients just ignore it and the RPC list doesn't change).
+func _notice(id: int, msg: String) -> void:
+	if id == 0 or id == 1 and not dedicated:
+		_set_status(msg)
+		pool_status = msg
+		lobby_changed.emit()
+		return
+	var s := settings.duplicate()
+	s["notice"] = msg
+	rpc_id(id, "sync_lobby", players, s, round_active)
+
+
+func _refusal(from: int) -> String:
+	if round_active:
+		return "A race is still going: wait for it to finish (or for its runners to leave)."
+	if from != leader_id():
+		return "Only the leader (%s) can do that." % str(players.get(leader_id(), {}).get("name", "?"))
+	return ""
 
 
 func _push_lobby() -> void:
@@ -220,9 +286,36 @@ func _push_lobby() -> void:
 
 @rpc("authority", "call_local", "reliable")
 func sync_lobby(p: Dictionary, s: Dictionary, active: bool) -> void:
+	s = s.duplicate()
+	var notice := str(s.get("notice", ""))
+	s.erase("notice")
+	if not is_server():
+		var proto := int(s.get("proto", 0))
+		if proto == 0:
+			# servers before the protocol check: same RPCs, but stuck races
+			# there refuse settings and starts without a word
+			if status == "Connected":
+				_set_status("Connected (the server is an older version and needs an update)")
+		elif proto != PROTOCOL:
+			_fail("VERSION MISMATCH: %s (lobby protocol %d, the server is on %d)." % [
+				"your game is out of date, update it" if PROTOCOL < proto else "the server is out of date and needs an update", PROTOCOL, proto])
+			return
 	players = p
 	settings = s
 	round_active = active
+	if str(s.get("source", "")) == "saved" and pool_status.begins_with("Sending"):
+		pool_status = ""
+	if notice != "":
+		pool_status = notice
+		_set_status(notice)
+	elif pool_status.begins_with("A race") and not active:
+		pool_status = ""
+	# someone joined the race late: show their ghost
+	var lvl = _level()
+	if lvl and active:
+		for id in players:
+			if id != my_id() and not lvl.remote_ghosts.has(id):
+				lvl.add_remote_ghost(id, str(players[id].name), Game.player_palette(int(players[id].color)))
 	lobby_changed.emit()
 
 
@@ -288,8 +381,14 @@ func _apply_settings(s: Dictionary) -> void:
 
 @rpc("any_peer", "reliable")
 func request_settings(s: Dictionary) -> void:
-	if is_server() and multiplayer.get_remote_sender_id() == leader_id() and not round_active:
-		_apply_settings(s)
+	if not is_server():
+		return
+	var from := multiplayer.get_remote_sender_id()
+	var why := _refusal(from)
+	if why != "":
+		_notice(from, why)
+		return
+	_apply_settings(s)
 
 
 ## Race the courses `uid` saved online: fetch them (Online), then hand them to
@@ -312,7 +411,14 @@ func use_saved_courses(uid: String, owner: String) -> void:
 			pool_status = "Couldn't get %s's courses." % owner
 			lobby_changed.emit()
 			return
-		pool_status = ""
+		pool_status = "Sending %s's courses to the server..." % owner
+		lobby_changed.emit()
+		# the server answers with the new pool or a notice; an old one may
+		# say nothing at all
+		get_tree().create_timer(10.0).timeout.connect(func():
+			if pool_status.begins_with("Sending"):
+				pool_status = "The server didn't take %s's courses (it may be out of date)." % owner
+				lobby_changed.emit())
 		var raw := JSON.stringify(levels).to_utf8_buffer()
 		var packed := raw.compress(FileAccess.COMPRESSION_ZSTD)
 		if is_server():
@@ -325,18 +431,25 @@ func use_saved_courses(uid: String, owner: String) -> void:
 @rpc("any_peer", "reliable")
 func set_pool(packed: PackedByteArray, size: int, owner: String) -> void:
 	var from := multiplayer.get_remote_sender_id()
-	if not is_server() or round_active or (from != 0 and from != leader_id()):
+	if not is_server():
+		return
+	var why := _refusal(from if from != 0 else leader_id())
+	if why != "":
+		_notice(from, why)
 		return
 	if size <= 0 or size > 8 * 1024 * 1024 or packed.size() > 4 * 1024 * 1024:
+		_notice(from, "Those courses are too big to send to the server.")
 		return
 	var data = JSON.parse_string(packed.decompress(size, FileAccess.COMPRESSION_ZSTD).get_string_from_utf8())
 	if not data is Array:
+		_notice(from, "The server couldn't read those courses.")
 		return
 	var pool: Array = []
 	for d in (data as Array).slice(0, POOL_MAX):
 		if d is Dictionary and d.get("solids") is Array and d.get("spawn") is Array and d.get("basket") is Array:
 			pool.append(d)
 	if pool.is_empty():
+		_notice(from, "None of those courses could be raced.")
 		return
 	_pool = pool
 	settings.source = "saved"
@@ -362,8 +475,14 @@ func request_start() -> void:
 
 @rpc("any_peer", "reliable")
 func remote_start() -> void:
-	if is_server() and multiplayer.get_remote_sender_id() == leader_id() and not round_active:
-		start_set()
+	if not is_server():
+		return
+	var from := multiplayer.get_remote_sender_id()
+	var why := _refusal(from)
+	if why != "":
+		_notice(from, why)
+		return
+	start_set()
 
 
 # ================================================================ rounds
@@ -397,6 +516,11 @@ func _start_round() -> void:
 	round_results = {}
 	_round_timer = -1.0
 	_round_holds.clear()
+	_round_packed = packed
+	_round_size = raw.size()
+	_round_ids.clear()
+	for id in players:
+		_round_ids[id] = true
 	_set_status("Round %d: %s" % [round_idx + 1, data.get("name", "")])
 	rpc("begin_round", packed, raw.size(), round_idx, players)
 

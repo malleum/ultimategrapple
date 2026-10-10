@@ -12,6 +12,10 @@ var want := 2
 var sent := false
 var started_set := false
 var started := false
+## "abandon": start a random set, race a few seconds, leave mid-race.
+## "late": join while that race is on and must be dropped into it.
+var mode := ""
+var raced_at := -1.0
 
 
 func _process(dt: float) -> bool:
@@ -22,6 +26,7 @@ func _process(dt: float) -> bool:
 		var args := OS.get_cmdline_user_args()
 		name_ = args[1]
 		want = int(args[2])
+		mode = args[3] if args.size() > 3 else ""
 		game.settings.player_name = name_
 		net = root.get_node("Net")
 		net.join(args[0])
@@ -31,6 +36,8 @@ func _process(dt: float) -> bool:
 		print("%s FAIL: timeout (players %d, source %s)" % [name_, net.players.size(), net.settings.source])
 		quit(1)
 		return true
+	if mode != "":
+		return _side_run(game)
 	if net.in_lobby and net.is_leader() and net.players.size() >= want and not sent:
 		sent = true
 		var pool: Array = []
@@ -51,4 +58,28 @@ func _process(dt: float) -> bool:
 		print("%s %s: round 1 on %s with %d players" % [name_, "OK" if ok else "FAIL", id, net.players.size()])
 		quit(0 if ok else 1)
 		return true
+	return false
+
+
+func _side_run(game) -> bool:
+	var lvl = game.current_scene
+	var racing: bool = lvl and is_instance_valid(lvl) and lvl.get("mode") == "multi"
+	if mode == "abandon":
+		if net.in_lobby and net.is_leader() and not sent:
+			sent = true
+			net.request_start()
+		if racing and raced_at < 0.0:
+			raced_at = t
+			print("%s: racing, leaving in 6s" % name_)
+		if raced_at >= 0.0 and t - raced_at > 6.0:
+			net.leave()
+			print("%s OK: left mid-race" % name_)
+			quit(0)
+			return true
+	elif mode == "late":
+		if racing:
+			print("%s OK: joined the race in progress" % name_)
+			net.leave()
+			quit(0)
+			return true
 	return false

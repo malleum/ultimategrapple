@@ -545,8 +545,10 @@ func _build_lobby() -> void:
 		ds.custom_minimum_size = Vector2(160, 28)
 		s.add_child(ds)
 		lobby_box.add_child(s)
-		if Net.pool_status != "":
-			lobby_box.add_child(UI.label(Net.pool_status, 16, UI.PINK))
+	if Net.round_active:
+		lobby_box.add_child(UI.label("A race is on: settings and START wait until it ends (you join the next course).", 16, UI.PINK))
+	if Net.pool_status != "":
+		lobby_box.add_child(UI.label(Net.pool_status, 16, UI.PINK))
 	var h2 := UI.hbox()
 	h2.add_child(UI.button("READY", func(): Net.toggle_ready(), 24))
 	if Net.is_leader():
