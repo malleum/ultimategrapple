@@ -380,10 +380,10 @@ func _physics_process_timed(dt: float) -> void:
 			level.restart()
 	elif not input_locked and inp.just_pressed("restart"):
 		if level.mode == "solo":
-			level.restart()
+			level.user_restart()
 		else:
 			_reset_to_lie()
-	elif done and level.mode == "solo" and Input.is_action_just_pressed("restart"):
+	elif done and level.mode == "solo" and Input.is_action_just_pressed("restart") and not level.is_elo():
 		level.restart()
 
 
@@ -621,7 +621,20 @@ func _on_scored() -> void:
 			Stats.add("rounds_won")
 		elif level.mode == "multi" and Net.round_winner == -1:
 			Stats.add("rounds_won")
-	if level.mode == "solo":
+	if level.is_elo():
+		inp.stop_recording()
+		var emedal: String = level.medal_for(finish_time)
+		if _stats_on():
+			if emedal != "":
+				Stats.add("medal_" + emedal)
+			Stats.save()
+		_record(true)
+		last_replay = _make_replay(emedal)
+		var blob := Marshalls.raw_to_base64(var_to_bytes(inp.rec).compress(FileAccess.COMPRESSION_ZSTD))
+		Elo.submit_finish(str(level.level_data.elo.run_id), finish_time, player.throws, penalty, deaths, split_times, color,
+			rec_frames, blob, Callable(hud, "on_elo_result"))
+		hud.show_results(finish_time, emedal, false)
+	elif level.mode == "solo":
 		inp.stop_recording()
 		var medal: String = level.medal_for(finish_time)
 		var prev = Game.records.get(level.level_id)

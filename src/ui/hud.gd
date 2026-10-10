@@ -213,7 +213,7 @@ func _process(dt: float) -> void:
 			go_t = -1.0
 	if countdown_until > 0.0:
 		countdown_until = level.countdown
-	if not get_tree().paused and not runner.done and Input.is_action_just_pressed("pin") and level.mode == "solo":
+	if not get_tree().paused and not runner.done and Input.is_action_just_pressed("pin") and level.mode == "solo" and not level.is_elo():
 		level.pin_current()
 	if runner.done and results and level.mode == "replay" and not Game.render_mode:
 		if Input.is_action_just_pressed("pause"):
@@ -221,7 +221,7 @@ func _process(dt: float) -> void:
 	if runner.done and results and level.mode == "solo":
 		if Input.is_action_just_pressed("next_level"):
 			_next()
-		elif Input.is_action_just_pressed("pin"):
+		elif Input.is_action_just_pressed("pin") and not level.is_elo():
 			level.pin_current()
 		elif Input.is_action_just_pressed("pause"):
 			Game.goto_menu()
@@ -501,10 +501,10 @@ func _draw_timer(ci: Control, vs: Vector2) -> void:
 			if key == cur and not runner.done:
 				ci.draw_circle(Vector2(mx, by + 3), 5.0 + sin(t * 6.0) * 1.0, col)
 		# your PB: a white tick + label under the bar
-		if pb_mark < 0.0 and level.mode == "solo" and not runner.done:
+		if pb_mark < 0.0 and level.mode == "solo" and not level.is_elo() and not runner.done:
 			var rec = Game.get_record(level.level_id)
 			pb_mark = float(rec.time) if rec else 0.0
-		if pb_mark > 0.0 and level.mode == "solo":
+		if pb_mark > 0.0 and level.mode == "solo" and not level.is_elo():
 			var pbx := bx + bwid * clampf(pb_mark / top, 0.0, 1.0)
 			var pgone := Game.centis(tm) > Game.centis(pb_mark)
 			ci.draw_line(Vector2(pbx, by - 7), Vector2(pbx, by + 13), Color(0.02, 0.0, 0.06, 0.8), 6.0)
@@ -554,7 +554,7 @@ func _draw_course_card(ci: Control, vs: Vector2) -> void:
 		_slab(ci, rr, 8.0, Color(0.02, 0.015, 0.06, 0.6), Color(1, 0.3, 0.4, 0.5))
 		ci.draw_circle(rr.position + Vector2(20, 13), 6, Color(1, 0.25, 0.3, 0.6 + 0.4 * sin(t * 4.0)))
 		_text(ci, rr.position + Vector2(34, 18), rl, 14, Color(1, 0.9, 0.92), HORIZONTAL_ALIGNMENT_LEFT, -1, _bold, 0)
-	elif rec and level.mode == "solo":
+	elif rec and level.mode == "solo" and not level.is_elo():
 		var rm := str(rec.medal)
 		var line := "BEST  " + Game.format_time(float(rec.time))
 		var lr := Rect2(12, r.end.y + 6, _text_w(line, 14, _bold) + 50, 26)
@@ -867,8 +867,8 @@ func _draw_hints(ci: Control, vs: Vector2) -> void:
 	if level.mode == "replay":
 		hints = [[Bindings.label("restart"), "watch again"], [Bindings.label("pause"), "replay menu"]]
 	elif level.mode == "solo":
-		hints = [[Bindings.label("restart", pad), "restart"], [Bindings.label("recall", pad), "recall +3s"], [Bindings.label("pause", pad), "pause"]]
-		if not pad:
+		hints = [[Bindings.label("restart", pad), "forfeit" if level.is_elo() else "restart"], [Bindings.label("recall", pad), "recall +3s"], [Bindings.label("pause", pad), "pause"]]
+		if not pad and not level.is_elo():
 			hints.append([Bindings.label("pin"), "pin"])
 	else:
 		hints = [[Bindings.label("restart", pad), "reset"], [Bindings.label("recall", pad), "recall +3s"], [Bindings.label("pause", pad), "menu"]]
@@ -1363,6 +1363,11 @@ func show_results(tm: float, medal: String, is_pb: bool, old_pb := -1.0) -> void
 				place += 1
 		v.add_child(UI.label("%s OF %d AGAINST THE GHOSTS" % [ordinal(place), rivals.size() + 1], 22,
 			Color(0.5, 1, 0.7) if place == 1 else Color(1, 0.8, 0.5), HORIZONTAL_ALIGNMENT_CENTER))
+	if level.is_elo() and not replaying:
+		elo_label = UI.label("", 20, Color(0.5, 0.9, 1.0), HORIZONTAL_ALIGNMENT_CENTER)
+		elo_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		v.add_child(elo_label)
+		_fill_elo()
 	for m in ["bronze", "silver", "gold", "ace"]:
 		if level.medals.has(m) and Game.centis(tm) > Game.centis(float(level.medals[m])):
 			v.add_child(UI.label("Next: %s at %s  (−%ss)" % [UI.medal_name(m), Game.format_time(float(level.medals[m])), Game.gap_text(tm, float(level.medals[m]))], 18, UI.DIM, HORIZONTAL_ALIGNMENT_CENTER))
@@ -1375,6 +1380,9 @@ func show_results(tm: float, medal: String, is_pb: bool, old_pb := -1.0) -> void
 			h.add_child(_fav_button(level.replay))
 			h.add_child(UI.button("EXPORT MP4", func(): Game.export_replay_mp4(Game.replay_key_for(level.replay))))
 			h.add_child(UI.button("REPLAYS", func(): Game.goto_menu("replays")))
+	elif level.is_elo():
+		h.add_child(UI.button("NEXT GAME  [N]", _next))
+		h.add_child(UI.button("MENU", func(): Game.goto_menu("elo")))
 	else:
 		h.add_child(UI.button("RETRY  [R]", func(): level.restart_when_released()))
 		h.add_child(UI.button("NEXT  [N]", _next))
@@ -1435,7 +1443,52 @@ func show_results(tm: float, medal: String, is_pb: bool, old_pb := -1.0) -> void
 
 
 func _next() -> void:
+	if level.is_elo():
+		_elo_next()
+		return
 	Game.next_level()
+
+
+var elo_label: Label = null
+var elo_result := {}      # the service's answer to this run's submit ({} until it comes; {"failed": msg} if it didn't)
+var _elo_loading := false
+
+
+## Elo.submit_finish's callback.
+func on_elo_result(ok: bool, d: Dictionary) -> void:
+	elo_result = d if ok else {"failed": str(d.get("message", "No answer"))}
+	_fill_elo()
+
+
+func _fill_elo() -> void:
+	if not is_instance_valid(elo_label):
+		return
+	var d := elo_result
+	if d.is_empty():
+		elo_label.text = "Sending your time…"
+	elif d.has("failed"):
+		elo_label.text = "%s. Your time is saved and will be sent next time." % str(d.failed)
+	elif not bool(d.get("rated", false)):
+		elo_label.text = "RATING PENDING  ·  you're first on this seed. It counts once someone else plays it."
+	else:
+		var delta := float(d.get("delta", 0.0))
+		elo_label.text = "ELO  %d → %d  (%s%.1f)  ·  #%d of %d on this seed" % [int(round(float(d.get("rating_before", 0)))),
+			int(round(float(d.get("rating_after", 0)))), "+" if delta >= 0.0 else "−", absf(delta), int(d.get("rank_on_seed", 0)), int(d.get("players_on_seed", 0))]
+		elo_label.add_theme_color_override("font_color", Color(0.5, 1, 0.7) if delta >= 0.0 else Color(1, 0.6, 0.45))
+
+
+## NEXT GAME on the results card: fetch the next seed, then play it.
+func _elo_next() -> void:
+	if _elo_loading:
+		return
+	_elo_loading = true
+	popup("GETTING YOUR NEXT SEED…", Color(0.5, 0.9, 1.0), 2.0)
+	Elo.next_game(func(ok: bool, d: Dictionary):
+		_elo_loading = false
+		if ok:
+			Game.start_elo(d)
+		elif is_instance_valid(self):
+			popup(str(d.get("message", "No answer")).to_upper(), Color(2, 0.5, 0.3), 3.0))
 
 
 func toggle_pause() -> void:
@@ -1462,6 +1515,9 @@ func toggle_pause() -> void:
 			v.add_child(UI.button("WATCH AGAIN", func(): toggle_pause(); level.restart_when_released()))
 			v.add_child(UI.button("EXPORT MP4", func(): Game.export_replay_mp4(Game.replay_key_for(level.replay))))
 			v.add_child(UI.button("REPLAYS", func(): Game.goto_menu("replays")))
+		elif level.is_elo():
+			v.add_child(UI.label("ELO RUN  ·  one go per seed", 18, UI.DIM, HORIZONTAL_ALIGNMENT_CENTER))
+			v.add_child(UI.button("FORFEIT RUN (DNF)", func(): toggle_pause(); level.elo_forfeit()))
 		elif level.mode == "solo":
 			v.add_child(UI.button("RESTART", func(): toggle_pause(); level.restart_when_released()))
 			if not Game.is_pinned(level.level_id):

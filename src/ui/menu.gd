@@ -228,6 +228,7 @@ func show_page(p: String) -> void:
 		"couch": _page_couch()
 		"courses": _page_courses()
 		"random": _page_random()
+		"elo": _page_elo()
 		"multi", "lan": _page_multi()
 		"controls": _page_controls()
 		"replays": _page_replays()
@@ -265,6 +266,7 @@ func _page_title() -> void:
 	v.add_child(col)
 	col.add_child(UI.button("COURSES", func(): show_page("courses"), 30))
 	col.add_child(UI.button("RANDOM", func(): show_page("random"), 30))
+	col.add_child(UI.button("ELO RUN", func(): show_page("elo"), 30))
 	col.add_child(UI.button("LEADERBOARDS", func(): _page_leaderboards(), 30))   # the main boards (not the last list)
 	col.add_child(UI.button("REPLAYS", func(): show_page("replays"), 30))
 	col.add_child(UI.button("STATS", func(): show_page("stats"), 30))
@@ -331,6 +333,75 @@ func _page_random() -> void:
 	h.add_child(_back_button())
 	v.add_child(h)
 	v.add_child(UI.label("Tip: same seed + settings = same course. Press P in-game to pin it.", 16, UI.DIM))
+
+
+# ------------------------------------------------------------------ elo run
+
+func _page_elo() -> void:
+	var c := _clear()
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(820, 0)
+	c.add_child(panel)
+	var v := UI.vbox(14)
+	panel.add_child(v)
+	v.add_child(UI.label("ELO RUN", 48, UI.NEON))
+	var rl := UI.label("Rating …", 34, Color(1, 0.85, 0.35))
+	v.add_child(rl)
+	var il := UI.label("", 20, UI.DIM)
+	v.add_child(il)
+	var rules := UI.label("One run per seed, ever. Restart, quit or a crash is a DNF and the seed is gone. " + \
+		"Seeds others have played come with the best, median and worst ghost. Your rating moves against the average time on each seed.", 17, UI.DIM)
+	rules.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(rules)
+	var status := UI.label("", 20, Color(0.5, 0.9, 1.0))
+	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(status)
+	var h := UI.hbox()
+	var play := UI.button("PLAY NEXT GAME", func(): pass, 30)
+	play.pressed.connect(func():
+		play.disabled = true
+		status.text = "Getting your seed…"
+		Elo.next_game(func(ok: bool, d: Dictionary):
+			if ok:
+				Game.start_elo(d)
+			elif is_instance_valid(status):
+				play.disabled = false
+				status.text = str(d.get("message", "No answer"))))
+	h.add_child(play)
+	h.add_child(_back_button())
+	v.add_child(h)
+	v.add_child(UI.label("LADDER", 26, UI.NEON))
+	var ladder := UI.vbox(2)
+	v.add_child(ladder)
+	var lt := UI.label("Loading…", 18, UI.DIM)
+	ladder.add_child(lt)
+	if Elo.is_open():
+		status.text = "An unfinished game was forfeited."
+	Elo.recover()
+	Elo.fetch_rating(func(ok: bool, d: Dictionary):
+		if not is_instance_valid(rl):
+			return
+		if not ok:
+			rl.text = "Rating unavailable"
+			status.text = str(d.get("message", ""))
+			return
+		var gp := int(d.get("games_played", 0))
+		var rated := int(d.get("rated_games", 0))
+		rl.text = ("Rating %d" % int(round(float(d.get("rating", 1000))))) + ("  (provisional)" if bool(d.get("provisional", true)) else "") + \
+			("   ·   ladder #%d" % int(d.ladder_rank) if int(d.get("ladder_rank", 0)) > 0 else "")
+		il.text = "Next: game %d  ·  set %d, seed %d of 3  ·  %d rated, %d pending" % [gp + 1, Elo.set_of(gp + 1), Elo.set_position(gp + 1), rated, int(d.get("pending_games", 0))])
+	Elo.fetch_ladder(10, func(ok: bool, d: Dictionary):
+		if not is_instance_valid(lt):
+			return
+		var list: Array = d.get("entries", []) if ok and d.get("entries") is Array else []
+		if list.is_empty():
+			lt.text = "No rated players yet." if ok else "Ladder unavailable"
+			return
+		lt.queue_free()
+		for e in list:
+			var mine := str(e.get("uid", "")) == Elo.uid
+			ladder.add_child(UI.label("%2d.  %-18s %5d   (%d games)" % [int(e.get("rank", 0)), str(e.get("name", "?")).substr(0, 18),
+				int(round(float(e.get("rating", 0)))), int(e.get("rated_games", 0))], 18, Color(1, 0.85, 0.35) if mine else Color(0.9, 0.97, 1))))
 
 
 # ------------------------------------------------------------------ multiplayer

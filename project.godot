@@ -18,6 +18,7 @@ Sfx="*res://src/audio/sfx.gd"
 Music="*res://src/audio/music.gd"
 Net="*res://src/net/net.gd"
 Online="*res://src/net/online.gd"
+Elo="*res://src/net/elo.gd"
 
 [display]
 
