@@ -70,6 +70,17 @@
               exec ${godot}/bin/godot4 --main-pack $out/share/ultimate-grapple/ultimate-grapple.pck "\''${engine[@]}" -- "\''${game[@]}"
               SH
               chmod +x $out/bin/ultimate-grapple
+              install -Dm644 icon.svg $out/share/icons/hicolor/scalable/apps/ultimate-grapple.svg
+              mkdir -p $out/share/applications
+              cat > $out/share/applications/ultimate-grapple.desktop <<DESKTOP
+              [Desktop Entry]
+              Type=Application
+              Name=Ultimate Grapple
+              Comment=Neon speed disc golf with a grappling hook
+              Exec=$out/bin/ultimate-grapple
+              Icon=ultimate-grapple
+              Categories=Game;ActionGame;
+              DESKTOP
               runHook postInstall
             '';
             meta = {

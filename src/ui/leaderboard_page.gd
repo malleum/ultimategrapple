@@ -1,7 +1,8 @@
 extends PanelContainer
-## LEADERBOARDS page: the online boards of the built-in courses. Tick any
-## number of runs to compare their splits side by side, race them all as
-## ghosts, or watch them run together.
+## LEADERBOARDS page: the online boards of the built-in courses, plus a tab
+## per runner with saved courses (their boards and runs). Tick any number of
+## runs to compare their splits side by side, race them all as ghosts, or
+## watch them run together.
 
 const UI = preload("res://src/ui/ui.gd")
 const Stats = preload("res://src/core/stats.gd")
@@ -11,6 +12,9 @@ var back_fn: Callable
 var name_fn: Callable     # opens the choose-your-name prompt
 ## The courses to show boards for: [{key, name, level}]. Empty: the built-ins.
 var course_list: Array = []
+## "main" (the built-ins) or the online id of a runner whose saved courses
+## are shown (kept between visits)
+static var tab := "main"
 var start_key := ""       # open this one first
 var heading := "LEADERBOARDS"
 var datas := {}           # course key -> level data
@@ -26,6 +30,7 @@ var fetch_t := 0.0
 
 var status: Label
 var online_lbl: Label
+var tab_row: HFlowContainer
 var course_row: HFlowContainer
 var board_box: VBoxContainer
 var split_grid: GridContainer
@@ -39,10 +44,12 @@ func _ready() -> void:
 	var v := UI.vbox(10)
 	add_child(v)
 	v.add_child(UI.label(heading, 48, UI.NEON))
-	v.add_child(UI.label("Best runs, kept on the online server (gold, silver and bronze: the top three). Tick runs to compare their splits, race them all as ghosts, or watch them together. Your PBs here are posted automatically (Settings).", 18, UI.DIM))
+	v.add_child(UI.label("Best runs, kept on the online server (gold, silver and bronze: the top three). MAIN COURSES, or a runner's tab for the courses they saved. Tick runs to compare their splits, race them all as ghosts, or watch them together. Your PBs here are posted automatically (Settings).", 18, UI.DIM))
 	online_lbl = UI.label("", 18, Color(0.5, 0.9, 1.0))
 	online_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(online_lbl)
+	tab_row = HFlowContainer.new()
+	v.add_child(tab_row)
 	course_row = HFlowContainer.new()
 	v.add_child(course_row)
 	var scroll := ScrollContainer.new()
@@ -77,21 +84,97 @@ func _ready() -> void:
 	b.add_child(UI.button("BACK", func(): back_fn.call(), 20))
 	v.add_child(b)
 
-	if course_list.is_empty():
-		course_list = builtin_list()
-	for c in course_list:
-		var kk := str(c.key)
-		keys.append(kk)
-		names[kk] = str(c.name)
-		datas[kk] = c.get("level", {})
-		course_row.add_child(UI.button(names[kk], func(): _select(kk), 18))
-
+	# opened on a saved course: that runner's tab
+	if start_key != "":
+		var owner := _owner_of(start_key)
+		if owner != "":
+			tab = owner
+		elif not course_list.is_empty() or Online.builtin_courses().has(start_key):
+			tab = "main"
 	Online.state_changed.connect(_on_state)
 	Online.board_received.connect(_on_board)
 	Online.run_received.connect(_on_run)
+	Online.catalog_received.connect(_on_catalog)
+	_build_tabs()
+	_load_tab(start_key)
 	_on_state()
-	if not keys.is_empty():
-		_select(start_key if keys.has(start_key) else keys[0])
+	if Online.is_online():
+		Online.request_catalog()
+
+
+## The online id of the runner who saved the course with this board key.
+static func _owner_of(k: String) -> String:
+	for p in Online.catalog:
+		for c in p.get("courses", []):
+			if str(c.key) == k:
+				return str(p.uid)
+	return ""
+
+
+## A runner's saved courses as a course list.
+static func runner_list(who: String) -> Array:
+	for p in Online.catalog:
+		if str(p.uid) == who:
+			return (p.get("courses", []) as Array).map(func(c): return {"key": str(c.key), "name": str(c.name),
+				"level": Online.cached_course(str(c.cid))})
+	return []
+
+
+func _on_catalog(_list: Array) -> void:
+	_build_tabs()
+
+
+## MAIN, then every runner with saved courses (you first).
+func _build_tabs() -> void:
+	for c in tab_row.get_children():
+		c.queue_free()
+	_tab_button("main", "MAIN COURSES", Color(0.85, 1, 1))
+	var ps: Array = Online.catalog.filter(func(p): return not (p.get("courses", []) as Array).is_empty())
+	ps.sort_custom(func(a, b): return str(a.uid) == Online.uid and str(b.uid) != Online.uid)
+	var listed := false
+	for p in ps:
+		listed = listed or str(p.uid) == tab
+		_tab_button(str(p.uid), "MY COURSES" if str(p.uid) == Online.uid else str(p.name).to_upper(), Game.player_palette(int(p.get("color", 0))))
+	if not listed and tab != "main" and Online.catalog.size() > 0:
+		tab = "main"
+		_load_tab("")
+		_build_tabs()
+	elif tab != "main" and keys.is_empty():
+		_load_tab(start_key)   # the catalog came in after the page opened
+
+
+func _tab_button(id: String, text: String, col: Color) -> void:
+	var b := UI.button(("▸ " if tab == id else "") + text, func():
+		if tab != id:
+			tab = id
+			_load_tab("")
+			_build_tabs(), 18)
+	b.add_theme_color_override("font_color", UI.GOLD if tab == id else col)
+	tab_row.add_child(b)
+
+
+## Fill the course row from the current tab and open `want` (or the first).
+func _load_tab(want: String) -> void:
+	for c in course_row.get_children():
+		c.queue_free()
+	keys = []
+	var list: Array = builtin_list() if tab == "main" else runner_list(tab)
+	if tab == "main" and not course_list.is_empty() and _owner_of(str(course_list[0].key)) == "":
+		list = course_list
+	for c in list:
+		var kk := str(c.key)
+		keys.append(kk)
+		names[kk] = str(c.name)
+		if not datas.has(kk) or (datas[kk] as Dictionary).is_empty():
+			datas[kk] = c.get("level", {})
+		course_row.add_child(UI.button(names[kk], func(): _select(kk), 18))
+	if keys.is_empty():
+		course = ""
+		entries = []
+		picked.clear()
+		_rebuild()
+		return
+	_select(want if keys.has(want) else keys[0])
 
 
 ## The built-in courses as a course list, in menu order.

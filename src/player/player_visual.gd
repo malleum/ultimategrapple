@@ -109,7 +109,10 @@ func update_from_snapshot(s: Array, pos: Vector2, dt: float) -> void:
 	charging = flags & 16 != 0
 	dead = flags & 32 != 0
 	stunned = flags & 128 != 0
-	frozen = 1.0 if flags & 256 != 0 else 0.0
+	# seconds left ride along at [13] (older frames: just the flag, no countdown)
+	frozen = 0.0
+	if flags & 256 != 0:
+		frozen = maxf(float(s[13]), 0.05) if s.size() > 13 else -1.0
 	_set_knocked(flags & 512 != 0)
 	mantling = flags & 1024 != 0
 	anchor_local = Vector2(s[6], s[7]) - pos
@@ -498,12 +501,13 @@ func _draw_timed() -> void:
 		for k in 3:
 			var sa := Time.get_ticks_msec() * 0.008 + k * TAU / 3.0
 			draw_circle(hc + Vector2(cos(sa) * 14.0, sin(sa) * 4.0), 3.0, Color(2.2, 1.9, 0.5, alpha))
-	if frozen > 0.0:
+	if frozen != 0.0:
 		# penalty freeze: an ice shell with the seconds left
 		var box := Rect2(-17, -54, 34, 58)
 		draw_rect(box, Color(0.55, 0.85, 1.0, 0.28 * alpha))
 		draw_rect(box, Color(0.8, 1.5, 2.2, 0.85 * alpha), false, 2.0)
 		draw_line(box.position + Vector2(5, 8), box.position + Vector2(12, 1), Color(1.8, 2.0, 2.2, 0.7 * alpha), 2.0)
-		draw_string(ThemeDB.fallback_font, Vector2(-30, -62), "%.1f" % frozen, HORIZONTAL_ALIGNMENT_CENTER, 60, 16, Color(0.8, 1.6, 2.2, alpha))
+		if frozen > 0.0:
+			draw_string(ThemeDB.fallback_font, Vector2(-30, -80 if name_tag != "" else -62), "%.1f" % frozen, HORIZONTAL_ALIGNMENT_CENTER, 60, 16, Color(0.8, 1.6, 2.2, alpha))
 	if name_tag != "":
 		draw_string(ThemeDB.fallback_font, Vector2(-40, -62), name_tag, HORIZONTAL_ALIGNMENT_CENTER, 80, 14, Color(c, 0.8 * alpha))

@@ -630,6 +630,11 @@ func _on_scored() -> void:
 			Stats.save()
 		_record(true)
 		last_replay = _make_replay(emedal)
+		# kept in the replays menu like a multiplayer round (one go per seed: this run is the course's best)
+		last_replay["name"] = "Ranked #%d  ·  %s" % [int(level.level_data.elo.get("game_number", 0)), str(last_replay.name)]
+		if not Game.render_mode:
+			Game.save_replay(last_replay)
+			Game._note_recent(level.level_id)
 		var blob := Marshalls.raw_to_base64(var_to_bytes(inp.rec).compress(FileAccess.COMPRESSION_ZSTD))
 		Elo.submit_finish(str(level.level_data.elo.run_id), finish_time, player.throws, penalty, deaths, split_times, color,
 			rec_frames, blob, Callable(hud, "on_elo_result"))
@@ -670,6 +675,7 @@ func _on_scored() -> void:
 func _make_replay(medal: String) -> Dictionary:
 	var data: Dictionary = level.level_data.duplicate(true)
 	data.erase("_builtin")
+	data.erase("elo")   # a ranked run's course plays back (or is raced) as a normal course
 	return {
 		"v": Game.REPLAY_VERSION,
 		"level_id": level.level_id,
@@ -961,11 +967,17 @@ func _frame() -> Array:
 	var pz: Vector2 = disc.pose()
 	f.append_array([snappedf(disc.global_position.x, 0.1), snappedf(disc.global_position.y, 0.1), dvis,
 		snappedf(pz.x, 0.01), snappedf(pz.y, 0.01)])
+	if player.frozen_t > 0.0:
+		f.append(snappedf(player.frozen_t, 0.1))   # [13] versus: freeze seconds left, for the others' countdown
 	return f
 
 
 ## The PB splits the column compares against (see split_ref).
 func split_pb() -> Array:
+	if level.is_elo():
+		# ranked: against the best ghost on this seed
+		var rs: Array = level.rival_splits()
+		return rs[0].splits if not rs.is_empty() else []
 	if done and not split_ref.is_empty():
 		return split_ref
 	return Game.get_splits(level.level_id, split_count()).pb

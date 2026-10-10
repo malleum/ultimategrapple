@@ -239,7 +239,7 @@ func _remote_frame() -> Array:
 
 func _lerp_frame(a: Array, b: Array, k: float) -> Array:
 	var out := a.duplicate()
-	for j in [0, 1, 2, 3, 8, 9]:
+	for j in [0, 1, 2, 3, 8, 9, 13]:
 		if j < a.size() and j < b.size():
 			out[j] = lerpf(a[j], b[j], k)
 	# rope anchor: only slide it while both frames hang on the same point

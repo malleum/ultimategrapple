@@ -1004,6 +1004,7 @@ func start_random(seed_value: int, theme: String, difficulty: float, length: int
 func start_elo(info: Dictionary) -> void:
 	session = {"kind": "elo"}
 	var data := generate_level(int(info.seed), str(info.get("theme", "")), float(info.get("difficulty", 0.5)), int(info.get("length", 12)))
+	data["id"] = "ranked_" + str(data.id)   # its own replay / splits, apart from the same seed played as a random course
 	data["elo"] = {"run_id": str(info.run_id), "game_number": int(info.get("game_number", 0)), "seed": int(info.seed)}
 	var ghosts: Array = info.get("ghost_runs", []) if info.get("ghost_runs") is Array else []
 	play_level(data, "solo", [], {}, Elo.rival_from(ghosts))

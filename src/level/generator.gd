@@ -18,7 +18,11 @@ const RUN_TILES_PER_SEC := 17.0
 ## 3: long disc bridges
 ## 4: throw puzzles (roller plates, hammer lobs, chase gaps), stacked lanes,
 ##    slick gate walls (no wall-jumping over them), sunken baskets
-const VERSION := 4
+## 5: optional bonus rings (a shallow throw drops a booster bridge) instead of
+##    mandatory hammer lobs, any-throw fence lanes (roller-only lanes are rare,
+##    signposted early and end on an uphill backstop), jump / slide laser
+##    hurdles, mixed-up stacked lanes, climbing and descending courses
+const VERSION := 5
 ## Long disc bridges span at least this many tiles (> max double-jump reach).
 const LONG_BRIDGE_MIN := 52
 const SLIDE_CEIL := 1.5        # slide tunnel ceiling height, tiles
@@ -52,7 +56,7 @@ const SEGMENTS := {
 	"disc_gate":     {"w": 7.0,  "min_d": 0.0, "dir": 0, "disc": true},
 	"disc_bridge":   {"w": 4.0,  "min_d": 0.25, "dir": 0, "disc": true},
 	"updraft":       {"w": 4.0,  "min_d": 0.2, "dir": -1},
-	"lasers":        {"w": 5.0,  "min_d": 0.3, "dir": 0},
+	"lasers":        {"w": 5.0,  "min_d": 0.15, "dir": 0},
 	"saws":          {"w": 5.0,  "min_d": 0.3, "dir": 0},
 	"glass":         {"w": 4.0,  "min_d": 0.0, "dir": 0, "disc": true},
 	"drop":          {"w": 4.0,  "min_d": 0.0, "dir": 1},
@@ -70,24 +74,41 @@ const SEGMENTS := {
 	"slope_run":     {"w": 4.0,  "min_d": 0.0, "dir": 1},
 	"crosswind":     {"w": 2.0,  "min_d": 0.2, "dir": 0, "style": "throw"},
 	# throw puzzles: the runner can't get past without the right throw
-	"roll_lane":     {"w": 5.0,  "min_d": 0.0, "dir": 1, "disc": true, "style": "throw"},
-	"lob_wall":      {"w": 4.0,  "min_d": 0.15, "dir": 0, "disc": true, "style": "throw"},
+	"roll_lane":     {"w": 1.2,  "min_d": 0.0, "dir": 1, "disc": true, "style": "throw"},
+	"throw_lane":    {"w": 4.0,  "min_d": 0.0, "dir": 1, "disc": true, "style": "throw"},
+	# retired in v5 (w 0: never picked; tools can still force it)
+	"lob_wall":      {"w": 0.0,  "min_d": 0.15, "dir": 0, "disc": true, "style": "throw"},
+	"bonus_ring":    {"w": 4.0,  "min_d": 0.0, "dir": 0, "disc": true, "style": "throw"},
 	"chase_gap":     {"w": 4.0,  "min_d": 0.1, "dir": 0, "disc": true, "style": "throw"},
 	"stacked":       {"w": 3.0,  "min_d": 0.25, "dir": 0, "disc": true},
+	# big height changes: mostly on climbing / descending courses (see PROFILES)
+	"climb_shaft":   {"w": 1.0,  "min_d": 0.0, "dir": -1},
+	"cascade":       {"w": 1.0,  "min_d": 0.0, "dir": 1},
 }
+
+## Course shapes: most run along, some climb or descend a long way.
+##   up / down: weight multipliers for segments heading that way
+##   lo / hi:   the cursor's floor row stays between these (tiles; up is negative)
+const PROFILES := {
+	"flat":    {"w": 64.0, "up": 1.0, "down": 1.0, "lo": -40, "hi": 30},
+	"climb":   {"w": 18.0, "up": 5.0, "down": 0.08, "lo": -600, "hi": 6},
+	"descent": {"w": 18.0, "up": 0.08, "down": 5.0, "lo": -6, "hi": 600},
+}
+## Segments only worth picking on a climbing / descending course.
+const PROFILE_ONLY := {"climb_shaft": "climb", "cascade": "descent"}
 
 ## Segments that end at speed (slopes, boosters, pads): a chase gap right
 ## after one could be cleared with the disc in hand.
-const FAST_EXITS := ["slope_run", "ramp_jump", "booster_gap", "bounce", "slide_tunnel", "roll_lane"]
+const FAST_EXITS := ["slope_run", "ramp_jump", "booster_gap", "bounce", "slide_tunnel", "roll_lane", "throw_lane", "bonus_ring", "cascade"]
 
 const THEME_BIAS := {
-	"field": {"run_gaps": 1.5, "disc_gate": 1.6, "hammer_wall": 1.5, "bounce": 1.2, "chase_gap": 1.5, "lob_wall": 1.4},
-	"cyber": {"lasers": 2.0, "slide_tunnel": 1.5, "zip_ledge": 1.4, "glass": 1.5, "roll_lane": 1.5, "stacked": 1.4},
-	"fantasy": {"swing_chain": 1.6, "grip_ceiling": 1.8, "pillars": 1.4, "wrap_block": 1.5, "lob_wall": 1.3},
+	"field": {"run_gaps": 1.5, "disc_gate": 1.6, "hammer_wall": 1.5, "bounce": 1.2, "chase_gap": 1.5, "bonus_ring": 1.4},
+	"cyber": {"lasers": 2.0, "slide_tunnel": 1.5, "zip_ledge": 1.4, "glass": 1.5, "throw_lane": 1.5, "stacked": 1.4},
+	"fantasy": {"swing_chain": 1.6, "grip_ceiling": 1.8, "pillars": 1.4, "wrap_block": 1.5, "bonus_ring": 1.3},
 	"heaven": {"bounce": 1.8, "updraft": 2.0, "disc_bridge": 1.6, "zip_tower": 1.4, "chase_gap": 1.4},
-	"foundry": {"saws": 2.0, "movers": 1.8, "chimney": 1.4, "booster_gap": 1.3, "roll_lane": 1.6, "stacked": 1.3},
+	"foundry": {"saws": 2.0, "movers": 1.8, "chimney": 1.4, "booster_gap": 1.3, "throw_lane": 1.6, "stacked": 1.3},
 	"frost": {"ramp_jump": 2.0, "slide_tunnel": 1.6, "drop": 1.5, "booster_gap": 1.5, "slope_run": 3.0, "roll_lane": 1.8},
-	"canyon": {"fairway": 1.8, "crosswind": 4.0, "swing_chain": 1.3, "bounce": 1.3, "hammer_wall": 1.3, "lob_wall": 1.5, "chase_gap": 1.3},
+	"canyon": {"fairway": 1.8, "crosswind": 4.0, "swing_chain": 1.3, "bounce": 1.3, "hammer_wall": 1.3, "bonus_ring": 1.5, "chase_gap": 1.3},
 }
 
 const DECOR := {
@@ -111,11 +132,13 @@ const NAME_A := {
 }
 const NAME_B := ["Line", "Drift", "Run", "Ascent", "Circuit", "Gauntlet", "Sprint", "Spiral",
 	"Descent", "Flight", "Break", "Relay", "Rush", "Chase", "Dash", "Ladder"]
+const PROFILE_NAMES := {"climb": ["Ascent", "Ladder", "Spire", "Climb", "Summit"], "descent": ["Descent", "Plunge", "Cascade", "Dive", "Freefall"]}
 
 var rng := RandomNumberGenerator.new()
 var d := 0.5
 var theme := "cyber"
 var ice_mode := false
+var profile := "flat"
 
 var solids: Array = []
 var polys: Array = []
@@ -150,6 +173,7 @@ func generate(seed_value: int, theme_id: String = "", difficulty: float = 0.5, l
 	theme = theme_id if Themes.THEMES.has(theme_id) else Themes.random_id(rng)
 	ice_mode = theme == "frost"
 	length = clampi(length, 3, 40)
+	profile = _pick_profile()
 	solids.clear(); polys.clear(); ents.clear(); route.clear(); reserves.clear(); seg_log.clear(); sections.clear(); locks.clear()
 	est_time = 0.0
 
@@ -211,8 +235,10 @@ func generate(seed_value: int, theme_id: String = "", difficulty: float = 0.5, l
 	var kill_y := bounds.end.y + 10 * T
 
 	var times := _medals()
-	var name := "%s %s" % [_pick(NAME_A[theme]), _pick(NAME_B)]
-	var id := "g%d_%s_%d_%d" % [seed_value, theme, int(round(d * 10)), length]
+	var name := "%s %s" % [_pick(NAME_A[theme]), _pick(NAME_B if profile == "flat" else PROFILE_NAMES[profile])]
+	# the version is in the id from v5 on: the same seed lays out differently,
+	# so PBs / ghosts / splits of the older layout stay with that one
+	var id := "g%d_%s_%d_%d_v%d" % [seed_value, theme, int(round(d * 10)), length, VERSION]
 	return {
 		"version": VERSION,
 		"id": id,
@@ -221,6 +247,7 @@ func generate(seed_value: int, theme_id: String = "", difficulty: float = 0.5, l
 		"theme": theme,
 		"difficulty": d,
 		"length": length,
+		"profile": profile,
 		"spawn": [2 * T, 0],
 		"basket": [basket.x, basket.y],
 		"bounds": [bounds.position.x - 20 * T, bounds.position.y - 30 * T, bounds.size.x + 40 * T, floor_bottom - bounds.position.y + 30 * T],
@@ -395,6 +422,18 @@ func _pick(arr: Array):
 
 # ============================================================ segment selection
 
+func _pick_profile() -> String:
+	var total := 0.0
+	for k in PROFILES:
+		total += float(PROFILES[k].w)
+	var r := rng.randf() * total
+	for k in PROFILES:
+		r -= float(PROFILES[k].w)
+		if r <= 0.0:
+			return k
+	return "flat"
+
+
 func _pick_segment(cur: Vector2i, last: Array, force_disc: bool) -> String:
 	var bias: Dictionary = THEME_BIAS.get(theme, {})
 	var names := []
@@ -410,16 +449,26 @@ func _pick_segment(cur: Vector2i, last: Array, force_disc: bool) -> String:
 			continue
 		if seg == "chase_gap" and last[1] in FAST_EXITS:
 			continue
+		if PROFILE_ONLY.has(seg) and PROFILE_ONLY[seg] != profile:
+			continue
 		var w: float = info.w * bias.get(seg, 1.0)
+		if w <= 0.0:
+			continue
 		var dir: int = info.dir
-		if dir < 0 and cur.y < -40:
+		var pf: Dictionary = PROFILES[profile]
+		if dir < 0 and cur.y < int(pf.lo):
 			continue
-		if dir > 0 and cur.y > 30:
+		if dir > 0 and cur.y > int(pf.hi):
 			continue
-		if dir < 0 and cur.y > 12:
-			w *= 2.0
-		if dir > 0 and cur.y < -18:
-			w *= 2.2
+		if profile == "flat":
+			if dir < 0 and cur.y > 12:
+				w *= 2.0
+			if dir > 0 and cur.y < -18:
+				w *= 2.2
+		else:
+			w *= float(pf.up) if dir < 0 else (float(pf.down) if dir > 0 else 1.0)
+			if PROFILE_ONLY.has(seg):
+				w *= 4.0
 		names.append(seg)
 		weights.append(w)
 		total += w
@@ -718,19 +767,39 @@ func seg_updraft(x: int, y: int) -> Vector2i:
 	return Vector2i(cx, y - rise)
 
 
+## Laser hurdles: always-on beams in a low corridor, taken at full speed.
+## Floor beams are jumped, beams hanging from the roof are slid under (they
+## stop 32px above the floor: a slide clears them, standing does not). The
+## spacing leaves room to land / stand up between them, so a clean rhythm of
+## jumps and slides keeps all your speed.
 func seg_lasers(x: int, y: int) -> Vector2i:
-	var n := ri(2, 3 + dl(0, 2))
-	var spacing := ri(4, 6)
-	var l := n * spacing + 6
-	ground(x, x + l, y)
-	block(x + 2, y - 16, l - 4, 11)
-	var on_t := snappedf(rf(0.8, 1.1) + d * 0.4, 0.05)
-	var off_t := snappedf(rf(0.9, 1.2) - d * 0.3, 0.05)
+	var n := ri(3, 4 + dl(0, 2))
+	var roof := y - 6
+	var cx := x + 5
+	var kinds: Array = []
 	for i in n:
-		var lx := x + 4 + i * spacing
-		_ent({"t": "laser", "a": _p(lx, y - 5), "b": _p(lx, y), "on": on_t, "off": off_t, "phase": snappedf(i * 0.22, 0.01)}, lx, y - 5, 1, 5)
+		kinds.append("jump" if chance(0.5) else "slide")
+	if not ("jump" in kinds and "slide" in kinds):
+		kinds[ri(0, n - 1)] = "slide" if kinds[0] == "jump" else "jump"
+	var beams: Array = []
+	var prev := ""
+	for k in kinds:
+		# after a jump you need to land first; after a slide, stand up and go
+		cx += (ri(9, 11) if prev == "jump" else ri(6, 8)) if prev != "" else 0
+		beams.append([cx, k])
+		prev = k
+	var l := cx + 8 - x
+	ground(x, x + l, y)
+	block(x + 2, roof - 10, l - 4, 10)
+	for bm in beams:
+		var lx: int = bm[0]
+		if bm[1] == "jump":
+			_ent({"t": "laser", "a": _p(lx, y - 1.5), "b": _p(lx, y), "on": 1.0, "off": 0.0, "phase": 0.0}, lx, y - 1.5, 1, 1.5)
+		else:
+			_ent({"t": "laser", "a": _p(lx, roof), "b": [int(lx * T), int(y * T) - 32], "on": 1.0, "off": 0.0, "phase": 0.0}, lx, roof, 1, y - roof)
+	add_sign(x + 2, y, "LASERS")
 	_route(x + l, y)
-	_s_est += l / RUN_TILES_PER_SEC + 0.6
+	_s_est += l / RUN_TILES_PER_SEC + 0.15 * n
 	return Vector2i(x + l, y)
 
 
@@ -1061,15 +1130,36 @@ func _ramp_down(x: float, y: float, l: float, h: float) -> void:
 	_grow(x, y, l, h)
 
 
+## A ramp up from row y over l tiles to row y - h (the slope faces left).
+func _ramp_up(x: float, y: float, l: float, h: float) -> void:
+	_s_polys.append({"pts": [x * T, y * T, (x + l) * T, (y - h) * T, (x + l) * T, y * T], "k": "ice" if ice_mode else "ramp"})
+	_grow(x, y - h, l, h)
+
+
 ## Roller target: a yellow plate on the floor of a low tunnel, behind a fence.
 ## Only a disc ROLLING over the plate sets it off (rollers), and the fence
 ## (runners can't pass, discs fly through) drops once it has. The tunnel's
 ## roof is slick and too high to jump onto. Half start with a ramp down into
-## the tunnel that a roller picks up speed on.
+## the tunnel that a roller picks up speed on. Signposted from the start of a
+## long run-up (roll it early), and the lane climbs out on an uphill ramp so a
+## long roller rolls back instead of off the next drop.
 func seg_roll_lane(x: int, y: int) -> Vector2i:
+	return _fence_lane(x, y, true)
+
+
+## The any-throw version: a ring hangs in the low tunnel behind the fence. Any
+## throw low enough to fly into the tunnel (or a roller) opens it.
+func seg_throw_lane(x: int, y: int) -> Vector2i:
+	return _fence_lane(x, y, false)
+
+
+func _fence_lane(x: int, y: int, roller: bool) -> Vector2i:
 	var cx := x
-	ground(cx, cx + 6, y)
-	cx += 6
+	var run_up := ri(14, 18) if roller else 6
+	ground(cx, cx + run_up, y)
+	if roller:
+		add_sign(cx + 2, y, "ROLLER")
+	cx += run_up
 	var fy := y
 	if chance(0.5):
 		var l := ri(8, 12)
@@ -1078,21 +1168,65 @@ func seg_roll_lane(x: int, y: int) -> Vector2i:
 		fy = y + h
 		ground(cx, cx + l, fy)
 		cx += l
-	add_sign(cx - 2, fy, "ROLLER")
+	if not roller:
+		add_sign(cx - 2, fy, "THROW")
 	var ceil_h := 3
 	var tl := ri(20, 26)
 	ground(cx, cx + tl + 6, fy)
 	slick(cx, fy - ceil_h - 10, tl, 10)
 	var fx := cx + ri(7, 10)
 	var px := fx + ri(3, 5)
-	_ent({"t": "gate", "plate": [int(px * T), int(fy * T) - 6, 3 * T, 6], "door": [int(fx * T), int((fy - ceil_h) * T), T, ceil_h * T],
-		"mode": "open", "fence": true, "id": rng.randi()}, fx, fy - ceil_h, px + 3 - fx, ceil_h)
+	if roller:
+		_ent({"t": "gate", "plate": [int(px * T), int(fy * T) - 6, 3 * T, 6], "door": [int(fx * T), int((fy - ceil_h) * T), T, ceil_h * T],
+			"mode": "open", "fence": true, "id": rng.randi()}, fx, fy - ceil_h, px + 3 - fx, ceil_h)
+	else:
+		_ent({"t": "gate", "ring": _p(px + 1.5, fy - 1.5), "door": [int(fx * T), int((fy - ceil_h) * T), T, ceil_h * T],
+			"mode": "open", "fence": true, "id": rng.randi()}, fx, fy - ceil_h, px + 3 - fx, ceil_h)
 	_route(cx + 2, fy)
 	cx += tl + 6
+	if roller:
+		# uphill backstop: a roller that keeps going rolls back down into the lane
+		var rl := ri(7, 9)
+		var rh := 3
+		_ramp_up(cx, fy, rl, rh)
+		ground(cx, cx + rl, fy)
+		cx += rl
+		fy -= rh
+		ground(cx, cx + 6, fy)
+		cx += 6
 	_route(cx, fy)
 	lock(x, cx)
-	_s_est += float(cx - x) / RUN_TILES_PER_SEC + 1.2
+	_s_est += float(cx - x) / RUN_TILES_PER_SEC + (1.2 if roller else 0.8)
 	return Vector2i(cx, fy)
+
+
+## Bonus ring: a valley you can just run down into and climb out of, with a
+## ring hanging low over its near side. Any shallow throw through it drops a
+## booster bridge across the valley: no detour, and a speed kick. Optional,
+## so it never stalls the run; it just rewards the throw.
+func seg_bonus_ring(x: int, y: int) -> Vector2i:
+	var cx := x
+	ground(cx, cx + 8, y)
+	add_sign(cx + 2, y, "BONUS")
+	cx += 8
+	var w := ri(16, 22)
+	var depth := ri(5, 7)
+	ground(cx, cx + w, y + depth)
+	var steps := int(ceil(depth / 3.0))
+	for i in steps:
+		oneway(cx + w - 4 - (steps - 1 - i) * 4, maxf(y + depth - 3 * (i + 1), y + 1), 3)   # under the bridge, never through it
+	var gid := rng.randi()
+	var ring_x := cx + ri(4, 8)
+	var ring_y := y - rf(2.5, 4.5)
+	_ent({"t": "gate", "ring": _p(ring_x, ring_y), "door": [int(cx * T), int(y * T), w * T, T / 2], "mode": "bridge", "id": gid},
+		cx, ring_y - 1, w, y - ring_y + 1)
+	_ent({"t": "booster", "r": [int((cx + 2) * T), int(y * T - 8), (w - 4) * T, 8], "dir": 1}, cx + 2, y - 1, w - 4, 1)
+	cx += w
+	ground(cx, cx + 8, y)
+	cx += 8
+	_route(cx, y)
+	_s_est += float(cx - x) / (RUN_TILES_PER_SEC * 1.2) + 0.5
+	return Vector2i(cx, y)
 
 
 ## Hammer lob: a tall slick wall with a door at its foot and the ring low
@@ -1142,46 +1276,171 @@ func seg_chase_gap(x: int, y: int) -> Vector2i:
 	return Vector2i(cx, ly)
 
 
-## Three stacked lanes to pick from, joining again at the end:
-##   high  grapple swings over a spiked roof (fast, risky)
-##   mid   a corridor closed by a door: hit its ring (any throw)
-##   low   a tunnel closed by a fence: roll a roller over its plate
+## Stacked lanes to pick from (two or three), joining again at the end. Each
+## lane's challenge is picked separately so no two stacks play alike:
+##   high  over a spiked roof: grapple swings, platform hops or a grip ceiling
+##   mid   a corridor: a door with its ring (any throw), laser hurdles or a saw
+##   low   a tunnel: a fence with a ring (any throw) or a roller plate, a
+##         spiked slide section or laser hurdles
 ## The lanes are sealed from each other (solid slabs), so each lane's way
 ## through is its own.
 func seg_stacked(x: int, y: int) -> Vector2i:
 	var cx := x
 	ground(cx, cx + 8, y)
 	cx += 8
-	var w := ri(34, 42)
+	var w := ri(34, 46)
 	var x0 := cx
 	var xe := cx + w
+	var three := chance(0.7)
+	var hl := ri(4, 5)                 # low lane headroom
+	var low_top := y - hl              # low lane roof (slab underside)
+	var mid_floor := low_top - 1       # top of the first slab
+	var high_floor := mid_floor
+	var mid_top := mid_floor
 	ground(x0, xe + 8, y)
-	# mid floor / low ceiling: 4 tiles of headroom below, top at y-5
-	block(x0, y - 5, w, 1)
-	# high floor / mid ceiling: top at y-12, spikes along it
-	block(x0, y - 12, w, 1)
-	spikes(x0 + 3, y - 12, w - 3, "up")
-	# low lane: fence + roller plate near its end
-	var fx := xe - 7
-	_ent({"t": "gate", "plate": [int((fx + 3) * T), int(y * T) - 6, 3 * T, 6], "door": [int(fx * T), int((y - 4) * T), T, 4 * T],
-		"mode": "open", "fence": true, "id": rng.randi()}, fx, y - 4, 7, 4)
-	# mid lane: a door near its end, its ring hanging in the corridor
-	var dx := xe - 3
-	_ent({"t": "gate", "ring": _p(dx - ri(8, 14), y - 8), "door": [int(dx * T), int((y - 11) * T), T, 6 * T], "mode": "open", "slick": true, "id": rng.randi()},
-		dx - 14, y - 11, 15, 6)
-	# high lane: floating ledges and grapple points above the spiked roof
-	grapple_pt(x0 - 3, y - 19, "static")
-	var hx := x0 + 2
-	while hx < xe - 8:
-		oneway(hx, y - 16, 4)
-		grapple_pt(hx + ri(6, 9), y - ri(21, 23), "static")
-		hx += ri(11, 14)
-	add_sign(x0 - 4, y, "3 LANES")
+	block(x0, mid_floor, w, 1)
+	if three:
+		var hm := ri(5, 7)
+		mid_top = mid_floor - hm
+		high_floor = mid_top - 1
+		block(x0, high_floor, w, 1)
+	spikes(x0 + 3, high_floor, w - 3, "up")
+	var low_kind: String = _pick(["ring", "ring", "roller", "slide", "lasers"])
+	var mid_kind: String = _pick(["door", "door", "lasers", "saw"])
+	var high_kind: String = _pick(["swing", "swing", "hop", "grip"])
+	# --- low lane
+	match low_kind:
+		"ring", "roller":
+			var fx := xe - ri(7, 12)
+			if low_kind == "roller":
+				_ent({"t": "gate", "plate": [int((fx + 3) * T), int(y * T) - 6, 3 * T, 6], "door": [int(fx * T), int(low_top * T), T, hl * T],
+					"mode": "open", "fence": true, "id": rng.randi()}, fx, low_top, 7, hl)
+			else:
+				_ent({"t": "gate", "ring": _p(fx + 4.5, y - hl * 0.5), "door": [int(fx * T), int(low_top * T), T, hl * T],
+					"mode": "open", "fence": true, "id": rng.randi()}, fx, low_top, 7, hl)
+		"slide":
+			var sl := ri(8, 14)
+			var sx := x0 + ri(8, w - sl - 6)
+			block(sx, low_top, sl, (y - SLIDE_CEIL) - low_top)
+			spikes(sx, y - SLIDE_CEIL, sl, "down")
+		_:
+			_laser_row(x0 + 6, xe - 4, y, low_top)
+	# --- mid lane
+	if three:
+		match mid_kind:
+			"door":
+				var dx := xe - 3
+				_ent({"t": "gate", "ring": _p(dx - ri(8, 14), mid_floor - (mid_floor - mid_top) * 0.5), "door": [int(dx * T), int(mid_top * T), T, (mid_floor - mid_top) * T],
+					"mode": "open", "slick": true, "id": rng.randi()}, dx - 14, mid_top, 15, mid_floor - mid_top)
+			"lasers":
+				_laser_row(x0 + 6, xe - 4, mid_floor, mid_top)
+			_:
+				var sw := ri(6, 9)
+				var sx2 := x0 + ri(10, w - sw - 6)
+				_ent({"t": "saw", "p": _p(sx2, mid_floor - 0.8), "move": _p(sw, 0), "period": snappedf(rf(1.6, 2.4), 0.1), "phase": snappedf(rng.randf(), 0.01), "radius": 26},
+					sx2, mid_floor - 2, sw, 2)
+	# --- high lane: in from a grapple point before the stack
+	grapple_pt(x0 - 3, high_floor - 7, "static")
+	match high_kind:
+		"hop":
+			var hx := x0 + 2
+			while hx < xe - 6:
+				oneway(hx, high_floor - ri(3, 5), 3)
+				hx += ri(7, 9)
+		"grip":
+			grip(x0 + 2, high_floor - 9, w - 4, 2)
+			grapple_pt(xe - 2, high_floor - 6, "static")
+		_:
+			var hx := x0 + 2
+			while hx < xe - 8:
+				oneway(hx, high_floor - 4, 4)
+				grapple_pt(hx + ri(6, 9), high_floor - ri(9, 11), "static")
+				hx += ri(11, 14)
+	add_sign(x0 - 4, y, "%d LANES" % (3 if three else 2))
 	_route(x0 + 1, y)
 	_route(xe + 8, y)
 	lock(x, xe + 8)
 	_s_est += float(xe + 8 - x) / RUN_TILES_PER_SEC + 1.5
 	return Vector2i(xe + 8, y)
+
+
+## Jump / slide laser hurdles between x0 and x1 in a corridor (floor row
+## floor_y, roof row roof_y; see seg_lasers).
+func _laser_row(x0: int, x1: int, floor_y: float, roof_y: float) -> void:
+	var lx := x0
+	var prev := ""
+	while lx < x1:
+		var k := "jump" if chance(0.5) else "slide"
+		if k == "jump":
+			_ent({"t": "laser", "a": _p(lx, floor_y - 1.5), "b": _p(lx, floor_y), "on": 1.0, "off": 0.0, "phase": 0.0}, lx, floor_y - 1.5, 1, 1.5)
+		else:
+			_ent({"t": "laser", "a": _p(lx, roof_y), "b": [int(lx * T), int(floor_y * T) - 32], "on": 1.0, "off": 0.0, "phase": 0.0}, lx, roof_y, 1, floor_y - roof_y)
+		prev = k
+		lx += ri(9, 11) if prev == "jump" else ri(6, 8)
+
+
+# ============================================================ height
+
+## Climbing shaft: walk in under a hanging wall, then up ledges on alternate
+## sides (wall-jump the walls, or zip to the point over the top) and out
+## onto a ledge high above.
+func seg_climb_shaft(x: int, y: int) -> Vector2i:
+	var h := ri(14, 20 + dl(0, 6))
+	var top := y - h
+	var sw := 8
+	var sx := x + 6
+	ground(x, sx + sw, y)
+	block(sx - 1, top - 3, 1, (y - 4) - (top - 3))      # hanging left wall
+	var ly := y - 4
+	var left := false
+	while ly > top:
+		oneway(sx if left else sx + sw - 3, ly, 3)
+		left = not left
+		ly -= 4
+	ground(sx + sw, sx + sw + 8, top)                  # its fill is the right wall
+	grapple_pt(sx + sw * 0.5, top - 6, "static")
+	if d > 0.5 and chance(0.5):
+		spikes(sx + sw, y - 3, 2, "left")
+	_route(sx + 2, y)
+	_route(sx + sw + 8, top)
+	_s_est += 1.0 + h * 0.09
+	return Vector2i(sx + sw + 8, top)
+
+
+## Cascade: a long way down in drops and slides. Ledges step down and right,
+## some joined by slopes you can slide down for speed.
+func seg_cascade(x: int, y: int) -> Vector2i:
+	var cx := x
+	var cy := y
+	ground(cx, cx + 4, cy)
+	cx += 4
+	var n := ri(3, 5)
+	for i in n:
+		if chance(0.45):
+			var l := ri(6, 10)
+			var hgt := ri(3, 6)
+			_ramp_down(cx, cy, l, hgt)
+			cy += hgt
+			ground(cx, cx + l, cy)
+			cx += l
+		else:
+			cy += ri(5, 9)
+			if d > 0.4 and chance(0.3):
+				spikes(cx + 1, cy, 1, "up")
+				ground(cx, cx + 6, cy)
+				cx += 6
+				_route(cx, cy)
+				continue
+		var lw := ri(4, 7)
+		ground(cx, cx + lw, cy)
+		cx += lw
+		_route(cx, cy)
+	ground(cx, cx + 4, cy)
+	cx += 4
+	_route(cx, cy)
+	_s_est += float(cx - x) / (RUN_TILES_PER_SEC * 1.2) + 0.25 * n
+	return Vector2i(cx, cy)
+
 
 # ============================================================ finale
 

@@ -10,6 +10,12 @@ extends SceneTree
 ##   clock     saws stand still at their start until the run starts, and are
 ##             back there after a restart; a RETRY while a key is held waits
 ##             for it to be let go
+##   lasers    a roof beam is slid under and a floor beam jumped at full speed;
+##             running into the roof beam standing up kills
+##   bonus     a flat backhand through the bonus ring drops the bridge, and the
+##             runner sprints across it (boosted) instead of dropping in
+##   backstop  a hard roller in the roller lane rolls back off the uphill
+##             ramp instead of away down the course
 ## godot --headless --fixed-fps 120 -s tools/test_puzzles.gd
 
 const Gen = preload("res://src/level/generator.gd")
@@ -227,6 +233,103 @@ func _physics_process(_dt: float) -> bool:
 				var back: bool = saws.map(func(z): return z.position) == m.p0
 				_check("clock", bool(m.still) and bool(m.moved) and back and bool(m.waited) and not r.running and saws.size() > 0,
 					"%d saws: still before the start %s, moving once running %s, RETRY waited for the key %s, back at the start %s" % [saws.size(), m.still, m.moved, m.waited, back])
+				_release_all()
+				phase = "laser_load"
+		"laser_load":
+			_play(_course(["lasers"]))
+			phase = "laser_slide"
+		"laser_slide":
+			var beams: Array = []
+			for c in lvl.world.get_children():
+				if c.has_meta("laser"):
+					beams.append(c)
+			beams.sort_custom(func(a, b): return a.a.x < b.a.x)
+			if f == 3:
+				m["slide"] = null
+				m["jump"] = null
+				for z in beams:
+					if z.a.y < z.b.y - 60.0 and m.slide == null:
+						m["slide"] = z
+					elif z.a.y >= z.b.y - 60.0 and m.jump == null:
+						m["jump"] = z
+				var sz = m.slide
+				_put(Vector2(sz.a.x - 180.0, sz.b.y + 32.0))   # beams are 6+ tiles apart
+				Input.action_press("move_right")
+			if f > 3 and f < 200:
+				var sz2 = m.slide
+				if r.player.global_position.x > sz2.a.x - 150.0 and r.player.global_position.x < sz2.a.x + 40.0:
+					Input.action_press("move_down")
+				else:
+					Input.action_release("move_down")
+				if r.player.global_position.x > sz2.a.x + 60.0:
+					Input.action_release("move_right")   # stop before the next beam
+			if f == 200:
+				var sz3 = m.slide
+				_check("slide", r.deaths == 0 and r.player.global_position.x > sz3.a.x, "slid under the roof beam: deaths %d, %+.0f px past it" % [r.deaths, r.player.global_position.x - sz3.a.x])
+				_release_all()
+				var jz = m.jump
+				_put(Vector2(jz.a.x - 180.0, jz.b.y))
+				Input.action_press("move_right")
+			if f > 200 and f < 400 and not m.has("hjump") and m.jump != null and r.player.global_position.x > m.jump.a.x - 70.0:
+				m["hjump"] = true
+				Input.action_press("jump")
+			if f > 200 and f < 400 and m.jump != null and r.player.global_position.x > m.jump.a.x + 60.0:
+				Input.action_release("move_right")
+			if f == 400:
+				var jz2 = m.jump
+				_check("hurdle", r.deaths == 0 and r.player.global_position.x > jz2.a.x, "jumped the floor beam: deaths %d, %+.0f px past it" % [r.deaths, r.player.global_position.x - jz2.a.x])
+				_release_all()
+				var sz4 = m.slide
+				_put(Vector2(sz4.a.x - 180.0, sz4.b.y + 32.0))
+				Input.action_press("move_right")
+			if f == 520:
+				_check("upright", r.deaths > 0, "ran into the roof beam standing: deaths %d" % r.deaths)
+				_release_all()
+				phase = "bonus_load"
+		"bonus_load":
+			_play(_course(["bonus_ring"]))
+			phase = "bonus"
+		"bonus":
+			if f == 3:
+				var gt3 = r.gates[0]
+				m["gate"] = gt3
+				_put(Vector2(gt3.door_rect.position.x - 200.0, gt3.door_rect.position.y))
+			if f == 10:
+				var gt4 = m.gate
+				var from: Vector2 = r.player.hand()
+				_launch(from, (gt4.ring_pos - from).normalized() * 1000.0, "backhand")
+			if f == 140:
+				m["hit"] = m.gate.triggered
+				Input.action_press("move_right")
+			if f > 140 and f < 300:
+				m["low"] = maxf(float(m.get("low", -INF)), r.player.global_position.y)
+				m["vx"] = maxf(float(m.get("vx", 0.0)), r.player.velocity.x)
+			if f == 300:
+				var gt5 = m.gate
+				var dry: float = float(m.low) - gt5.door_rect.position.y
+				_check("bonus", bool(m.hit) and dry < 4.0 and r.player.global_position.x > gt5.door_rect.end.x and float(m.vx) > 900.0,
+					"flat backhand through the ring: %s; ran across %.0f px below the bridge top, past its end: %s, top speed %.0f" % [m.hit, dry,
+					r.player.global_position.x > gt5.door_rect.end.x, float(m.vx)])
+				_release_all()
+				phase = "back_load"
+		"back_load":
+			_play(_course(["roll_lane"]))
+			phase = "backstop"
+		"backstop":
+			if f == 3:
+				var gt6 = r.gates[0]
+				m["ramp_end"] = INF
+				for pl in lvl.level_data.polys:
+					var pts: Array = pl.pts
+					if pts.size() == 6 and float(pts[3]) < float(pts[1]) and float(pts[2]) > gt6.door_rect.position.x:
+						m["ramp_end"] = minf(float(m.ramp_end), float(pts[2]))
+				_put(Vector2(gt6.door_rect.position.x - 260.0, gt6.door_rect.end.y))
+			if f == 10:
+				_launch(r.player.hand(), Vector2(1300, 60), "roller")
+			if f == 900:
+				_check("backstop", r.gates[0].triggered and r.disc.global_position.x < float(m.ramp_end) and r.penalty == 0.0,
+					"hard roller: plate %s, disc stopped %.0f px before the backstop top (no out of bounds: %s)" % [r.gates[0].triggered,
+					float(m.ramp_end) - r.disc.global_position.x, r.penalty == 0.0])
 				print("puzzles: %d failures" % fails)
 				quit(0 if fails == 0 else 1)
 				return true

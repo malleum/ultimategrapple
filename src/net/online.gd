@@ -481,6 +481,7 @@ func share_course(level: Dictionary, slot := -1) -> void:
 	var data := level.duplicate(true)
 	data.erase("_builtin")
 	data.erase("pinned")
+	data.erase("elo")   # a ranked game's course: saved, it's a normal course
 	var blob := pack(data)
 	if blob.size() > MAX_COURSE_BLOB:
 		share_result.emit(false, "That course is too big to save online", "")

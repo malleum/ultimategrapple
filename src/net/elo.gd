@@ -157,7 +157,7 @@ static func rival_from(ghost_runs: Array) -> Dictionary:
 				role = o
 				break
 		items.append({"frames": g.frames, "name": "%s %s" % [str(g.name), role.to_upper()] if role != "" else str(g.name),
-			"time": float(g.time), "color": g.color, "no_pb": true, "_o": order.find(role) if role != "" else 9})
+			"time": float(g.time), "color": g.color, "no_pb": true, "role": role, "_o": order.find(role) if role != "" else 9})
 	items.sort_custom(func(a, b): return int(a._o) < int(b._o))
 	if items.is_empty():
 		return {}
@@ -274,18 +274,18 @@ func _call(method: int, path: String, body, cb: Callable) -> void:
 		var parsed = JSON.parse_string(resp.get_string_from_utf8()) if resp.size() > 0 else null
 		var d: Dictionary = parsed if parsed is Dictionary else {}
 		if result != HTTPRequest.RESULT_SUCCESS:
-			_done(cb, false, {"code": 0, "error": "network", "message": "Can't reach the ELO service"})
+			_done(cb, false, {"code": 0, "error": "network", "message": "Can't reach the ranked service"})
 		elif code >= 200 and code < 300:
 			_done(cb, true, d)
 		else:
 			d["code"] = code
 			if not d.has("message"):
-				d["message"] = "Update the game to play ELO runs" if code == 426 else "The ELO service said %d" % code
+				d["message"] = "Update the game to play ranked" if code == 426 else "The ranked service said %d" % code
 			_done(cb, false, d))
 	var err := h.request_raw(base_url + path, headers, method, raw)
 	if err != OK:
 		h.queue_free()
-		_done.call_deferred(cb, false, {"code": 0, "error": "network", "message": "Can't reach the ELO service"})
+		_done.call_deferred(cb, false, {"code": 0, "error": "network", "message": "Can't reach the ranked service"})
 
 
 # ------------------------------------------------------------------ persistence

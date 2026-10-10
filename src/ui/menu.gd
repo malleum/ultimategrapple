@@ -266,7 +266,7 @@ func _page_title() -> void:
 	v.add_child(col)
 	col.add_child(UI.button("COURSES", func(): show_page("courses"), 30))
 	col.add_child(UI.button("RANDOM", func(): show_page("random"), 30))
-	col.add_child(UI.button("ELO RUN", func(): show_page("elo"), 30))
+	col.add_child(UI.button("RANKED", func(): show_page("elo"), 30))
 	col.add_child(UI.button("LEADERBOARDS", func(): _page_leaderboards(), 30))   # the main boards (not the last list)
 	col.add_child(UI.button("REPLAYS", func(): show_page("replays"), 30))
 	col.add_child(UI.button("STATS", func(): show_page("stats"), 30))
@@ -344,13 +344,13 @@ func _page_elo() -> void:
 	c.add_child(panel)
 	var v := UI.vbox(14)
 	panel.add_child(v)
-	v.add_child(UI.label("ELO RUN", 48, UI.NEON))
+	v.add_child(UI.label("RANKED", 48, UI.NEON))
 	var rl := UI.label("Rating …", 34, Color(1, 0.85, 0.35))
 	v.add_child(rl)
 	var il := UI.label("", 20, UI.DIM)
 	v.add_child(il)
-	var rules := UI.label("One run per seed, ever. Restart, quit or a crash is a DNF and the seed is gone. " + \
-		"Seeds others have played come with the best, median and worst ghost. Your rating moves against the average time on each seed.", 17, UI.DIM)
+	var rules := UI.label("One run per seed, ever: no restarts. Quitting (pause → forfeit) or a crash is a DNF and the seed is gone. " + \
+		"Seeds others have played come with the best, median and worst ghost and their splits. Your rating moves against the average time on each seed. Every ranked run is kept in REPLAYS.", 17, UI.DIM)
 	rules.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(rules)
 	var status := UI.label("", 20, Color(0.5, 0.9, 1.0))
@@ -779,7 +779,6 @@ func _page_controls() -> void:
 		[K.call("zip"), "zip (hold): reel yourself to the grapple point"],
 		[K.call("restart"), "instant restart"],
 		[K.call("recall"), "recall disc to hand (+3s)"],
-		[K.call("pin"), "pin this course permanently"],
 	]
 	var lines_r := [
 		[K.call("throw"), "hold to charge, release to throw toward the cursor"],

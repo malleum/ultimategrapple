@@ -213,16 +213,12 @@ func _process(dt: float) -> void:
 			go_t = -1.0
 	if countdown_until > 0.0:
 		countdown_until = level.countdown
-	if not get_tree().paused and not runner.done and Input.is_action_just_pressed("pin") and level.mode == "solo" and not level.is_elo():
-		level.pin_current()
 	if runner.done and results and level.mode == "replay" and not Game.render_mode:
 		if Input.is_action_just_pressed("pause"):
 			Game.goto_menu("replays")
 	if runner.done and results and level.mode == "solo":
 		if Input.is_action_just_pressed("next_level"):
 			_next()
-		elif Input.is_action_just_pressed("pin") and not level.is_elo():
-			level.pin_current()
 		elif Input.is_action_just_pressed("pause"):
 			Game.goto_menu()
 	draw_layer.queue_redraw()
@@ -645,12 +641,19 @@ func _draw_splits(ci: Control, vs: Vector2) -> void:
 	if n == 0:
 		return
 	var pb: Array = runner.split_pb()
-	var x := vs.x - 268.0
+	# ranked: one more column per ghost on this seed, with its split times
+	var others: Array = level.rival_splits() if level.is_elo() else []
+	const GCOL := 64.0
+	var x := vs.x - 268.0 - GCOL * others.size()
 	var y0 := 12.0 + 40.0 + 34.0 * 4 + 10.0
 	var row := 25.0
-	var r := Rect2(x, y0, 256, 30 + row * n)
+	var r := Rect2(x, y0, 256 + GCOL * others.size(), 30 + row * n)
 	_slab(ci, r, 12.0, Color(0.02, 0.015, 0.06, 0.72), Color(1, 1, 1, 0.1))
-	_text(ci, Vector2(x + 18, y0 + 20), "SPLITS", 12, Color(1, 1, 1, 0.45), HORIZONTAL_ALIGNMENT_LEFT, -1, _bold, 0)
+	_text(ci, Vector2(x + 18, y0 + 20), "SPLITS" if others.is_empty() else "VS BEST", 12, Color(1, 1, 1, 0.45), HORIZONTAL_ALIGNMENT_LEFT, -1, _bold, 0)
+	for j in others.size():
+		var o: Dictionary = others[j]
+		var tag := str(o.role).to_upper() if str(o.role) != "" else str(o.name).to_upper()
+		_text(ci, Vector2(x + 250 + GCOL * j, y0 + 20), tag.substr(0, 6), 11, Color(_ldr(o.color), 0.8), HORIZONTAL_ALIGNMENT_LEFT, -1, _bold, 0)
 	var done_n: int = runner.split_times.size()
 	for i in n:
 		var yy := y0 + 30.0 + row * i
@@ -668,6 +671,15 @@ func _draw_splits(ci: Control, vs: Vector2) -> void:
 			_text(ci, Vector2(x + 172, yy + 16), _short_time(tm), 14, Color(1, 1, 1, 0.9), HORIZONTAL_ALIGNMENT_LEFT, -1, _mono, 0)
 		elif has_pb:
 			_text(ci, Vector2(x + 172, yy + 16), _short_time(float(pb[i])), 14, Color(1, 1, 1, 0.35), HORIZONTAL_ALIGNMENT_LEFT, -1, _mono, 0)
+		for j in others.size():
+			var os: Array = others[j].splits
+			if i < os.size():
+				var ot := float(os[i])
+				# once you're through: green where you beat them there, red where they were faster
+				var oc := Color(1, 1, 1, 0.45)
+				if i < done_n:
+					oc = SPLIT_AHEAD if Game.centis(float(runner.split_times[i])) <= Game.centis(ot) else SPLIT_BEHIND
+				_text(ci, Vector2(x + 250 + GCOL * j, yy + 16), _short_time(ot), 13, oc, HORIZONTAL_ALIGNMENT_LEFT, -1, _mono, 0)
 	# the split just crossed, big under the timer
 	if split_flash > 0.0 and split_last >= 0 and split_last < done_n:
 		var a := clampf(split_flash / 0.4, 0.0, 1.0)
@@ -867,9 +879,9 @@ func _draw_hints(ci: Control, vs: Vector2) -> void:
 	if level.mode == "replay":
 		hints = [[Bindings.label("restart"), "watch again"], [Bindings.label("pause"), "replay menu"]]
 	elif level.mode == "solo":
-		hints = [[Bindings.label("restart", pad), "forfeit" if level.is_elo() else "restart"], [Bindings.label("recall", pad), "recall +3s"], [Bindings.label("pause", pad), "pause"]]
-		if not pad and not level.is_elo():
-			hints.append([Bindings.label("pin"), "pin"])
+		hints = [[Bindings.label("restart", pad), "restart"], [Bindings.label("recall", pad), "recall +3s"], [Bindings.label("pause", pad), "pause"]]
+		if level.is_elo():
+			hints.pop_front()   # ranked: one go per seed, no restart
 	else:
 		hints = [[Bindings.label("restart", pad), "reset"], [Bindings.label("recall", pad), "recall +3s"], [Bindings.label("pause", pad), "menu"]]
 	hints = hints.filter(func(h): return h[0] != "")
@@ -1350,7 +1362,9 @@ func show_results(tm: float, medal: String, is_pb: bool, old_pb := -1.0) -> void
 		if not is_pb:
 			ol.text = "Leaderboards: Menu → LEADERBOARDS"
 	var rivals: Array = level.rival_list()
-	if rivals.size() == 1 and not replaying:
+	if level.is_elo() and not replaying:
+		_ranked_gaps(v, tm, rivals)
+	elif rivals.size() == 1 and not replaying:
 		var rt: float = level.rival.time
 		var who := str(level.rival.name)
 		var beat := Game.centis(tm) < Game.centis(rt)
@@ -1382,12 +1396,15 @@ func show_results(tm: float, medal: String, is_pb: bool, old_pb := -1.0) -> void
 			h.add_child(UI.button("REPLAYS", func(): Game.goto_menu("replays")))
 	elif level.is_elo():
 		h.add_child(UI.button("NEXT GAME  [N]", _next))
+		if not runner.last_replay.is_empty():
+			h.add_child(UI.button("REPLAY", func(): Game.play_replay_data(runner.last_replay)))
+			h.add_child(_fav_button(runner.last_replay))
+		if Online.is_online():
+			h.add_child(_save_course_button())
 		h.add_child(UI.button("MENU", func(): Game.goto_menu("elo")))
 	else:
 		h.add_child(UI.button("RETRY  [R]", func(): level.restart_when_released()))
 		h.add_child(UI.button("NEXT  [N]", _next))
-		if not Game.is_pinned(level.level_id):
-			h.add_child(UI.button("PIN  [P]", func(): level.pin_current()))
 		if Online.is_online() and not bool(level.level_data.get("_builtin", false)):
 			h.add_child(_save_course_button())
 		if not runner.last_replay.is_empty():
@@ -1442,6 +1459,38 @@ func show_results(tm: float, medal: String, is_pb: bool, old_pb := -1.0) -> void
 	tw3.tween_property(results, "modulate:a", 1.0, 0.2)
 
 
+## Ranked results: how close it was to the runs either side of yours on this
+## seed (the ghosts the service sent: best, median, worst).
+func _ranked_gaps(v: VBoxContainer, tm: float, rivals: Array) -> void:
+	if rivals.is_empty():
+		v.add_child(UI.label("FIRST ON THIS SEED  ·  nobody to compare with yet", 20, UI.DIM, HORIZONTAL_ALIGNMENT_CENTER))
+		return
+	var ahead = null    # slowest of the faster runs
+	var behind = null   # fastest of the slower runs
+	var place := 1
+	for rv in rivals:
+		var rt := float(rv.time)
+		if Game.centis(rt) < Game.centis(tm):
+			place += 1
+			if ahead == null or rt > float(ahead.time):
+				ahead = rv
+		elif behind == null or rt < float(behind.time):
+			behind = rv
+	v.add_child(UI.label("%s OF %d AGAINST THE GHOSTS" % [ordinal(place), rivals.size() + 1], 22,
+		Color(0.5, 1, 0.7) if place == 1 else Color(1, 0.8, 0.5), HORIZONTAL_ALIGNMENT_CENTER))
+	var row := UI.hbox(30)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	if ahead != null:
+		row.add_child(UI.label("▲ %s WAS %ss FASTER" % [str(ahead.name).to_upper(), Game.gap_text(tm, float(ahead.time))], 20, Color(1, 0.6, 0.45)))
+	else:
+		row.add_child(UI.label("▲ NOBODY AHEAD", 20, Color(1.0, 0.85, 0.35)))
+	if behind != null:
+		row.add_child(UI.label("▼ YOU BEAT %s BY %ss" % [str(behind.name).to_upper(), Game.gap_text(float(behind.time), tm)], 20, Color(0.5, 1, 0.7)))
+	else:
+		row.add_child(UI.label("▼ NOBODY BEHIND", 20, UI.DIM))
+	v.add_child(row)
+
+
 func _next() -> void:
 	if level.is_elo():
 		_elo_next()
@@ -1472,7 +1521,7 @@ func _fill_elo() -> void:
 		elo_label.text = "RATING PENDING  ·  you're first on this seed. It counts once someone else plays it."
 	else:
 		var delta := float(d.get("delta", 0.0))
-		elo_label.text = "ELO  %d → %d  (%s%.1f)  ·  #%d of %d on this seed" % [int(round(float(d.get("rating_before", 0)))),
+		elo_label.text = "RATING  %d → %d  (%s%.1f)  ·  #%d of %d on this seed" % [int(round(float(d.get("rating_before", 0)))),
 			int(round(float(d.get("rating_after", 0)))), "+" if delta >= 0.0 else "−", absf(delta), int(d.get("rank_on_seed", 0)), int(d.get("players_on_seed", 0))]
 		elo_label.add_theme_color_override("font_color", Color(0.5, 1, 0.7) if delta >= 0.0 else Color(1, 0.6, 0.45))
 
@@ -1516,12 +1565,10 @@ func toggle_pause() -> void:
 			v.add_child(UI.button("EXPORT MP4", func(): Game.export_replay_mp4(Game.replay_key_for(level.replay))))
 			v.add_child(UI.button("REPLAYS", func(): Game.goto_menu("replays")))
 		elif level.is_elo():
-			v.add_child(UI.label("ELO RUN  ·  one go per seed", 18, UI.DIM, HORIZONTAL_ALIGNMENT_CENTER))
+			v.add_child(UI.label("RANKED  ·  one go per seed", 18, UI.DIM, HORIZONTAL_ALIGNMENT_CENTER))
 			v.add_child(UI.button("FORFEIT RUN (DNF)", func(): toggle_pause(); level.elo_forfeit()))
 		elif level.mode == "solo":
 			v.add_child(UI.button("RESTART", func(): toggle_pause(); level.restart_when_released()))
-			if not Game.is_pinned(level.level_id):
-				v.add_child(UI.button("PIN COURSE", func(): level.pin_current()))
 			v.add_child(UI.label("Seed %s" % str(level.level_data.get("seed", "?")), 16, UI.DIM, HORIZONTAL_ALIGNMENT_CENTER))
 			v.add_child(UI.button("QUIT TO MENU", func(): Game.goto_menu()))
 		elif level.mode == "couch":

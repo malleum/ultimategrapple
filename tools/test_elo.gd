@@ -180,7 +180,7 @@ func _run() -> void:
 	_check("open", E.is_open() and FileAccess.file_exists("user://elo.json"), "game is open and saved")
 	_check("sets", E.set_of(1) == 1 and E.set_of(3) == 1 and E.set_of(4) == 2 and E.set_position(4) == 1 and E.set_position(6) == 3, "set maths")
 
-	# --- play it: a restart before the run starts is free, after it asks twice, then DNF
+	# --- play it: the restart key does nothing in ranked; forfeiting from the pause menu is the DNF
 	G.start_elo(g1)
 	await _wait(func(): return _scene() != null and _scene().has_method("is_elo") and _scene().is_elo() and _scene().runners.size() > 0)
 	var lvl = _scene()
@@ -188,18 +188,20 @@ func _run() -> void:
 	_check("level", lvl.is_elo() and int(lvl.level_data.elo.game_number) == 1 and lvl.level_data.seed == 4243 or lvl.is_elo(), "seed course, elo tag")
 	_check("no_ghost", lvl.rival_list().is_empty(), "no rival ghosts on a fresh seed")
 	lvl.user_restart()
-	_check("free", E.is_open() and not lvl.runners[0].running, "restart before the first input is free")
+	_check("free", E.is_open() and not lvl.runners[0].running, "restart before the first input: nothing happens")
 	Input.action_press("move_right")
 	await _wait(func(): return lvl.runners[0].running)
 	Input.action_release("move_right")
 	_check("running", lvl.runners[0].running, "run started")
 	lvl.user_restart()
-	_check("confirm", E.is_open() and lvl._elo_confirm > 0 and _scene() == lvl, "first restart press only asks")
 	lvl.user_restart()
+	await physics_frame
+	_check("noop", E.is_open() and _scene() == lvl and lvl.runners[0].running and _calls("/submit").is_empty(), "restart key is a no-op once running")
+	lvl.elo_forfeit()
 	await _wait(func(): return not _calls("/submit").is_empty())
 	var dnf: Dictionary = _calls("/submit")[0] if not _calls("/submit").is_empty() else {"body": {}}
 	_check("dnf", str(dnf.body.get("status", "")) == "dnf" and str(dnf.body.get("run_id", "")) == "r1" and not E.is_open(),
-		"second press forfeits: %s" % str(dnf.body.get("status")))
+		"forfeit sends the DNF: %s" % str(dnf.body.get("status")))
 	await _wait(func(): return not is_instance_id_valid(lvl_id) and _scene() != null and _scene().get("page") != null)
 	_check("menu", _scene().get("page") == "elo", "back on the ELO page")
 	await _wait(func(): return not _calls("/rating").is_empty() and not _calls("/ladder").is_empty())
@@ -216,6 +218,9 @@ func _run() -> void:
 	_check("rivals", rl.size() == 3 and str(rl[0].name).contains("BEST") and str(rl[1].name).contains("MEDIAN") and str(rl[2].name).contains("WORST")
 		and is_equal_approx(float(rl[0].time), 50.0), "best/median/worst in order: %s" % str(rl.map(func(x): return x.name)))
 	_check("rglobal", lvl.runners[0].rival_ghosts.size() == 3, "three ghost nodes on the runner")
+	var rsp: Array = lvl.rival_splits()
+	_check("gsplits", rsp.size() == 3 and (rsp[0].splits as Array).size() == lvl.runners[0].split_count()
+		and is_equal_approx(float(rsp[0].splits[-1]), 50.0) and lvl.runners[0].split_pb() == rsp[0].splits, "ghost splits worked out, best one is the reference")
 
 	# --- finish it
 	var run = lvl.runners[0]
@@ -228,7 +233,9 @@ func _run() -> void:
 	_check("finish", str(b.get("status", "")) == "finished" and str(b.get("run_id", "")) == "r2" and absf(float(b.get("time", 0)) - 40.0) < 0.01
 		and b.get("run") is Dictionary and (b.run.get("frames") as Array).size() >= 1 and str(b.run.get("replay", "")).length() > 10, "finished submit with time + frames + input")
 	_check("closed", not E.is_open() and E.unsent.is_empty(), "game closed after the answer")
-	await _wait(func(): return is_instance_valid(lvl) and lvl.hud.results != null and lvl.hud.elo_label != null and str(lvl.hud.elo_label.text).contains("ELO"))
+	_check("saved", G.has_replay(lvl.level_id) and str(lvl.level_id).begins_with("ranked_") and not G.load_replay(lvl.level_id).level.has("elo"),
+		"ranked run kept as a replay (course without the ranked tag)")
+	await _wait(func(): return is_instance_valid(lvl) and lvl.hud.results != null and lvl.hud.elo_label != null and str(lvl.hud.elo_label.text).contains("RATING"))
 	_check("card", lvl.hud.elo_label != null and str(lvl.hud.elo_label.text).contains("1000") and str(lvl.hud.elo_label.text).contains("1012"), "results card: %s" % (lvl.hud.elo_label.text if lvl.hud.elo_label else "-"))
 
 	# --- big submit is gzipped and survives

@@ -144,6 +144,42 @@ func rival_list() -> Array:
 	if rival.get("more") is Array:
 		out.append_array(rival.more)
 	return out
+
+
+var _rival_splits = null
+
+
+## The ghosts' split times (cumulative, finish last), worked out from their
+## frames against this course's split lines: [{name, role, color, time, splits}].
+func rival_splits() -> Array:
+	if _rival_splits == null:
+		_rival_splits = []
+		if not split_xs.is_empty():
+			for rv in rival_list():
+				_rival_splits.append({"name": str(rv.name), "role": str(rv.get("role", "")), "color": rv.color,
+					"time": float(rv.time), "splits": ghost_splits(rv.get("frames", []), float(rv.time))})
+	return _rival_splits
+
+
+## Split times of a ghost run: the first frame where the runner (or the disc
+## while it's out, as Runner._check_splits counts it) is past each line.
+func ghost_splits(frames: Array, finish: float) -> Array:
+	var out: Array = []
+	for k in frames.size():
+		if out.size() >= split_xs.size():
+			break
+		var f = frames[k]
+		if not f is Array or (f as Array).size() < 2:
+			continue
+		var x := float(f[0])
+		if f.size() > 10 and float(f[10]) > 0.5:
+			x = maxf(x, float(f[8]))
+		while out.size() < split_xs.size() and x >= float(split_xs[out.size()]):
+			out.append(minf(k * Ghost.REC_INTERVAL, finish))
+	while out.size() < split_xs.size():
+		out.append(finish)
+	out.append(finish)
+	return out
 var wind_zones: Array = []   # Zone nodes of kind "wind" (for the aim readout)
 
 
@@ -360,37 +396,20 @@ func restart_when_released() -> void:
 	_restart_pending = true
 
 
-## ELO run game: one go per seed.
+## Ranked game (the ELO run): one go per seed.
 func is_elo() -> bool:
 	return mode == "solo" and level_data.has("elo")
 
 
-var _elo_confirm := 0     # physics ticks left to confirm a forfeit
-const ELO_CONFIRM_TICKS := 240
-
-
-## The restart key in a time trial. In an ELO game, once the run has begun a
-## restart is the end of it (DNF), so it asks twice.
+## The restart key in a time trial. Does nothing in a ranked game: one go per
+## seed, and leaving is only ever on purpose (pause menu → forfeit).
 func user_restart() -> void:
 	if not is_elo():
 		restart()
-		return
-	var r = runners[0]
-	if r.done:
-		return
-	if not r.running:   # nothing begun yet: a free reset
-		restart()
-		return
-	if _elo_confirm > 0:
-		elo_forfeit()
-	else:
-		_elo_confirm = ELO_CONFIRM_TICKS
-		r.hud.popup("%s AGAIN TO FORFEIT (DNF)" % Bindings.label("restart").to_upper(), Color(2, 0.5, 0.3))
 
 
 func elo_forfeit() -> void:
-	_elo_confirm = 0
-	Game.goto_menu("elo")   # leaving an open ELO game sends the DNF
+	Game.goto_menu("elo")   # leaving an open ranked game sends the DNF
 
 
 func _inputs_held() -> bool:
@@ -437,8 +456,6 @@ func update_view() -> void:
 
 
 func _physics_process_timed(dt: float) -> void:
-	if _elo_confirm > 0:
-		_elo_confirm -= 1
 	if _restart_pending and not _inputs_held():
 		restart()
 	update_view()
@@ -709,13 +726,6 @@ func remove_remote_ghost(id: int) -> void:
 	if remote_ghosts.has(id):
 		remote_ghosts[id].queue_free()
 		remote_ghosts.erase(id)
-
-
-func pin_current() -> String:
-	var path := Game.pin_level(level_data)
-	for r in runners:
-		r.hud.popup("PINNED  " + path.get_file(), Color(0.5, 2.0, 1.0), 2.0)
-	return path
 
 
 # ================================================================== fx helpers

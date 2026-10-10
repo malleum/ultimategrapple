@@ -22,7 +22,7 @@ func _ready() -> void:
 	var v := UI.vbox(10)
 	add_child(v)
 	v.add_child(UI.label("COURSES", 48, UI.NEON))
-	var info := UI.label("The main courses, the courses runners saved online (up to %d each: press SAVE COURSE on a results card) and the ones you pinned on this computer. Saved courses keep their exact layout and have leaderboards and runs to race." % Online.SHARE_MAX, 18, UI.DIM)
+	var info := UI.label("The main courses, the courses runners saved online (up to %d each: press SAVE COURSE on a results card). Saved courses keep their exact layout and have leaderboards and runs to race." % Online.SHARE_MAX, 18, UI.DIM)
 	info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(info)
 	tabs = HFlowContainer.new()
@@ -60,7 +60,8 @@ func _rebuild() -> void:
 		_tab_button(str(p.uid), "MY COURSES" if me else str(p.name).to_upper(), Game.player_palette(int(p.get("color", 0))))
 	if not mine_listed and Online.uid != "":
 		_tab_button(Online.uid, "MY COURSES")
-	_tab_button("pinned", "PINNED")
+	if tab == "pinned" or _has_pinned():   # courses pinned by older builds
+		_tab_button("pinned", "PINNED")
 	for c in list.get_children():
 		c.queue_free()
 	match tab:
@@ -132,7 +133,14 @@ func _list_pinned() -> void:
 		list.add_child(_row(str(d.get("name", "Course")), d, str(d.get("theme", "")), float(d.get("difficulty", 0.5)), str(d.get("id", "")),
 			func(): Game.start_pinned(idx)))
 	if not any:
-		list.add_child(UI.label("Nothing pinned yet. Press P (or PIN on the results card) on a course you like to keep it on this computer.", 18, UI.DIM))
+		list.add_child(UI.label("Nothing pinned on this computer. SAVE COURSE on a results card keeps a course online instead.", 18, UI.DIM))
+
+
+func _has_pinned() -> bool:
+	for d in Game.list_pinned_levels():
+		if not bool(d.get("_builtin", false)):
+			return true
+	return false
 
 
 func _list_runner(who: String) -> void:

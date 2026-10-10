@@ -17,7 +17,7 @@ const KBM_ACTIONS := [
 	["throw_1", "Backhand"], ["throw_2", "Forehand"], ["throw_3", "Hammer"],
 	["throw_4", "Roller"], ["throw_5", "Scoober"], ["throw_6", "Thumber"],
 	["nose_up", "Nose up"], ["nose_down", "Nose down"],
-	["recall", "Recall disc"], ["restart", "Restart"], ["pin", "Pin course"], ["next_level", "Next course"],
+	["recall", "Recall disc"], ["restart", "Restart"], ["next_level", "Next course"],
 ]
 const PAD_ACTIONS := [
 	["jump", "Jump · double jump"], ["grapple", "Grapple swing (hold)"], ["zip", "Zip (hold)"],
@@ -70,7 +70,6 @@ static func default_kbm() -> Dictionary:
 		"nose_down": [_k(KEY_Z), _m(MOUSE_BUTTON_WHEEL_DOWN)],
 		"recall": [_k(KEY_T)],
 		"restart": [_k(KEY_R)],
-		"pin": [_k(KEY_P)],
 		"next_level": [_k(KEY_N)],
 	}
 
