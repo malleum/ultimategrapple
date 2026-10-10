@@ -98,6 +98,7 @@ func host(port := PORT, as_dedicated := false) -> bool:
 	multiplayer.multiplayer_peer = peer
 	dedicated = as_dedicated
 	settings["proto"] = PROTOCOL
+	settings["gen"] = Game.LevelGen.VERSION   # random courses are built here, on the server
 	players.clear()
 	if not dedicated:
 		players[1] = _my_info()
@@ -295,11 +296,15 @@ func sync_lobby(p: Dictionary, s: Dictionary, active: bool) -> void:
 			# servers before the protocol check: same RPCs, but stuck races
 			# there refuse settings and starts without a word
 			if status == "Connected":
-				_set_status("Connected (the server is an older version and needs an update)")
+				_set_status("Connected (the server is an older version and needs an update: its random courses use the old generator)")
 		elif proto != PROTOCOL:
 			_fail("VERSION MISMATCH: %s (lobby protocol %d, the server is on %d)." % [
 				"your game is out of date, update it" if PROTOCOL < proto else "the server is out of date and needs an update", PROTOCOL, proto])
 			return
+	var gen := int(s.get("gen", 0))
+	if not is_server() and gen != 0 and gen != Game.LevelGen.VERSION and status == "Connected":
+		_set_status("Connected (the server builds random courses with generator v%d, you have v%d: %s)" % [
+			gen, Game.LevelGen.VERSION, "the server needs an update" if gen < Game.LevelGen.VERSION else "update your game"])
 	players = p
 	settings = s
 	round_active = active
