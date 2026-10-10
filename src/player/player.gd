@@ -71,6 +71,7 @@ const ZIP_STUCK_T := 0.4          # zip gives up after this long without getting
 # --- disc
 const CATCH_RADIUS := 46.0
 const PICKUP_RADIUS := 40.0
+const ROLLER_PICKUP_DELAY := 0.35   # a roller can't be scooped up again the moment it leaves the hand
 const CHARGE_TIME := 0.5
 const OVERCHARGE_START := 1.1
 const NOSE_STEP := deg_to_rad(3.0)
@@ -134,6 +135,7 @@ var charging := false
 var charge_t := 0.0
 var sway_t := 0.0
 var throw_type := 0
+var throw_order: Array = [0, 1, 2, 3, 4, 5]   # what next / previous throw step through (settings, or the replay's)
 var nose := 0.0
 var last_snap_us := -100000000
 var last_release_us := -100000000
@@ -327,9 +329,9 @@ func _read_input() -> void:
 	if inp.just_pressed("jump"):
 		buffer_t = JUMP_BUFFER
 	if inp.just_pressed("throw_next"):
-		set_throw_type(throw_type + 1)
+		step_throw_type(1)
 	if inp.just_pressed("throw_prev"):
-		set_throw_type(throw_type - 1)
+		step_throw_type(-1)
 	for i in 6:
 		if inp.just_pressed("throw_%d" % (i + 1)):
 			set_throw_type(i)
@@ -351,6 +353,12 @@ func _input(event: InputEvent) -> void:
 func set_throw_type(i: int) -> void:
 	throw_type = posmod(i, ThrowTypes.count())
 	fx.emit("ui_tick", global_position, throw_type)
+
+
+## Next / previous throw in the player's own card order.
+func step_throw_type(step: int) -> void:
+	var k := throw_order.find(throw_type)
+	set_throw_type(int(throw_order[posmod(k + step, throw_order.size())]))
 
 
 func adjust_nose(dir: int) -> void:
@@ -1228,6 +1236,9 @@ func _catch_disc() -> void:
 	if disc.state == Disc.FLIGHT and disc.age > 0.2 and d < CATCH_RADIUS:
 		_take_disc(not on_floor)
 	elif disc.state in [Disc.ROLL, Disc.SLIDE, Disc.REST] and d < PICKUP_RADIUS + 8.0:
+		# replays from before v9 picked a roller up straight away
+		if disc.t.roll and disc.age < ROLLER_PICKUP_DELAY and level.rules_version() >= 9:
+			return
 		_take_disc(false)
 
 

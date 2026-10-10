@@ -5,6 +5,7 @@ const LevelGen = preload("res://src/level/generator.gd")
 const LevelScript = preload("res://src/level/level.gd")
 const MenuScript = preload("res://src/ui/menu.gd")
 const Bindings = preload("res://src/core/bindings.gd")
+const ThrowTypes = preload("res://src/disc/throw_types.gd")
 
 const SAVE_PATH := "user://save.json"
 const SETTINGS_PATH := "user://settings.json"
@@ -16,7 +17,7 @@ const RECENT_PATH := "user://recent.json"
 const RECENT_MAX := 40
 ## Bump when movement / physics / input layout change: older replays can't
 ## re-simulate faithfully any more. 2: no dash, double jump, faster running.
-const REPLAY_VERSION := 8   # 3: bigger basket, 3x air pivot; 4: speeds, mantle, smoother jumps; 5: slower zip, rope through platforms; 6: rollers run downhill; 7: no grapple through walls; 8: hazards wait for the run to start
+const REPLAY_VERSION := 9   # 3: bigger basket, 3x air pivot; 4: speeds, mantle, smoother jumps; 5: slower zip, rope through platforms; 6: rollers run downhill; 7: no grapple through walls; 8: hazards wait for the run to start; 9: rollers can't be picked up right after the throw
 ## Older replays this build can still play back exactly: each version above
 ## it keeps its old behaviour behind a check on the replay's "v" (8: the
 ## hazard clock, Level.world_clock_on). Raise it only when that legacy code goes.
@@ -53,6 +54,8 @@ var settings := {
 	"name_chosen": false,     # picked a name in the first-run prompt (until then: off the boards)
 	"disc_cam_lock": true,
 	"check_updates": true,    # release builds: offer a newer release on start
+	"throw_order": [0, 1, 2, 3, 4, 5],   # throw cards left to right, and what next/previous throw steps through
+	"default_throw": 0,       # throw type held at the start of each course
 	"rumble": 1.0,           # controller vibration strength (0 = off)   # finish replay: the disc stays level and the world turns
 }
 
@@ -116,6 +119,15 @@ func _load_settings() -> void:
 		for k in s:
 			if settings.has(k):
 				settings[k] = s[k]
+
+
+## The player's throw card order (type indices, left to right).
+func throw_order() -> Array:
+	return ThrowTypes.clean_order(settings.get("throw_order", []))
+
+
+func default_throw() -> int:
+	return clampi(int(settings.get("default_throw", 0)), 0, ThrowTypes.count() - 1)
 
 
 func save_settings() -> void:
@@ -1073,17 +1085,52 @@ func _couch_round() -> void:
 	Sfx.play("beep")
 
 
+## Versus points for finishing a round in `place` (1 = sank it first): the
+## round win, then half and a third of one for 2nd and 3rd, as long as they
+## sink it before the next course starts.
+static func round_points(place: int) -> float:
+	match place:
+		1: return 1.0
+		2: return 0.5
+		3: return 1.0 / 3.0
+	return 0.0
+
+
+## Points carry halves and thirds, so they're compared in sixths.
+static func points_reached(points, target) -> bool:
+	return roundi(float(points) * 6.0) >= int(target) * 6
+
+
+## "2", "1½", "⅚" ...
+static func points_text(points) -> String:
+	var sixths := roundi(float(points) * 6.0)
+	var whole := floori(sixths / 6.0)
+	var frac: String = ["", "⅙", "⅓", "½", "⅔", "⅚"][sixths % 6]
+	if whole == 0 and frac != "":
+		return frac
+	return str(whole) + frac
+
+
+## Scoreboard pips: ● a whole point, ◐ part of one, ○ still to win.
+static func points_pips(points, target) -> String:
+	var sixths := roundi(float(points) * 6.0)
+	var out := ""
+	for k in int(target):
+		out += "●" if sixths >= (k + 1) * 6 else ("◐" if sixths > k * 6 else "○")
+	return out
+
+
 func couch_runner_finished(index: int, t: float) -> void:
 	if couch.is_empty() or couch.results.has(index):
 		return
 	couch.results[index] = t
 	var p: Dictionary = couch.players[index]
 	var lvl = current_scene
+	p.wins = float(p.wins) + round_points(couch.results.size())
+	if int(couch.set_winner) == -1 and points_reached(p.wins, couch.wins):
+		couch.set_winner = index
 	if couch.winner == -1:
 		couch.winner = index
-		p.wins = int(p.wins) + 1
-		if int(p.wins) >= int(couch.wins):
-			couch.set_winner = index
 		couch.next_at = Time.get_ticks_msec() / 1000.0 + 6.0
 		if lvl and lvl.has_method("couch_popup"):
 			lvl.couch_popup("%s SANK IT FIRST!" % p.name, player_palette(int(p.color)) * 1.6)
@@ -1102,7 +1149,7 @@ func couch_waiting_text() -> String:
 	if lvl and is_instance_valid(lvl) and lvl.get("cam_hold"):
 		return "%s wins round %d  ·  watching the disc cam" % [who, int(couch.round) + 1]
 	if couch.set_winner != -1:
-		return "%s TAKES THE SET  ·  %d" % [who, int(ceil(left))]
+		return "%s TAKES THE SET  ·  %d" % [couch.players[couch.set_winner].name, int(ceil(left))]
 	return "%s wins round %d  ·  next course in %d" % [who, int(couch.round) + 1, int(ceil(left))]
 
 
@@ -1112,10 +1159,8 @@ func couch_scoreboard() -> String:
 	var lines := ["FIRST TO %d" % int(couch.wins)]
 	for i in couch.players.size():
 		var p: Dictionary = couch.players[i]
-		var stars := ""
-		for k in int(couch.wins):
-			stars += "●" if k < int(p.wins) else "○"
-		lines.append("%s %s" % [stars, p.name])
+		var stars := points_pips(p.wins, couch.wins)
+		lines.append("%s %s%s" % [stars, p.name, "  " + points_text(p.wins) if roundi(float(p.wins) * 6.0) % 6 != 0 else ""])
 	return "\n".join(lines)
 
 

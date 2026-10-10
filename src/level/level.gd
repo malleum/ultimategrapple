@@ -373,12 +373,17 @@ func is_timetrial() -> bool:
 	return mode == "solo" or mode == "replay"
 
 
+## The REPLAY_VERSION whose rules this run plays by (old replays keep theirs).
+func rules_version() -> int:
+	return int(replay.get("v", Game.REPLAY_VERSION)) if mode == "replay" else Game.REPLAY_VERSION
+
+
 ## Moving hazards, platforms and grapple points stand still at their start
 ## until the run starts (the first input in a time trial, GO in a race), so
 ## every attempt meets them in the same place.
 func world_clock_on() -> bool:
 	# replays from before v8: hazards ran from the restart, not the run start
-	if mode == "replay" and int(replay.get("v", Game.REPLAY_VERSION)) < 8:
+	if rules_version() < 8:
 		return true
 	if is_timetrial():
 		return not runners.is_empty() and (runners[0].running or runners[0].done)

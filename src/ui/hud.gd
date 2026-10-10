@@ -706,13 +706,17 @@ func _draw_throw_cards(ci: Control, vs: Vector2, p) -> void:
 	var x0 := vs.x * 0.5 - total * 0.5
 	var y0 := vs.y - 104.0
 	var dc: Color = _ldr(runner.disc.color)
-	var target_x: float = x0 + p.throw_type * (cw + gap)
+	# cards in the player's own order; each shows the key that picks that throw
+	var order: Array = p.throw_order
+	var pad: bool = runner.inp.is_pad_aim()
+	var target_x: float = x0 + maxi(0, order.find(p.throw_type)) * (cw + gap)
 	sel_x = target_x if sel_x < 0.0 else lerpf(sel_x, target_x, 0.35)
 	# sliding highlight under the selected card
 	ci.draw_rect(Rect2(sel_x - 4, y0 - 14, cw + 8, 70), Color(dc, 0.16))
-	for i in n:
+	for slot in n:
+		var i: int = order[slot]
 		var sel: bool = i == p.throw_type
-		var r := Rect2(x0 + i * (cw + gap), y0 - (10.0 if sel else 0.0), cw, 52)
+		var r := Rect2(x0 + slot * (cw + gap), y0 - (10.0 if sel else 0.0), cw, 52)
 		var fill := Color(0.03, 0.02, 0.08, 0.82) if sel else Color(0.03, 0.02, 0.08, 0.6)
 		_slab(ci, r, 7.0, fill, Color(dc, 0.9) if sel else Color(1, 1, 1, 0.12))
 		if sel:
@@ -726,7 +730,9 @@ func _draw_throw_cards(ci: Control, vs: Vector2, p) -> void:
 		ci.draw_circle(pts[-1], 3.0, pc)
 		var ty: Dictionary = ThrowTypes.get_type(i)
 		_text(ci, r.position + Vector2(0, 48), ty.icon, 12, Color(1, 1, 1, 0.95 if sel else 0.45), HORIZONTAL_ALIGNMENT_CENTER, cw, _bold, 0)
-		_text(ci, r.position + Vector2(6, 13), str(i + 1), 10, Color(1, 1, 1, 0.4), HORIZONTAL_ALIGNMENT_LEFT, -1, _bold, 0)
+		var key: String = "" if pad else Bindings.label("throw_%d" % (i + 1))
+		if key != "":
+			_text(ci, r.position + Vector2(6, 13), key, 10, Color(1, 1, 1, 0.4), HORIZONTAL_ALIGNMENT_LEFT, -1, _bold, 0)
 	var ty2: Dictionary = ThrowTypes.get_type(p.throw_type)
 	_text(ci, Vector2(vs.x * 0.5 - 300, y0 + 74), ty2.name, 20, Color(1, 1, 1), HORIZONTAL_ALIGNMENT_CENTER, 600, _bold, 4)
 	_text(ci, Vector2(vs.x * 0.5 - 400, y0 + 94), ty2.desc, 14, Color(0.75, 0.8, 0.9, 0.85), HORIZONTAL_ALIGNMENT_CENTER, 800, null, 3)
@@ -1086,6 +1092,7 @@ func _draw_scoreboard(ci: Control, vs: Vector2) -> void:
 		_text(ci, Vector2(r.position.x + 18, y), lines[i], 15 if i > 0 else 13, Color(1, 0.85, 0.4) if i == 0 else Color(1, 1, 1, 0.9), HORIZONTAL_ALIGNMENT_LEFT, -1, _mono if i > 0 else _bold, 0)
 		y += 24
 	_draw_place(ci, vs)
+	_draw_spectate(ci, vs)
 	var wt := ""
 	if level.mode == "couch":
 		wt = Game.couch_waiting_text()
@@ -1149,6 +1156,26 @@ func _draw_place(ci: Control, vs: Vector2) -> void:
 	_slab(ci, r, 16.0, Color(0.02, 0.015, 0.06, 0.82), Color(col, 0.95))
 	_text(ci, r.position + Vector2(0, 80), big, 72, col, HORIZONTAL_ALIGNMENT_CENTER, w, _bold, 6)
 	_text(ci, r.position + Vector2(0, 110), sub, 18, Color(col, 0.85), HORIZONTAL_ALIGNMENT_CENTER, w, _bold, 3)
+
+
+## Online, finished: who you're watching, and the keys that pick someone else.
+func _draw_spectate(ci: Control, vs: Vector2) -> void:
+	if not runner.done or level.mode != "multi":
+		return
+	var ids: Array = runner.spectate_ids()
+	if ids.is_empty():
+		return
+	var pad: bool = runner.inp.is_pad_aim()
+	var keys := "LS ← →" if pad else "%s · %s" % [Bindings.label("move_left"), Bindings.label("move_right")]
+	var txt: String
+	if runner.spectate_id != 0:
+		txt = "WATCHING %s  ·  %s next" % [str(Net.players.get(runner.spectate_id, {}).get("name", "?")).to_upper(), keys]
+	else:
+		txt = "%s  watch the others  ·  %d still racing" % [keys, ids.size()]
+	var w := _text_w(txt, 18, _bold) + 48.0
+	var r := Rect2(vs.x * 0.5 - w * 0.5, vs.y * 0.2 + 140.0, w, 36)
+	_slab(ci, r, 10.0, Color(0.02, 0.015, 0.06, 0.75), Color(1, 1, 1, 0.2))
+	_text(ci, r.position + Vector2(0, 25), txt, 18, Color(0.85, 0.9, 1.0), HORIZONTAL_ALIGNMENT_CENTER, w, _bold, 3)
 
 
 func _draw_countdown(ci: Control, vs: Vector2) -> void:

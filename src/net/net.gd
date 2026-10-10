@@ -9,7 +9,7 @@ const PORT := 24680
 ## Lobby protocol: bump when the RPC list or a message's shape changes. The
 ## server puts it in the lobby settings and checks the one a client registers
 ## with, so a mismatch says so instead of silently doing nothing.
-const PROTOCOL := 1
+const PROTOCOL := 2   # 2: 2nd / 3rd score part of a point (wins are floats)
 ## Public dedicated server (minimus, UDP 24680). Players can type another.
 const ONLINE_SERVER := "joshammer.com"
 const DISCOVERY_PORT := 24681
@@ -681,11 +681,13 @@ func finish(t: float, _throws: int) -> void:
 	if round_results.has(id) or not players.has(id):
 		return
 	round_results[id] = t
+	# 1st takes the round; 2nd and 3rd get part of a point if they sink it
+	# before the next course starts
+	players[id].wins = float(players[id].wins) + Game.round_points(round_results.size())
+	if set_winner == -1 and Game.points_reached(players[id].wins, settings.wins):
+		set_winner = id
 	if round_winner == -1:
 		round_winner = id
-		players[id].wins = int(players[id].wins) + 1
-		if int(players[id].wins) >= int(settings.wins):
-			set_winner = id
 		_round_timer = ROUND_BREAK + 3.0
 	rpc("round_update", players, round_winner, round_results, set_winner, _round_timer)
 	_check_round_complete()
@@ -767,7 +769,7 @@ func _level():
 
 func scoreboard_text() -> String:
 	var ids := players.keys()
-	ids.sort_custom(func(a, b): return int(players[a].wins) > int(players[b].wins))
+	ids.sort_custom(func(a, b): return float(players[a].wins) > float(players[b].wins))
 	var lines := ["FIRST TO %d%s" % [int(settings.wins), "  ·  %d RUNNERS" % ids.size() if ids.size() > SCOREBOARD_ROWS else ""]]
 	# a big lobby: the leaders, plus you if you're further down
 	if ids.size() > SCOREBOARD_ROWS:
@@ -779,9 +781,7 @@ func scoreboard_text() -> String:
 		ids = top
 	for id in ids:
 		var p: Dictionary = players[id]
-		var stars := ""
-		for i in int(settings.wins):
-			stars += "●" if i < int(p.wins) else "○"
+		var stars := Game.points_pips(p.wins, settings.wins)
 		var t := ""
 		if round_results.has(id):
 			t = "  " + Game.format_time(float(round_results[id]))
@@ -797,7 +797,7 @@ func waiting_text() -> String:
 	if left <= 0.0:
 		return "%s won round %d  ·  someone is watching the disc cam" % [who, round_idx + 1]
 	if set_winner != -1:
-		return "%s TAKES THE SET  ·  back to lobby in %d" % [who, int(ceil(left))]
+		return "%s TAKES THE SET  ·  back to lobby in %d" % [str(players.get(set_winner, {}).get("name", "?")), int(ceil(left))]
 	return "%s won round %d  ·  next course in %d" % [who, round_idx + 1, int(ceil(left))]
 
 

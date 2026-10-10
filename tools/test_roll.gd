@@ -1,7 +1,8 @@
 extends SceneTree
 ## Rollers on slopes: a roller set rolling at the top of a downhill slope
 ## speeds up and runs to the bottom; one set down slowly on the slope sets off
-## by itself; on the flat it still rolls out and stops.
+## by itself; on the flat it still rolls out and stops; one dropped at the
+## thrower's feet can't be picked straight back up.
 ## godot --headless --fixed-fps 120 -s tools/test_roll.gd
 
 const ROLLER := 3
@@ -63,6 +64,16 @@ func _physics_process(_dt: float) -> bool:
 			# flat ground: rolls out and stops
 			if f == 480:
 				_check("flat", disc.state == 4 and disc.global_position.x < -1000.0, "flat roll stopped at x=%.0f (state %d)" % [disc.global_position.x, disc.state])
+				_launch(Vector2(-2994, -30), Vector2(30, 40))   # _launch stands the player at x=-3000
+				phase = 3
+				f = 0
+		3:
+			# at the thrower's feet: not caught back the moment it's thrown
+			var p = lvl.runners[0].player
+			if f == 20:
+				_check("nograb", not p.has_disc, "roller at the feet, %.2fs after the throw: has_disc=%s" % [disc.age, p.has_disc])
+			if f == 90:
+				_check("pickup", p.has_disc, "picked up after the delay: has_disc=%s" % p.has_disc)
 				print("roll: %d failures" % fails)
 				quit(0 if fails == 0 else 1)
 				return true

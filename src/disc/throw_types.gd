@@ -101,5 +101,21 @@ static func count() -> int:
 	return TYPES.size()
 
 
+## A throw order (type indices, left to right) cleaned up: every type once.
+## Anything missing or unknown (an old save, a hand-edited file) falls back to
+## the built-in order for the rest.
+static func clean_order(order) -> Array:
+	var out: Array = []
+	if order is Array:
+		for v in order:
+			var i := int(v)
+			if i >= 0 and i < TYPES.size() and not out.has(i):
+				out.append(i)
+	for i in TYPES.size():
+		if not out.has(i):
+			out.append(i)
+	return out
+
+
 static func get_type(i: int) -> Dictionary:
 	return TYPES[posmod(i, TYPES.size())]

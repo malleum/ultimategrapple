@@ -14,6 +14,8 @@ extends SceneTree
 ##   couchcam  couch: the round winner's disc cam shows in the corner;
 ##             clicking it goes full screen and holds the next course until
 ##             it has played through
+##   points    1st a point, 2nd half, 3rd a third; partial points can take
+##             the set; shown as ½ ⅓ ⅚ and ◐ pips
 ## godot --headless --fixed-fps 120 -s tools/test_versus.gd
 
 const PI_ = preload("res://src/core/player_input.gd")
@@ -60,9 +62,31 @@ func _start(mode: String) -> void:
 		lvl = G.play_level(_level(), mode)
 
 
+func _points() -> void:
+	var G = _game()
+	var pts := [G.round_points(1), G.round_points(2), G.round_points(3), G.round_points(4)]
+	_check("points", is_equal_approx(pts[0], 1.0) and is_equal_approx(pts[1], 0.5) and is_equal_approx(pts[2], 1.0 / 3.0) and pts[3] == 0.0,
+		"by place: %s" % [pts])
+	var five_sixths: float = G.round_points(2) + G.round_points(3)
+	var txt := [G.points_text(0), G.points_text(2), G.points_text(1.5), G.points_text(five_sixths), G.points_text(1.0 / 3.0 * 3.0 + 0.5)]
+	_check("ptstext", txt == ["0", "2", "1½", "⅚", "1½"], "%s, pips %s" % [txt, G.points_pips(1.5, 3)])
+	_check("ptspips", G.points_pips(1.5, 3) == "●◐○" and G.points_pips(five_sixths, 2) == "◐○", G.points_pips(five_sixths, 2))
+	# couch: 2nd and 3rd score part of a point; the half that reaches the target takes the set
+	G.couch = {"players": [{"name": "A", "color": 0, "wins": 0}, {"name": "B", "color": 1, "wins": 2.5}, {"name": "C", "color": 2, "wins": 0}],
+		"wins": 3, "round": 0, "winner": -1, "set_winner": -1, "results": {}, "next_at": -1.0, "champion": ""}
+	G.couch_runner_finished(0, 10.0)
+	G.couch_runner_finished(1, 11.0)
+	G.couch_runner_finished(2, 12.0)
+	var w := [float(G.couch.players[0].wins), float(G.couch.players[1].wins), float(G.couch.players[2].wins)]
+	_check("ptscouch", G.couch.winner == 0 and G.couch.set_winner == 1 and is_equal_approx(w[0], 1.0) and is_equal_approx(w[1], 3.0)
+		and is_equal_approx(w[2], 1.0 / 3.0), "wins %s, round winner %d, set winner %d" % [w, G.couch.winner, G.couch.set_winner])
+	G.couch = {}
+
+
 func _physics_process(_dt: float) -> bool:
 	if not started:
 		started = true
+		_points()
 		_next()
 		return false
 	f += 1

@@ -6,6 +6,7 @@ const UI = preload("res://src/ui/ui.gd")
 const Themes = preload("res://src/core/theme_db.gd")
 const Background = preload("res://src/fx/background.gd")
 const Bindings = preload("res://src/core/bindings.gd")
+const ThrowTypes = preload("res://src/disc/throw_types.gd")
 
 var start_page := "title"
 var camera: Camera2D
@@ -519,7 +520,7 @@ func _build_lobby() -> void:
 	ids.sort_custom(func(a, b): return int(Net.players[a].get("order", 0)) < int(Net.players[b].get("order", 0)))
 	for id in ids:
 		var p: Dictionary = Net.players[id]
-		var chip := UI.label(("● " if p.get("ready", false) else "○ ") + str(p.name) + (" (you)" if id == Net.my_id() else "") + (" ★" if int(id) == Net.leader_id() else "") + ("  ·  %d" % int(p.wins) if int(p.wins) > 0 else ""),
+		var chip := UI.label(("● " if p.get("ready", false) else "○ ") + str(p.name) + (" (you)" if id == Net.my_id() else "") + (" ★" if int(id) == Net.leader_id() else "") + ("  ·  " + Game.points_text(p.wins) if float(p.wins) > 0.0 else ""),
 			20, Game.player_palette(int(p.color)) * 1.4)
 		chip.custom_minimum_size = Vector2(320, 0)
 		chips.add_child(chip)
@@ -782,10 +783,14 @@ func _page_controls() -> void:
 		[K.call("restart"), "instant restart"],
 		[K.call("recall"), "recall disc to hand (+3s)"],
 	]
+	var throw_names := PackedStringArray()
+	for i in Game.throw_order():
+		var key := Bindings.label("throw_%d" % (i + 1))
+		throw_names.append(str(ThrowTypes.get_type(i).name).to_lower() + (" (%s)" % key if key != "" else ""))
 	var lines_r := [
 		[K.call("throw"), "hold to charge, release to throw toward the cursor"],
 		[K.call("snap"), "SNAP: press the instant you release the throw.\n±35ms PERFECT · ±90ms GOOD · tighter = further"],
-		[K.call("throw_next") + " · 1-6", "throw: backhand forehand hammer roller scoober thumber"],
+		[K.call("throw_next"), "next throw: " + " ".join(throw_names)],
 		[K.call("nose_up") + " · " + K.call("nose_down"), "nose angle: up = float/stall, down = punch"],
 		[K.call("pivot"), "PIVOT (hold): plant & freeze, momentum stored. Throw,\nthen let go within 0.3s for a PIVOT LAUNCH"],
 		["moving throws", "sway + spray + less range. Scoober halves it"],
@@ -1209,6 +1214,53 @@ func _action_name(action: String) -> String:
 
 # ------------------------------------------------------------------ settings
 
+## Settings: the throw held at the start of a course, and the card order (what
+## next / previous throw steps through). The key shown is the one bound to
+## that throw, wherever it sits in the order.
+func _throw_settings(v: VBoxContainer) -> void:
+	var dh := UI.hbox()
+	dh.add_child(UI.label("Default throw", 20))
+	var dopt := OptionButton.new()
+	for i in ThrowTypes.count():
+		dopt.add_item(str(ThrowTypes.get_type(i).name))
+	dopt.selected = Game.default_throw()
+	dopt.item_selected.connect(func(i): Game.settings.default_throw = i; Game.save_settings())
+	dh.add_child(dopt)
+	v.add_child(dh)
+	v.add_child(UI.label("Throw order", 20))
+	var list := UI.hbox(8)
+	v.add_child(list)
+	var rebuild := func(self_ref: Callable) -> void:
+		for ch in list.get_children():
+			ch.queue_free()
+		var order := Game.throw_order()
+		for slot in order.size():
+			var ti: int = order[slot]
+			var card := UI.vbox(2)
+			var key := Bindings.label("throw_%d" % (ti + 1))
+			card.add_child(UI.label(key if key != "" else "-", 14, UI.DIM, HORIZONTAL_ALIGNMENT_CENTER))
+			var nl := UI.label(str(ThrowTypes.get_type(ti).name), 16, Color(0.9, 0.97, 1), HORIZONTAL_ALIGNMENT_CENTER)
+			nl.custom_minimum_size = Vector2(100, 0)
+			card.add_child(nl)
+			var arrows := UI.hbox(4)
+			arrows.alignment = BoxContainer.ALIGNMENT_CENTER
+			for dir in [-1, 1]:
+				var to: int = slot + dir
+				var b := UI.button("◀" if dir < 0 else "▶", func():
+					var o := Game.throw_order()
+					var tmp = o[slot]
+					o[slot] = o[to]
+					o[to] = tmp
+					Game.settings.throw_order = o
+					Game.save_settings()
+					self_ref.call(self_ref), 14)
+				b.disabled = to < 0 or to >= order.size()
+				arrows.add_child(b)
+			card.add_child(arrows)
+			list.add_child(card)
+	rebuild.call(rebuild)
+
+
 func _page_settings() -> void:
 	var c := _clear()
 	var panel := PanelContainer.new()
@@ -1241,6 +1293,7 @@ func _page_settings() -> void:
 			elif k2 == "share_records" and on:
 				Online.sync_local_records())
 		v.add_child(cb)
+	_throw_settings(v)
 	var fh := UI.hbox()
 	fh.add_child(UI.label("Max FPS", 20))
 	var fo := OptionButton.new()

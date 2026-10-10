@@ -13,6 +13,7 @@ const Glass = preload("res://src/world/glass.gd")
 const Background = preload("res://src/fx/background.gd")
 const Player = preload("res://src/player/player.gd")
 const Disc = preload("res://src/disc/disc.gd")
+const ThrowTypes = preload("res://src/disc/throw_types.gd")
 const Ghost = preload("res://src/player/ghost.gd")
 const Bindings = preload("res://src/core/bindings.gd")
 const Overlay = preload("res://src/level/overlay.gd")
@@ -92,6 +93,10 @@ var start_throw := 0
 var start_nose := 0.0
 var track := PackedVector2Array()
 var replay_fix_max := 0.0
+# online, after the chains: the runner being watched (0 = the basket);
+# the run keys / stick step through the ones still racing
+var spectate_id := 0
+var _spectate_dir := 0
 
 
 func personal_layer() -> int:
@@ -175,6 +180,7 @@ func _ready() -> void:
 	player.runner = self
 	player.inp = inp
 	player.disc = disc
+	player.throw_type = Game.default_throw()
 	player.collision_mask = 1 | personal_layer() | Solid.FENCE_LAYER | personal_fence_layer()
 	add_child(player)
 	player.fx.connect(_on_player_fx)
@@ -224,10 +230,12 @@ func restart() -> void:
 		var rp: Dictionary = level.replay
 		run_seed = int(rp.seed)
 		player.throw_type = int(rp.throw_type)
+		player.throw_order = ThrowTypes.clean_order(rp.get("throw_order", []))   # older replays: the built-in order
 		player.nose = float(rp.nose)
 		inp.rewind()
 	else:
 		run_seed = randi()
+		player.throw_order = Game.throw_order()
 		# forget what was held before the restart: the run starts on the next
 		# input as polled after it, not on a key the last poll still had down
 		inp.clear()
@@ -373,6 +381,7 @@ func _physics_process_timed(dt: float) -> void:
 		if respawn_t < 0.0:
 			_do_respawn()
 	_update_lie()
+	_update_spectate()
 	_update_camera(dt)
 	if level.mode == "replay":
 		# the recorded run never contains a restart; R / START re-watch it
@@ -480,9 +489,47 @@ func _update_lie() -> void:
 		lie = player.global_position
 
 
+## Online: the others still on the course, for watching after you finish.
+func spectate_ids() -> Array:
+	var out := []
+	if level.mode != "multi":
+		return out
+	for id in level.remote_ghosts:
+		if not level.net_results.has(id) and level.remote_ghosts[id].visible:
+			out.append(id)
+	out.sort()
+	return out
+
+
+func _update_spectate() -> void:
+	if not done or level.mode != "multi":
+		spectate_id = 0
+		return
+	player.input_enabled = false   # the run keys pick who to watch now
+	var ids := spectate_ids()
+	if spectate_id != 0 and not ids.has(spectate_id):
+		# they sank it (or left): on to someone still racing, else the basket
+		spectate_id = ids[0] if not ids.is_empty() else 0
+	var dir := 0
+	if inp.move.x > 0.5:
+		dir = 1
+	elif inp.move.x < -0.5:
+		dir = -1
+	if dir != 0 and dir != _spectate_dir and not ids.is_empty():
+		var list := [0] + ids
+		spectate_id = list[posmod(list.find(spectate_id) + dir, list.size())]
+	_spectate_dir = dir
+
+
 func _update_camera(dt: float) -> void:
 	var target: Vector2
-	if done:
+	var watched = level.remote_ghosts.get(spectate_id) if done and spectate_id != 0 else null
+	if watched:
+		var gv := Vector2(watched.cur[2], watched.cur[3]) if watched.cur.size() > 3 else Vector2.ZERO
+		var rawg := Vector2(clampf(gv.x * 0.28, -420, 420), clampf(gv.y * 0.05, -60, 140))
+		cam_look = cam_look.lerp(rawg, 1.0 - exp(-3.0 * dt))
+		target = watched.position + Vector2(0, -22) + cam_look
+	elif done:
 		target = level.basket_pos + Vector2(0, -140)
 	elif follow_fn.is_valid():
 		# match playback: ride along with the recorded runner being watched
@@ -691,6 +738,7 @@ func _make_replay(medal: String) -> Dictionary:
 		"color": color,
 		"seed": run_seed,
 		"throw_type": start_throw,
+		"throw_order": player.throw_order.duplicate(),
 		"nose": start_nose,
 		"labels": Bindings.snapshot_labels(),
 		"date": int(Time.get_unix_time_from_system()),
