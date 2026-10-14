@@ -32,8 +32,7 @@ const RUN_EMPTY := 858.0 / T
 ## 7: no green waves (blinking laser doors that make you wait)
 ## 8: no going round the pieces (one grippy wall climbs forever, so walls that
 ##    shut a piece are slick and out of reach): slick drop shaft / drop well /
-##    stairwell walls, flat fence lanes, hammer parapets instead of lob
-##    skylights, ring ledges with no other way up, glass floors under a mesa,
+##    stairwell walls, flat fence lanes, lob skylights retired, ring ledges with no other way up, glass floors under a mesa,
 ##    higher pit launches / pad climbs / updrafts, slide chutes into a cliff,
 ##    grapple gaps wider than an empty-handed jump, headwind crosswinds, long
 ##    disc bridges only; wall-mounted and floating baskets
@@ -48,13 +47,12 @@ const CHASE_GAP_MIN := 24
 const CHASE_GAP_MAX := 28
 ## Slick walls this tall can't be jumped over (jump + double jump ~9 tiles).
 const WALL_TALL := 12
-## Hammer parapet: the mesa's tunnel headroom and length, the parapet's
-## height above the floor (out of jump reach) and the length of the fenced
-## roof behind it that a disc can drop in through (tools/piece_check.gd).
+## Over the wall: the mesa's tunnel headroom and length, and the parapet's
+## height above the floor (out of jump reach; tools/piece_check.gd).
 const LOB_TUNNEL_H := 4
-const LOB_MESA_L := [20, 26]
+const LOB_MESA_L := [16, 20]
 const LOB_PARAPET_H := [12, 13]
-const LOB_SKY_W := [7, 9]
+const LOB_BACK_H := 26          # the back wall: tall enough to stop nearly any overthrow
 ## Tailwind gap: wider than an empty-handed slide jump (~37.7 tiles); the wind
 ## (px/s^2 along x) adds ~16 tiles to a jump + double jump: empty-handed
 ## (~33.7) clears it with room to spare, carrying the disc (~18.5) can't.
@@ -128,8 +126,10 @@ const SEGMENTS := {
 	# vertical tunnels: on any course
 	"vent_shaft":    {"w": 3.0,  "min_d": 0.1, "dir": -1},
 	"drop_shaft":    {"w": 3.0,  "min_d": 0.0, "dir": 1},
-	# hammer parapet: a steep drop over the wall is the fast way, the ledges the slow one
-	"lob_skylight":  {"w": 4.0,  "min_d": 0.15, "dir": 0, "disc": true, "style": "throw"},
+	# over the wall: any throw that clears the parapet drops in and opens the
+	# tunnel. Retired in v8 (w 0): clearing a wall you can't jump means waiting
+	# ~1.3 s for the disc to come back down, a stop no other door has
+	"lob_skylight":  {"w": 0.0,  "min_d": 0.15, "dir": 0, "disc": true, "style": "throw"},
 	# v6 pieces
 	"switchback":    {"w": 2.5,  "min_d": 0.1, "dir": -1},
 	"drop_well":     {"w": 2.5,  "min_d": 0.0, "dir": 1},
@@ -1455,49 +1455,43 @@ func _laser_row(x0: int, x1: int, floor_y: float, roof_y: float) -> void:
 		lx += ri(9, 11) if prev == "jump" else ri(6, 8)
 
 
-## Hammer parapet: a mesa with a tunnel through it, its door shut, and a tall
-## slick parapet up its front edge, out of reach. Behind the parapet the roof
-## is a long fence (discs fall through, runners don't): get the disc over the
-## wall so it drops in anywhere along it (a hammer dives in nicely) and the
-## door opens; the disc lands on the tunnel floor on your way through. Long
-## or short: it's on the roof or out front, recall it.
+## Over the wall: a mesa with a tunnel through it, its door shut, and a tall
+## slick parapet up its front edge, out of reach. The whole roof is a fence
+## (discs fall through, runners don't) with a tall wall at the far end: any
+## throw that clears the parapet comes down into the tunnel, an overthrow off
+## the back wall included, and opens the door. Lob it over on the run; the
+## disc is on the tunnel floor as you go through. Short, and it's lying out
+## front on your way: pick it up and go again.
 func seg_lob_skylight(x: int, y: int) -> Vector2i:
 	var cx := x
 	var run_up := ri(12, 16)
 	ground(cx, cx + run_up, y)
-	add_sign(cx + 2, y, "HAMMER")
+	add_sign(cx + 2, y, "OVER")
 	cx += run_up
 	var mx := cx
 	var l := ri(LOB_MESA_L[0], LOB_MESA_L[1])
 	var roof := y - LOB_TUNNEL_H                 # underside of the roof
 	var top := roof - 2                           # the roof's top surface
-	var pw := 2                                   # parapet thickness
+	var pw := 2                                   # parapet / back wall thickness
 	var ph := ri(LOB_PARAPET_H[0], LOB_PARAPET_H[1])
-	var sk := mx + pw
-	var sw := ri(LOB_SKY_W[0], LOB_SKY_W[1])      # the fenced stretch of roof
+	var bx := mx + l - pw                         # the back wall
 	ground(cx, cx + l + 10, y)
 	slick(mx, y - ph, pw, ph - LOB_TUNNEL_H)      # parapet, down to the tunnel mouth
-	fence(sk, top, sw, 2)                         # discs drop through, runners don't
-	block(sk + sw, top, mx + l - sk - sw, 2)
-	# the roof's hazards past the fence
-	var hx := sk + sw + ri(3, 5)
-	while hx < mx + l - 6:
-		var spw := ri(2, 3)
-		spikes(hx, top, spw, "up")
-		hx += spw + ri(5, 7)
+	fence(mx + pw, top, bx - mx - pw, 2)          # discs drop through, runners don't
+	slick(bx, y - LOB_BACK_H, pw, LOB_BACK_H - LOB_TUNNEL_H)   # back wall: overthrows bounce back in
 	# the door is set back in the tunnel mouth: flush with the front it met the
 	# parapet in a seam on the face you run into, and contacts on a seam
-	# between two bodies don't replay exactly. Anything that drops through the
-	# fence (into the tunnel behind the door) opens it.
+	# between two bodies don't replay exactly. Anything that comes down into
+	# the tunnel behind it opens it.
 	var dx := mx + pw + 1
-	_ent({"t": "gate", "ring": _p(dx + 1 + (sw - 1) * 0.5, roof + 1.2), "zone": [int((dx + 1) * T), int(roof * T), int((sk + sw - dx - 1) * T), int((LOB_TUNNEL_H - 1) * T)],
-		"door": [int(dx * T), int(roof * T), T, LOB_TUNNEL_H * T], "mode": "open", "slick": true, "id": rng.randi()}, mx, y - ph, l, ph)
+	_ent({"t": "gate", "ring": _p((dx + 1 + bx) * 0.5, roof + 1.2), "zone": [int((dx + 1) * T), int(roof * T), int((bx - dx - 1) * T), int((LOB_TUNNEL_H - 1) * T)],
+		"door": [int(dx * T), int(roof * T), T, LOB_TUNNEL_H * T], "mode": "open", "slick": true, "id": rng.randi()}, mx, y - LOB_BACK_H, l, LOB_BACK_H)
 	_must(mx, roof, l, LOB_TUNNEL_H)       # through the tunnel
 	_route(mx - 3, y)
 	cx = mx + l + 10
 	_route(cx, y)
 	lock(x, cx)   # no sky shortcut over the mesa
-	_s_est += float(cx - x) / RUN_EMPTY + 1.4
+	_s_est += float(cx - x) / RUN_EMPTY + 0.8
 	return Vector2i(cx, y)
 
 # ============================================================ vertical tunnels

@@ -60,6 +60,8 @@ func _physics_process(_dt: float) -> bool:
 		if e.done:
 			continue
 		var d = e.d
+		if OS.get_environment("TRACE") != "" and frames % 10 == 0 and "%s %.1f %d %.1f %d" % [ThrowTypes.get_type(type_i).id, e.back, e.deg, e.pow, e.nose] == OS.get_environment("TRACE"):
+			print("  t%.2f %s v %s state %d" % [frames / 120.0, (d.global_position / 32.0).snapped(Vector2(0.1, 0.1)), d.velocity.round(), d.state])
 		if gate.hit_by(d.global_position, d.state == Disc.ROLL) and not e.hit:
 			e.hit = true
 			e["spd"] = d.velocity.length()
