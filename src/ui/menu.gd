@@ -350,7 +350,9 @@ func _page_elo() -> void:
 	var v := UI.vbox(14)
 	panel.add_child(v)
 	v.add_child(UI.label("RANKED", 48, UI.NEON))
-	var status := UI.label("" if Elo.playable() else "Work in progress: ranked games are closed for now. The ratings below are live from the ranked service.", 18, UI.DIM)
+	var status := UI.label(("One run per seed, ever: no restarts. Quitting (pause → forfeit) or a crash is a DNF and the seed is gone. " + \
+		"Seeds others have played come with the best, median and worst ghost and their splits. Your rating moves against the average time on each seed. Every ranked run is kept in REPLAYS.") \
+		if Elo.playable() else "Work in progress: ranked games are closed for now. The ratings below are live from the ranked service.", 18, UI.DIM)
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(status)
 	var h := UI.hbox()

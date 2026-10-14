@@ -17,7 +17,7 @@ const LevelGen = preload("res://src/level/generator.gd")
 const BASE_URL := "https://rhysfuller.com/ug"
 ## Ranked is a work in progress: no seeds from the live service until this is
 ## flipped back on. (A test pointing base_url at its own mock still plays.)
-const PLAYABLE := false
+const PLAYABLE := true
 const STATE_PATH := "user://elo.json"
 const ID_PATH := "user://elo_id.json"
 const TIMEOUT := 20.0
