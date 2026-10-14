@@ -17,7 +17,7 @@ const RECENT_PATH := "user://recent.json"
 const RECENT_MAX := 40
 ## Bump when movement / physics / input layout change: older replays can't
 ## re-simulate faithfully any more. 2: no dash, double jump, faster running.
-const REPLAY_VERSION := 9   # 3: bigger basket, 3x air pivot; 4: speeds, mantle, smoother jumps; 5: slower zip, rope through platforms; 6: rollers run downhill; 7: no grapple through walls; 8: hazards wait for the run to start; 9: rollers can't be picked up right after the throw
+const REPLAY_VERSION := 10   # 3: bigger basket, 3x air pivot; 4: speeds, mantle, smoother jumps; 5: slower zip, rope through platforms; 6: rollers run downhill; 7: no grapple through walls; 8: hazards wait for the run to start; 9: rollers can't be picked up right after the throw; 10: only badly snapped discs spit out of the chains
 ## Older replays this build can still play back exactly: each version above
 ## it keeps its old behaviour behind a check on the replay's "v" (8: the
 ## hazard clock, Level.world_clock_on). Raise it only when that legacy code goes.

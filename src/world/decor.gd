@@ -38,7 +38,7 @@ func _physics_process(dt: float) -> void:
 ## the small line under a course sign
 const SIGN_HINTS := {"FAIRWAY": "throw it ahead", "TUNNEL": "keep it in hand", "ROLLER": "roll it in early",
 	"THROW": "any throw through", "BONUS": "ring = booster bridge", "LASERS": "jump · slide", "CHASE": "throw it across",
-	"LOB": "drop it through the skylight", "HAMMER": "over the wall, down the skylight", "GLASS": "throw it down through",
+	"LOB": "drop it through the skylight", "HAMMER": "over the wall, drop it in", "GLASS": "throw it down through",
 	"TAILWIND": "full speed, empty-handed", "RING": "ring = ledge"}
 
 ## kinds whose drawing moves with time (the rest are drawn once)

@@ -19,6 +19,8 @@ extends SceneTree
 ##   wallbskt  a basket mounted sideways on the end wall: a disc dropping in
 ##             along the wall scores, one thrown flat at it bounces off the band
 ##   floatbskt a floating basket: a throw at its chains scores
+##   spit      a hot disc clipping the edge of the chains: spat out with no
+##             snap, caught with a GOOD or PERFECT one
 ## godot --headless --fixed-fps 120 -s tools/test_puzzles.gd
 
 const Gen = preload("res://src/level/generator.gd")
@@ -375,7 +377,32 @@ func _physics_process(_dt: float) -> bool:
 				_launch(from3, (lvl.basket_point(Vector2(0, -150)) - from3).normalized() * 1000.0, "forehand")   # it drops ~55 px on the way
 			if f == 300:
 				_check("floatbskt", lvl.basket_float and r.disc.state == Disc.SCORED and r.done, "floating %s: disc state %d, finished %s" % [lvl.basket_float, r.disc.state, r.done])
-				print("puzzles: %d failures" % fails)
-				quit(0 if fails == 0 else 1)
-				return true
+				phase = "spit"
+				m["spit_i"] = 0
+				m["spit"] = []
+				f = 0
+		"spit":
+			# no snap / GOOD / PERFECT, each on a fresh course: 2000 px/s into
+			# the chains 30 px off-centre
+			var qs := [0.25, lerpf(ThrowTypes.SNAP_SPIN[0], ThrowTypes.SNAP_SPIN[1], 0.5), 1.0]
+			var i := int(m.spit_i)
+			var k := int(m.get("k", 0)) + 1
+			m["k"] = k
+			if k == 1:
+				_play(_course(["run_gaps"], 0))
+			elif k == 4:
+				var bp4: Vector2 = lvl.basket_pos
+				_put(Vector2(bp4.x - 600.0, _floor_under(Vector2(bp4.x - 600.0, bp4.y))))
+				r.player.has_disc = false
+				r.disc.launch(bp4 + Vector2(-90, -98), Vector2(2000, 0), 1, 1.0, 0.0, 0.0, float(qs[i]))
+			elif k == 8:
+				(m.spit as Array).append(r.disc.state == Disc.CHAINED or r.disc.state == Disc.SCORED)
+				m["spit_i"] = i + 1
+				m["k"] = 0
+				if i + 1 >= qs.size():
+					var got: Array = m.spit
+					_check("spit", not bool(got[0]) and bool(got[1]) and bool(got[2]), "hot, 30 px off-centre: caught with no snap %s, GOOD %s, PERFECT %s" % got)
+					print("puzzles: %d failures" % fails)
+					quit(0 if fails == 0 else 1)
+					return true
 	return false

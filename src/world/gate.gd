@@ -3,6 +3,7 @@ extends Node2D
 ## materialises a bridge ("bridge"). Instead of a ring it can have a target
 ## plate on the floor ("plate") that only a ROLLING disc sets off (rollers).
 ## A "fence" door stops runners but lets discs through (see Solid.FENCE_LAYER).
+## A "zone" (rect) widens a ring gate's target: a disc anywhere in it counts.
 
 const Perf = preload("res://src/core/perf.gd")
 const View = preload("res://src/world/view.gd")
@@ -18,6 +19,7 @@ var anim := 0.0
 var t := 0.0
 var level: Node = null
 var plate := Rect2()        # roll target (size 0: a ring gate)
+var zone := Rect2()         # wide target for a ring gate (size 0: just the ring)
 var fence := false
 
 
@@ -29,6 +31,9 @@ func setup(data: Dictionary, p_theme: Dictionary) -> void:
 		ring_pos = plate.get_center()
 	else:
 		ring_pos = Vector2(data.ring[0], data.ring[1])
+	if data.get("zone") is Array:
+		var zr: Array = data.zone
+		zone = Rect2(zr[0], zr[1], zr[2], zr[3])
 	fence = bool(data.get("fence", false))
 	var r: Array = data.door
 	door_rect = Rect2(r[0], r[1], r[2], r[3])
@@ -57,6 +62,8 @@ func set_physics_layer(bits: int) -> void:
 func hit_by(p: Vector2, rolling: bool) -> bool:
 	if plate.size.x > 0.0:
 		return rolling and plate.grow_individual(4.0, 30.0, 4.0, 6.0).has_point(p)
+	if zone.size.x > 0.0 and zone.has_point(p):
+		return true
 	return ring_pos.distance_to(p) < 46.0
 
 
@@ -106,6 +113,15 @@ func _draw_timed() -> void:
 	if plate.size.x > 0.0:
 		_draw_plate(ring_c, pulse)
 	else:
+		if zone.size.x > 0.0:
+			# the wide target: a glowing box with chevrons pointing in
+			draw_rect(zone, Color(ring_c, 0.06 + 0.06 * pulse))
+			draw_rect(zone, Color(ring_c, 0.5), false, 2.0)
+			var cx := zone.position.x + 24.0
+			while cx < zone.end.x - 12.0:
+				var cy := zone.position.y + 10.0 + pulse * 6.0
+				draw_polyline(PackedVector2Array([Vector2(cx - 10, cy), Vector2(cx, cy + 10), Vector2(cx + 10, cy)]), Color(ring_c, 0.6), 2.0)
+				cx += 48.0
 		# ring
 		draw_arc(ring_pos, 34.0, 0, TAU, 32, Color(ring_c, 0.25), 10.0)
 		draw_arc(ring_pos, 34.0, 0, TAU, 32, ring_c, 3.0, true)

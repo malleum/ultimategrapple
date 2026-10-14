@@ -534,6 +534,21 @@ func _catch_point() -> Vector2:
 	return level.basket_point(Vector2(clampf(l.x, -24, 24), Basket.CATCH_Y))
 
 
+## How far off-centre a hot disc has to hit the chains to spit back out. A
+## GOOD or PERFECT snap holds a fast throw together: it never spits. Below
+## that, the worse the snap the more of the chains spit it: from just their
+## edge (a near-GOOD snap) in to Basket.SPIT_X (no snap at all, or a disc
+## knocked about in a clash). Old replays (before v10): any hot disc off-centre.
+func _spit_x() -> float:
+	if level.has_method("rules_version") and level.rules_version() < 10:
+		return Basket.SPIT_X
+	var good_q := lerpf(ThrowTypes.SNAP_SPIN[0], ThrowTypes.SNAP_SPIN[1], ThrowTypes.snap_score(ThrowTypes.SNAP_GOOD_US))
+	if quality >= good_q:
+		return INF
+	var t := clampf((quality - ThrowTypes.SNAP_SPIN[0]) / (good_q - ThrowTypes.SNAP_SPIN[0]), 0.0, 1.0)
+	return lerpf(Basket.SPIT_X, Basket.CHAIN_HALF, t)
+
+
 ## Move the disc across the basket (its own x) to lx, keeping its height.
 func _set_basket_x(lx: float) -> void:
 	if level.basket_rot == 0.0:
@@ -556,7 +571,7 @@ func _check_basket() -> void:
 	var v: Vector2 = velocity.rotated(-rot)
 	# chains
 	if state != CHAINED and absf(l.x) < Basket.CHAIN_HALF and l.y > Basket.CHAIN_TOP and l.y < Basket.CHAIN_BOT:
-		if spd > 1500.0 and absf(l.x) > Basket.SPIT_X:
+		if spd > Basket.SPIT_SPEED and absf(l.x) > _spit_x():
 			# too hot off the edge of the chains: spit out
 			velocity = Vector2(-v.x * 0.25, v.y * 0.3 - 120.0).rotated(rot)
 			impact.emit("chain_spit", spd)

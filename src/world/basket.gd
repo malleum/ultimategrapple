@@ -18,7 +18,8 @@ const TRAY_TOP := -57.0
 const TRAY_BOT := -30.0
 const POLE_HALF := 6.0
 const CATCH_Y := -44.0        # where a caught disc settles (in the tray)
-const SPIT_X := 21.0          # hot discs this far off-centre bounce off the chains
+const SPIT_X := 21.0          # hot discs this far off-centre bounce off the chains (no snap at all)
+const SPIT_SPEED := 1500.0    # "hot"
 
 var th: Dictionary = {}
 var t := 0.0
