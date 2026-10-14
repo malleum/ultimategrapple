@@ -30,7 +30,14 @@ const RUN_EMPTY := 858.0 / T
 ##    switchbacks, drop wells, glass floors, lift shafts, pad climbs,
 ##    tailwind gaps, pit launches, slide chutes, ring ledges
 ## 7: no green waves (blinking laser doors that make you wait)
-const VERSION := 7
+## 8: no going round the pieces (one grippy wall climbs forever, so walls that
+##    shut a piece are slick and out of reach): slick drop shaft / drop well /
+##    stairwell walls, flat fence lanes, hammer parapets instead of lob
+##    skylights, ring ledges with no other way up, glass floors under a mesa,
+##    higher pit launches / pad climbs / updrafts, slide chutes into a cliff,
+##    grapple gaps wider than an empty-handed jump, headwind crosswinds, long
+##    disc bridges only; wall-mounted and floating baskets
+const VERSION := 8
 ## Long disc bridges span at least this many tiles (> max double-jump reach).
 const LONG_BRIDGE_MIN := 52
 const SLIDE_CEIL := 1.5        # slide tunnel ceiling height, tiles
@@ -41,12 +48,14 @@ const CHASE_GAP_MIN := 24
 const CHASE_GAP_MAX := 28
 ## Slick walls this tall can't be jumped over (jump + double jump ~9 tiles).
 const WALL_TALL := 12
-## Lob skylight: the mesa's tunnel headroom and length, how far in from its
-## front the skylight is, its width, and how far under the roof the ring
-## hangs (tools/piece_check.gd: forward lobs get through, flat throws don't).
+## Hammer parapet: the mesa's tunnel headroom and length, the parapet's
+## height above the floor, how far behind the parapet the skylight is, its
+## width, and how far under the roof the ring hangs (tools/piece_check.gd:
+## throws that dive steeply get through, flat ones and lobs don't).
 const LOB_TUNNEL_H := 4
 const LOB_MESA_L := [20, 26]
-const LOB_SKY_IN := [5, 8]
+const LOB_PARAPET_H := [12, 13]
+const LOB_SKY_IN := [1, 3]
 const LOB_SKY_W := 3
 const LOB_SKY_RING_Y := 0.9
 ## Tailwind gap: wider than an empty-handed slide jump (~37.7 tiles); the wind
@@ -59,8 +68,15 @@ const PAD_LAND := [11, 30]
 const TAILWIND_FORCE := 650.0
 ## Pit launch: pad aim, power, and how far above the entry floor the top is.
 const PIT_LAUNCH_DIR := [0.15, -1.0]
-const PIT_LAUNCH_POWER := 1850
-const PIT_LAUNCH_RISE := [8, 10]
+const PIT_LAUNCH_POWER := 2000
+const PIT_LAUNCH_RISE := [12, 13]
+## Pad climb: each island is this much higher than the last (past jump +
+## double jump + mantle, ~10.5 tiles) and its pads this strong.
+const PAD_CLIMB_RISE := [11, 12]
+const PAD_CLIMB_POWER := 1700
+## Grapple gaps (swing chains, grip ceilings, wrap blocks, crosswinds): wider
+## than an empty-handed slide jump (~37.7 tiles).
+const GRAPPLE_GAP := [40, 46]
 ## Lob wall ring: tiles behind the wall's back face / above the floor
 ## (tuned with tools/piece_check.gd so a hammer gets there and flat throws don't).
 const LOB_RING_X := [3.0, 5.0]
@@ -115,7 +131,7 @@ const SEGMENTS := {
 	# vertical tunnels: on any course
 	"vent_shaft":    {"w": 3.0,  "min_d": 0.1, "dir": -1},
 	"drop_shaft":    {"w": 3.0,  "min_d": 0.0, "dir": 1},
-	# optional forward lob: the throw is the fast way, the canyon the slow one
+	# hammer parapet: a steep drop over the wall is the fast way, the ledges the slow one
 	"lob_skylight":  {"w": 4.0,  "min_d": 0.15, "dir": 0, "disc": true, "style": "throw"},
 	# v6 pieces
 	"switchback":    {"w": 2.5,  "min_d": 0.1, "dir": -1},
@@ -191,11 +207,16 @@ var reserves: Array = []   # Array[Rect2] in tiles
 var seg_log: Array = []
 var sections: Array = []   # [{x0, x1, style}] in px: "throw" / "carry" / ""
 var locks: Array = []      # [x0, x1] in tiles: no sky shortcut may skip these
+## Tools (tools/test_cheese.gd): px rects the way through a piece passes
+## through (inside the shaft, the tunnel behind the door...). Not saved.
+var musts: Array = []
 var est_time := 0.0
 ## Tools: place exactly these segments (in order) instead of picking, and
 ## this finale variant (-1: random).
 var force_segments: Array = []
 var force_finale := -1
+var basket_rot := 0.0      # the finale's basket: mounted sideways / floating
+var basket_float := false
 
 # staging buffers for the segment currently being attempted
 var _s_solids: Array = []
@@ -203,6 +224,7 @@ var _s_polys: Array = []
 var _s_ents: Array = []
 var _s_route: Array = []
 var _s_locks: Array = []
+var _s_musts: Array = []
 var _s_est := 0.0
 var _s_box := Rect2()
 var _s_has_box := false
@@ -217,7 +239,7 @@ func generate(seed_value: int, theme_id: String = "", difficulty: float = 0.5, l
 	ice_mode = theme == "frost"
 	length = clampi(length, 3, 40)
 	profile = _pick_profile()
-	solids.clear(); polys.clear(); ents.clear(); route.clear(); reserves.clear(); seg_log.clear(); sections.clear(); locks.clear()
+	solids.clear(); polys.clear(); ents.clear(); route.clear(); reserves.clear(); seg_log.clear(); sections.clear(); locks.clear(); musts.clear()
 	est_time = 0.0
 
 	# --- start pad
@@ -260,6 +282,8 @@ func generate(seed_value: int, theme_id: String = "", difficulty: float = 0.5, l
 
 	# --- finale
 	_begin()
+	basket_rot = 0.0
+	basket_float = false
 	var basket: Vector2 = _finale(cur.x, cur.y)
 	_commit("finale")
 
@@ -282,7 +306,7 @@ func generate(seed_value: int, theme_id: String = "", difficulty: float = 0.5, l
 	# the version is in the id from v5 on: the same seed lays out differently,
 	# so PBs / ghosts / splits of the older layout stay with that one
 	var id := "g%d_%s_%d_%d_v%d" % [seed_value, theme, int(round(d * 10)), length, VERSION]
-	return {
+	var out := {
 		"version": VERSION,
 		"id": id,
 		"name": name,
@@ -303,12 +327,17 @@ func generate(seed_value: int, theme_id: String = "", difficulty: float = 0.5, l
 		"sections": sections,
 		"medals": times,
 	}
+	if basket_rot != 0.0:
+		out["basket_rot"] = basket_rot
+	if basket_float:
+		out["basket_float"] = true
+	return out
 
 
 # ============================================================ staging
 
 func _begin() -> void:
-	_s_solids = []; _s_polys = []; _s_ents = []; _s_route = []; _s_locks = []
+	_s_solids = []; _s_polys = []; _s_ents = []; _s_route = []; _s_locks = []; _s_musts = []
 	_s_est = 0.0
 	_s_has_box = false
 
@@ -339,6 +368,7 @@ func _commit(seg: String) -> void:
 	ents.append_array(_s_ents)
 	route.append_array(_s_route)
 	locks.append_array(_s_locks)
+	musts.append_array(_s_musts)
 	est_time += _s_est
 	if _s_has_box:
 		reserves.append(_s_box)
@@ -377,6 +407,11 @@ func slick(x: float, y: float, w: float, h: float) -> void:
 ## Runners can't pass a fence, discs fly straight through it.
 func fence(x: float, y: float, w: float, h: float) -> void:
 	_solid(x, y, w, h, "fence")
+
+
+## Tools: the way through this piece passes through this rect (tiles).
+func _must(x: float, y: float, w: float, h: float) -> void:
+	_s_musts.append(Rect2(x * T, y * T, w * T, h * T).abs())
 
 
 ## No sky shortcut may pass over tiles x0..x1 (the throw is the point).
@@ -638,7 +673,7 @@ func seg_swing_chain(x: int, y: int) -> Vector2i:
 	var cx := x
 	ground(cx, cx + 4, y)
 	cx += 4
-	var w := ri(16, 18 + dl(4, 16))
+	var w := ri(GRAPPLE_GAP[0], GRAPPLE_GAP[1] + dl(0, 6))
 	var n := maxi(1, int(ceil(w / 11.0)))
 	var ceil_y := y - ri(7, 9)
 	for i in n:
@@ -767,28 +802,25 @@ func seg_disc_gate(x: int, y: int) -> Vector2i:
 	return Vector2i(cx, y)
 
 
-## Throw through the ring to materialise a bridge over the pit. Half of them
-## (more on harder courses) are long: wider than any double jump, even off a
-## slide boost (~1430 px), so the throw is the only way over; their ring
-## hangs over the near half of the gap.
+## Throw through the ring to materialise a bridge over the pit: wider than
+## any double jump, even empty-handed off a slide, so the throw is the only
+## way over. The ring hangs over the near half of the gap.
 func seg_disc_bridge(x: int, y: int) -> Vector2i:
 	var cx := x
 	ground(cx, cx + 6, y)
 	cx += 6
-	var wide := chance(0.4 + 0.3 * d)
-	var gap := ri(LONG_BRIDGE_MIN, LONG_BRIDGE_MIN + 14) if wide else ri(14, 18)
+	var gap := ri(LONG_BRIDGE_MIN, LONG_BRIDGE_MIN + 14)
 	pit(cx, cx + gap, y)
 	var gid := rng.randi()
-	var ring_x := cx + ri(7, 14) if wide else cx + gap - ri(2, 5)
-	var ring_y := y - (ri(5, 8) if wide else ri(6, 9))
+	var ring_x := cx + ri(7, 14)
+	var ring_y := y - ri(5, 8)
 	_ent({"t": "gate", "ring": _p(ring_x, ring_y), "door": [int(cx * T), int(y * T), gap * T, T / 2], "mode": "bridge", "id": gid},
 		cx, ring_y - 1, gap, y - ring_y + 1)
 	cx += gap
 	ground(cx, cx + 6, y)
 	cx += 6
 	_route(cx, y)
-	if wide:
-		lock(x, cx)
+	lock(x, cx)
 	_s_est += 2.0 + gap / RUN_TILES_PER_SEC
 	return Vector2i(cx, y)
 
@@ -798,12 +830,13 @@ func seg_updraft(x: int, y: int) -> Vector2i:
 	ground(cx, cx + 5, y)
 	cx += 5
 	var w := ri(7, 11)
-	var rise := ri(6, 11)
+	var rise := ri(12, 15)        # out of reach of a jump: ride the updraft
 	pit(cx, cx + w, y)
 	_ent({"t": "wind", "r": [int((cx + 1) * T), int((y - rise - 6) * T), (w - 2) * T, (rise + 12) * T], "force": [0, -3400]},
 		cx + 1, y - rise - 6, w - 2, rise + 12)
 	cx += w
-	ground(cx, cx + 6, y - rise)
+	slick(cx, y - rise, 1, rise + 10)
+	ground(cx + 1, cx + 6, y - rise)
 	cx += 6
 	_route(cx, y - rise)
 	_s_est += 1.6
@@ -841,6 +874,7 @@ func seg_lasers(x: int, y: int) -> Vector2i:
 		else:
 			_ent({"t": "laser", "a": _p(lx, roof), "b": [int(lx * T), int(y * T) - 32], "on": 1.0, "off": 0.0, "phase": 0.0}, lx, roof, 1, y - roof)
 	add_sign(x + 2, y, "LASERS")
+	_must(x + 2, roof, l - 4, y - roof)
 	_route(x + l, y)
 	_s_est += l / RUN_TILES_PER_SEC + 0.15 * n
 	return Vector2i(x + l, y)
@@ -939,9 +973,10 @@ func seg_grip_ceiling(x: int, y: int) -> Vector2i:
 	var cx := x
 	ground(cx, cx + 4, y)
 	cx += 4
-	var w := ri(14, 18 + dl(0, 8))
+	var w := ri(GRAPPLE_GAP[0], GRAPPLE_GAP[1] + dl(0, 4))
 	var ch := y - ri(8, 10)
 	grip(cx - 1, ch - 2, w + 2, 2)
+	spikes(cx - 1, ch - 2, w + 2, "up")     # hang under it, don't run along the top
 	pit(cx, cx + w, y)
 	cx += w
 	ground(cx, cx + 6, y)
@@ -1018,11 +1053,13 @@ func seg_wrap_block(x: int, y: int) -> Vector2i:
 	var cx := x
 	ground(cx, cx + 4, y)
 	cx += 4
-	var w := ri(16, 20)
+	var w := ri(GRAPPLE_GAP[0], GRAPPLE_GAP[1])
 	pit(cx, cx + w, y)
-	block(cx + w * 0.3, y - 7, 5, 3)
-	grapple_pt(cx + w * 0.3 + 7, y - 12, "static")
-	grapple_pt(cx + w * 0.85, y - 9, "")
+	grapple_pt(cx + 9, y - 9, "static")
+	block(cx + w * 0.4, y - 7, 5, 3)
+	spikes(cx + w * 0.4, y - 7, 5, "up")    # swing round it, not hop off it
+	grapple_pt(cx + w * 0.4 + 7, y - 12, "static")
+	grapple_pt(cx + w * 0.82, y - 9, "")
 	cx += w
 	ground(cx, cx + 6, y)
 	cx += 6
@@ -1149,10 +1186,10 @@ func seg_crosswind(x: int, y: int) -> Vector2i:
 	var cx := x
 	ground(cx, cx + 5, y)
 	cx += 5
-	var w := ri(16, 22)
-	var dirx := 1 if chance(0.65) else -1
+	var w := ri(GRAPPLE_GAP[0], GRAPPLE_GAP[1])
+	var dirx := -1     # a headwind: a tailwind carries a plain jump right over
 	pit(cx, cx + w, y)
-	_ent({"t": "wind", "r": [int(cx * T), int((y - 14) * T), w * T, 18 * T], "force": [1500 * dirx, -150]}, cx, y - 14, w, 18)
+	_ent({"t": "wind", "r": [int(cx * T), int((y - 14) * T), w * T, 18 * T], "force": [1100 * dirx, -150]}, cx, y - 14, w, 18)
 	var n := maxi(1, int(w / 9.0))
 	for i in n:
 		grapple_pt(cx + w * (i + 0.5) / n, y - ri(7, 9), "static")
@@ -1182,8 +1219,8 @@ func _ramp_up(x: float, y: float, l: float, h: float) -> void:
 ## Roller target: a yellow plate on the floor of a low tunnel, behind a fence.
 ## Only a disc ROLLING over the plate sets it off (rollers), and the fence
 ## (runners can't pass, discs fly through) drops once it has. The tunnel's
-## roof is slick and too high to jump onto. Half start with a ramp down into
-## the tunnel that a roller picks up speed on. Signposted from the start of a
+## roof is slick and too high to jump onto, and the lane is level with its
+## run-up, so you can throw into it from well back. Signposted from the start of a
 ## long run-up (roll it early), and the lane climbs out on an uphill ramp so a
 ## long roller rolls back instead of off the next drop.
 func seg_roll_lane(x: int, y: int) -> Vector2i:
@@ -1203,14 +1240,9 @@ func _fence_lane(x: int, y: int, roller: bool) -> Vector2i:
 	if roller:
 		add_sign(cx + 2, y, "ROLLER")
 	cx += run_up
+	# level with the run-up (a ramp down into it hid the tunnel mouth from a
+	# throw further back, and put the roof in reach from the top of the ramp)
 	var fy := y
-	if chance(0.5):
-		var l := ri(8, 12)
-		var h := ri(3, 5)
-		_ramp_down(cx, y, l, h)
-		fy = y + h
-		ground(cx, cx + l, fy)
-		cx += l
 	if not roller:
 		add_sign(cx - 2, fy, "THROW")
 	var ceil_h := 3
@@ -1225,12 +1257,13 @@ func _fence_lane(x: int, y: int, roller: bool) -> Vector2i:
 	else:
 		_ent({"t": "gate", "ring": _p(px + 1.5, fy - 1.5), "door": [int(fx * T), int((fy - ceil_h) * T), T, ceil_h * T],
 			"mode": "open", "fence": true, "id": rng.randi()}, fx, fy - ceil_h, px + 3 - fx, ceil_h)
+	_must(cx, fy - ceil_h, tl, ceil_h)
 	_route(cx + 2, fy)
 	cx += tl + 6
 	if roller:
 		# uphill backstop: a roller that keeps going rolls back down into the lane
-		var rl := ri(7, 9)
-		var rh := 3
+		var rl := ri(9, 11)
+		var rh := 4
 		_ramp_up(cx, fy, rl, rh)
 		ground(cx, cx + rl, fy)
 		cx += rl
@@ -1299,7 +1332,7 @@ func seg_lob_wall(x: int, y: int) -> Vector2i:
 func seg_chase_gap(x: int, y: int) -> Vector2i:
 	var cx := x
 	var run_up := ri(20, 24)
-	ground(cx, cx + run_up, y)
+	ground(cx, cx + run_up - 1, y)     # the cliff edge is the slick face's top
 	add_sign(cx + run_up - 4, y, "CHASE")
 	cx += run_up
 	var gap := ri(CHASE_GAP_MIN, CHASE_GAP_MIN + dl(0, CHASE_GAP_MAX - CHASE_GAP_MIN))
@@ -1400,6 +1433,9 @@ func seg_stacked(x: int, y: int) -> Vector2i:
 				grapple_pt(hx + ri(6, 9), high_floor - ri(9, 11), "static")
 				hx += ri(11, 14)
 	add_sign(x0 - 4, y, "%d LANES" % (3 if three else 2))
+	_must(x0, low_top, w, hl)                          # each lane's a way through
+	_must(x0, mid_top, w, mid_floor - mid_top)
+	_must(x0, high_floor - 12, w, 12)
 	_route(x0 + 1, y)
 	_route(xe + 8, y)
 	lock(x, xe + 8)
@@ -1422,29 +1458,39 @@ func _laser_row(x0: int, x1: int, floor_y: float, roof_y: float) -> void:
 		lx += ri(9, 11) if prev == "jump" else ri(6, 8)
 
 
-## Lob skylight: a mesa with a tunnel through it, its door shut. The slow way
-## is over the top: up the front, across a spiked roof, down the back. A
-## fenced skylight in the roof, a few tiles in from the front, has the ring
-## hanging under it: a forward lob that comes down steeply through the
-## skylight (a hammer, or a high soft scoober) opens the door, and the disc
-## drops onto the tunnel floor, right on your way through. Flat throws hit
-## the door or skim over the roof. Optional: miss and the roof still works.
+## Hammer parapet: a mesa with a tunnel through it, its door shut, and a tall
+## slick parapet up its front edge. Just behind the parapet a fenced skylight
+## in the roof has the ring hanging under it: only a throw that comes over the
+## parapet and dives (a hammer, or a scoober's turnover) gets down through it.
+## The door opens and the disc drops onto the tunnel floor on your way
+## through. Flat throws hit the door, lobs float on over the roof. The slow
+## way: up the ladder of ledges in front, over the parapet, across the spiked
+## roof and down the back.
 func seg_lob_skylight(x: int, y: int) -> Vector2i:
 	var cx := x
-	var run_up := ri(10, 14)
+	var run_up := ri(12, 16)
 	ground(cx, cx + run_up, y)
-	add_sign(cx + 2, y, "LOB")
+	add_sign(cx + 2, y, "HAMMER")
 	cx += run_up
 	var mx := cx
 	var l := ri(LOB_MESA_L[0], LOB_MESA_L[1])
 	var roof := y - LOB_TUNNEL_H                 # underside of the roof
 	var top := roof - 2                           # the roof's top surface
-	var sk := mx + ri(LOB_SKY_IN[0], LOB_SKY_IN[1])
+	var pw := 2                                   # parapet thickness
+	var ph := ri(LOB_PARAPET_H[0], LOB_PARAPET_H[1])
+	var sk := mx + pw + ri(LOB_SKY_IN[0], LOB_SKY_IN[1])
 	ground(cx, cx + l + 10, y)
-	block(mx, top, sk - mx, 2)
+	slick(mx, y - ph, pw, ph - LOB_TUNNEL_H)      # parapet, down to the tunnel mouth
+	block(mx + pw, top, sk - mx - pw, 2)
 	block(sk + LOB_SKY_W, top, mx + l - sk - LOB_SKY_W, 2)
 	fence(sk, top, LOB_SKY_W, 0.5)               # discs drop through, runners don't
-	oneway(mx - 5, y - 3, 3)                      # a step up to the roof
+	# the slow way up: ledges a hop apart, back and forth in front of it
+	var ly := y - 4
+	var far := true
+	while ly > y - ph + 2:
+		oneway(mx - (8 if far else 4), ly, 3)
+		far = not far
+		ly -= 4
 	# the roof's hazards: hop the spike strips
 	var hx := sk + LOB_SKY_W + ri(3, 5)
 	while hx < mx + l - 6:
@@ -1452,30 +1498,33 @@ func seg_lob_skylight(x: int, y: int) -> Vector2i:
 		spikes(hx, top, sw, "up")
 		hx += sw + ri(5, 7)
 	# the door is set back in the tunnel mouth: flush with the front it met the
-	# roof block in a seam on the face you run into, and contacts on a seam
+	# parapet in a seam on the face you run into, and contacts on a seam
 	# between two bodies don't replay exactly
-	_ent({"t": "gate", "ring": _p(sk + LOB_SKY_W * 0.5, roof + LOB_SKY_RING_Y), "door": [int((mx + 2) * T), int(roof * T), T, LOB_TUNNEL_H * T],
-		"mode": "open", "slick": true, "id": rng.randi()}, mx, top, l, y - top)
+	_ent({"t": "gate", "ring": _p(sk + LOB_SKY_W * 0.5, roof + LOB_SKY_RING_Y), "door": [int((mx + pw + 1) * T), int(roof * T), T, LOB_TUNNEL_H * T],
+		"mode": "open", "slick": true, "id": rng.randi()}, mx, y - ph, l, ph)
+	_must(mx, roof, l, LOB_TUNNEL_H)       # through the tunnel
+	_must(mx - 9, y - ph - 3, 9 + pw, 4)   # or up the ledges and over the parapet
 	_route(mx - 3, y)
-	_route(mx + 2, top)
+	_route(mx + pw + 2, top)
 	cx = mx + l + 10
 	_route(cx, y)
-	lock(x, cx)   # no sky shortcut over the mesa: the lob is the shortcut
-	_s_est += float(cx - x) / RUN_TILES_PER_SEC + 1.8
+	lock(x, cx)   # no sky shortcut over the mesa: the throw is the shortcut
+	_s_est += float(cx - x) / RUN_EMPTY + 1.8
 	return Vector2i(cx, y)
 
 # ============================================================ vertical tunnels
 
 ## Vent shaft: in at the foot of an enclosed tunnel, up an updraft (hold jump
 ## to rise) past spikes on the walls, out to the right under the roof at the
-## top. The walls are grippy too: wall-jumping up works, just slower.
+## top. The right wall is grippy too: wall-jumping up it works, just slower.
+## The left one is slick, or you'd climb its back onto the roof and skip it.
 func seg_vent_shaft(x: int, y: int) -> Vector2i:
 	var h := ri(16, 20 + dl(0, 6))
 	var top := y - h
 	var sw := 6
 	var sx := x + 6
 	ground(x, sx + sw, y)
-	block(sx - 1, top - 6, 1, (y - 4) - (top - 6))       # left wall, open at the foot
+	slick(sx - 1, top - 6, 1, (y - 4) - (top - 6))       # left wall, open at the foot (slick: no climbing its back onto the roof)
 	ground(sx + sw, sx + sw + 12, top)                   # its fill is the right wall
 	block(sx - 1, top - 7, sw + 6, 1)                    # roof over the top and the way out
 	_ent({"t": "wind", "r": [int(sx * T), int((top - 6) * T), sw * T, int((y - top + 6) * T)], "force": [0, -3400]},
@@ -1492,6 +1541,7 @@ func seg_vent_shaft(x: int, y: int) -> Vector2i:
 		left = not left
 		sy -= ri(4, 6)
 		n += 1
+	_must(sx, top - 6, sw, y - top + 2)
 	_route(sx + 2, y)
 	_route(sx + sw + 10, top)
 	_s_est += 1.0 + h * 0.07
@@ -1507,7 +1557,9 @@ func seg_drop_shaft(x: int, y: int) -> Vector2i:
 	var sw := 5
 	var sx := x + 8
 	ground(x, sx, y)                                     # its fill is the left wall
-	block(sx + sw, y - 10, 2, (bottom - 4) - (y - 10))   # right wall, open at the bottom
+	# right wall, open at the bottom: slick and out of reach from the rim, or
+	# you'd wall-jump up its face and over the top
+	slick(sx + sw, y - WALL_TALL - 1, 2, (bottom - 4) - (y - WALL_TALL - 1))
 	ground(sx, sx + sw + 12, bottom)
 	# spikes on alternate walls, close enough together that you steer, not just
 	# fall. The first is on the near wall: running in, momentum takes you to
@@ -1523,6 +1575,8 @@ func seg_drop_shaft(x: int, y: int) -> Vector2i:
 		left = not left
 		sy += ri(4, 5)
 		n += 1
+	_must(sx, y + 3, sw, h - 7)
+	lock(x, sx + sw + 12)
 	_route(sx - 2, y)
 	_route(sx + sw + 10, bottom)
 	_s_est += float(sx + sw + 12 - x) / RUN_TILES_PER_SEC + 0.6 + h * 0.02
@@ -1542,7 +1596,7 @@ func seg_switchback(x: int, y: int) -> Vector2i:
 	var x0 := x + 6
 	var top := y - k * 6
 	ground(x, x0 + w, y)
-	block(x0 - 1, top - 6, 1, (y - 4) - (top - 6))     # left wall, open at the foot
+	slick(x0 - 1, top - 6, 1, (y - 4) - (top - 6))     # left wall, open at the foot (slick: no climbing its back onto the roof)
 	block(x0 - 1, top - 7, w + 1, 1)                   # roof
 	ground(x0 + w, x0 + w + 10, top)                   # its fill is the right wall
 	for i in range(1, k + 1):
@@ -1560,6 +1614,7 @@ func seg_switchback(x: int, y: int) -> Vector2i:
 			if chance(0.5):
 				var fy2 := y - i * 6
 				spikes(x0 + hole + ri(3, w - hole * 2 - 5), fy2, 2, "up")
+	_must(x0, top - 6, w, 5)
 	_route(x0 + w - 3, y)
 	_route(x0 + 3, y - 6)
 	_route(x0 + w + 8, top)
@@ -1577,8 +1632,10 @@ func seg_drop_well(x: int, y: int) -> Vector2i:
 	var x0 := x + 6
 	var bottom := y + k * 6
 	ground(x, x0, y)                                    # its fill is the left wall
-	block(x0, y - 5, w + 1, 1)                          # roof
-	block(x0 + w, y - 5, 1, (bottom - 4) - (y - 5))     # right wall, open at the foot
+	block(x0, y - 5, w, 1)                              # roof
+	# right wall, open at the foot: slick, and well over the roof (you can hop
+	# up onto the roof, but not over the wall from it)
+	slick(x0 + w, y - 6 - WALL_TALL, 1, (bottom - 4) - (y - 6 - WALL_TALL))
 	ground(x0, x0 + w + 10, bottom)
 	for i in k:
 		var fy := y + i * 6
@@ -1589,15 +1646,17 @@ func seg_drop_well(x: int, y: int) -> Vector2i:
 			block(x0 + hole, fy, w - hole, 1)
 		if d > 0.3 and chance(0.6):
 			spikes(x0 + hole + ri(3, w - hole * 2 - 5), fy, 2, "up")
+	_must(x0, y + 1, w, bottom - y - 2)
+	lock(x, x0 + w + 10)
 	_route(x0 + 2, y)
 	_route(x0 + w + 8, bottom)
 	_s_est += float(w * k + 16) / RUN_EMPTY + k * 0.3
 	return Vector2i(x0 + w + 10, bottom)
 
 
-## Glass floor: a pane in the floor ahead. Throw the disc down through it and
-## drop into the clear lane underneath (the disc lands in it too); or stay up
-## top and climb over the slick wall and the spikes, then drop down at the end.
+## Glass floor: a pane in the floor ahead and a tall slick mesa straight after
+## it. Throw the disc down through the pane and drop into the lane that runs
+## under the mesa (the disc lands in it too). There's no way over the top.
 func seg_glass_floor(x: int, y: int) -> Vector2i:
 	var x0 := x + 8
 	var w := ri(34, 40)
@@ -1605,17 +1664,17 @@ func seg_glass_floor(x: int, y: int) -> Vector2i:
 	var gx := x0 + ri(8, 11)
 	ground(x, x0, y)
 	block(x0, y, gx - x0, 1)
-	block(gx + 6, y, xe - gx - 6, 1)
 	_ent({"t": "glass", "r": [int(gx * T), int(y * T), 6 * T, T], "slick": true}, gx, y, 6, 1)   # wide: at full speed you still drop in
+	var mx := gx + 6 + ri(1, 2)
+	block(gx + 6, y, mx - gx - 6, 1)
+	# the mesa: its underside is the lane's roof, its top far out of reach
+	slick(mx, y - WALL_TALL - 1, xe - mx, WALL_TALL + 2)
 	ground(x0, xe + 10, y + 5)
-	# up top: a slick wall to get over (the step before it helps) and spikes
-	var wx := gx + ri(11, 13)
-	slick(wx, y - 6, 1, 6)
-	oneway(wx - 5, y - 3, 3)
-	spikes(mini(wx + ri(4, 6), xe - 4), y, 3, "up")
 	add_sign(x + 2, y, "GLASS")
+	_must(x0, y + 1, w, 4)
 	_route(x0 + 2, y)
 	_route(xe + 8, y + 5)
+	lock(x, xe + 10)
 	_s_est += float(xe + 10 - x) / RUN_EMPTY + 1.4
 	return Vector2i(xe + 10, y + 5)
 
@@ -1639,9 +1698,10 @@ func seg_lift_shaft(x: int, y: int) -> Vector2i:
 		py -= m + 1
 		left = not left
 	var top := int(ceil(py)) + 1
-	block(sx - 1, top - 6, 1, (y - 4) - (top - 6))     # left wall, open at the foot
+	slick(sx - 1, top - 6, 1, (y - 4) - (top - 6))     # left wall, open at the foot (slick: no climbing its back)
 	block(sx - 1, top - 7, sw + 7, 1)                  # roof
 	ground(sx + sw, sx + sw + 10, top)                 # its fill is the right wall
+	_must(sx, top - 6, sw, y - top + 2)
 	_route(sx + 2, y)
 	_route(sx + sw + 8, top)
 	_s_est += 1.0 + n * period * 0.9
@@ -1649,7 +1709,8 @@ func seg_lift_shaft(x: int, y: int) -> Vector2i:
 
 
 ## Pad climb: islands stepping up over a pit, a pad near the far end of each
-## that throws you up onto the next. The islands are long: a full-speed,
+## that throws you up onto the next (each is out of reach of a jump, with a
+## slick front). The islands are long: a full-speed,
 ## empty-handed runner flies about 28 tiles off a pad, one carrying the disc
 ## about half that, and both land on the next island.
 func seg_pad_climb(x: int, y: int) -> Vector2i:
@@ -1661,13 +1722,15 @@ func seg_pad_climb(x: int, y: int) -> Vector2i:
 	var pad_x := cx + 4
 	var dir := Vector2(0.45, -1.0).normalized()
 	for i in n:
-		_ent({"t": "pad", "p": _p(pad_x, cy), "dir": [dir.x, dir.y], "power": 1550}, pad_x - 1, cy - 14, 2, 14)
+		_ent({"t": "pad", "p": _p(pad_x, cy), "dir": [dir.x, dir.y], "power": PAD_CLIMB_POWER}, pad_x - 1, cy - 16, 2, 16)
+		_must(pad_x - 1.5, cy - 2, 3, 2)
 		var land := pad_x + PAD_LAND[0]
-		var rise := ri(5, 6)
+		var rise := ri(PAD_CLIMB_RISE[0], PAD_CLIMB_RISE[1])
 		cy -= rise
 		var last := i == n - 1
 		var len := (PAD_LAND[1] - PAD_LAND[0]) + (10 if last else 2)
-		ground(land, land + len, cy)
+		slick(land, cy, 1, y + 4 - cy)        # its front, down to the pit floor: no wall-jumping up it
+		ground(land + 1, land + len, cy)
 		_grow(pad_x, cy - 10, land - pad_x, 10)
 		_route(land + 2, cy)
 		pad_x = land + len - 3
@@ -1707,7 +1770,7 @@ func seg_pit_launch(x: int, y: int) -> Vector2i:
 	var cx := x
 	ground(cx, cx + 6, y)
 	cx += 6
-	var depth := ri(6, 8)
+	var depth := ri(5, 7)
 	var pw := 8
 	var floor_y := y + depth
 	ground(cx, cx + pw, floor_y)
@@ -1716,9 +1779,10 @@ func seg_pit_launch(x: int, y: int) -> Vector2i:
 	_ent({"t": "pad", "p": _p(cx + pw - 0.9, floor_y), "dir": [dir.x, dir.y], "power": PIT_LAUNCH_POWER}, cx + pw - 2, floor_y - 1, 2, 1)
 	cx += pw
 	var top := y - ri(PIT_LAUNCH_RISE[0], PIT_LAUNCH_RISE[1])
-	slick(cx, top + 1, 1, floor_y - top - 1)
-	ground(cx, cx + 12, top)
+	slick(cx, top, 1, floor_y - top)
+	ground(cx + 1, cx + 12, top)     # not over the slick face: it would be grippy again
 	_grow(cx - pw, top - 10, pw + 6, 10)
+	_must(cx - pw, y + 1, pw, depth - 1)
 	_route(cx - pw + 2, floor_y)
 	cx += 12
 	_route(cx, top)
@@ -1726,8 +1790,8 @@ func seg_pit_launch(x: int, y: int) -> Vector2i:
 	return Vector2i(cx, top)
 
 
-## Slide chute: a steep ramp down into a low tunnel hung with spikes (slide
-## through it at speed), out over a kicker and across a gap.
+## Slide chute: a steep ramp down into a low tunnel hung with spikes, cut
+## into a cliff (slide through it at speed), out over a kicker and across a gap.
 func seg_slide_chute(x: int, y: int) -> Vector2i:
 	var cx := x
 	ground(cx, cx + 4, y)
@@ -1740,8 +1804,10 @@ func seg_slide_chute(x: int, y: int) -> Vector2i:
 	cx += rl
 	var tl := ri(8, 12)
 	ground(cx, cx + tl + 6, fy)
-	block(cx, fy - SLIDE_CEIL - 8, tl, 8)
+	# cut into a cliff: from the top of the chute you can't jump over it
+	slick(cx, y - WALL_TALL + 1, tl, (fy - SLIDE_CEIL) - (y - WALL_TALL + 1))
 	spikes(cx, fy - SLIDE_CEIL, tl, "down")
+	_must(cx, fy - SLIDE_CEIL, tl, SLIDE_CEIL)
 	cx += tl
 	_route(cx + 1, fy)
 	cx += 2
@@ -1761,28 +1827,19 @@ func seg_slide_chute(x: int, y: int) -> Vector2i:
 	return Vector2i(cx, ly)
 
 
-## Ring ledges: a tall slick cliff. The slow way up is the zig-zag of little
-## platforms in front of it. A ring hangs high by the cliff: hit it and a wide
-## ledge appears halfway up, a jump from the floor and a jump from the top.
+## Ring ledges: a tall slick cliff, out of reach from the floor. A ring hangs
+## high in front of it: hit it and a wide ledge appears halfway up, a double
+## jump from the floor and one from the top. There's no other way up; a throw
+## through the ring sails on up onto the top, where you pick it up.
 func seg_ring_ledges(x: int, y: int) -> Vector2i:
 	var cx := x
 	var run := ri(16, 20)
 	ground(cx, cx + run, y)
 	var wx := cx + run
-	var h := ri(12, 13)
+	var h := ri(13, 14)
 	var top := y - h
 	slick(wx, top, 1, h)          # no wall-jumping up the face
 	ground(wx + 1, wx + 12, top)
-	# the slow way: small platforms zig-zagging up in front of the cliff, a
-	# hop apart, back and forth
-	var py := y - 3
-	var left := true
-	while py > top + 1:
-		oneway(wx - (15 if left else 10), py, 3)
-		left = not left
-		py -= 3
-	# the fast way: a wide ledge a double jump up, a double jump below the top
-	# (~2 tiles to spare on each; the floor to the top is out of reach)
 	var gid := rng.randi()
 	var ledge_y := y - 6
 	_ent({"t": "gate", "ring": _p(wx - ri(5, 8), top - rf(1.5, 3.0)), "door": [int((wx - 7) * T), int(ledge_y * T), 7 * T, T / 2], "mode": "bridge", "id": gid},
@@ -1791,6 +1848,7 @@ func seg_ring_ledges(x: int, y: int) -> Vector2i:
 	_route(cx + 2, y)
 	cx = wx + 12
 	_route(cx, top)
+	lock(x, cx)
 	_s_est += float(cx - x) / RUN_EMPTY + 1.6
 	return Vector2i(cx, top)
 
@@ -1861,7 +1919,8 @@ func seg_cascade(x: int, y: int) -> Vector2i:
 # ============================================================ finale
 
 func _finale(x: int, y: int) -> Vector2:
-	var variant := ri(0, 6)
+	# now and then the basket is somewhere odd: on the end wall, or floating
+	var variant := 7 + ri(0, 1) if chance(0.16) else ri(0, 6)
 	if force_finale >= 0:
 		variant = force_finale
 	var bx: float
@@ -1904,6 +1963,20 @@ func _finale(x: int, y: int) -> Vector2:
 			ground(x + 20, x + 34, y + sink)
 			bx = x + 22.5; by = y + sink
 			end_y = y + sink
+		7:  # mounted sideways on the end wall: its mouth opens up and down,
+			# so it's a drop-in (lob it down just in front of the wall)
+			ground(x, x + 30, y)
+			bx = x + 34; by = y - rf(3.0, 5.0)
+			basket_rot = -PI / 2.0
+		8:  # floating in the air: over the green, or over a pit
+			if chance(0.5):
+				ground(x, x + 30, y)
+			else:
+				ground(x, x + 14, y)
+				pit(x + 14, x + 28, y)
+				ground(x + 28, x + 30, y)
+			bx = x + 21; by = y - rf(4.5, 6.0)
+			basket_float = true
 		_:  # bowl: a ramp runs down into the basket (rollers love it)
 			ground(x, x + 10, y)
 			var drop := ri(3, 5)
@@ -1911,8 +1984,12 @@ func _finale(x: int, y: int) -> Vector2:
 			ground(x + 10, x + 34, y + drop)
 			bx = x + 22; by = y + drop
 			end_y = y + drop
-	_grow(bx - 1, by - 4, 2, 4)
-	_route(bx, by)
+	if variant == 7:
+		_grow(bx - 5, by - 1.5, 5, 3)
+		_route(bx - 4, y)
+	else:
+		_grow(bx - 1, by - 4, 2, 4)
+		_route(bx, by if variant != 8 else y)
 	_s_est += 2.5
 	var end_x := x + 34
 	ground(x + 28, end_x, end_y)

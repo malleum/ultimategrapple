@@ -73,6 +73,8 @@ func _physics_process(_dt: float) -> bool:
 				speeds[ty] = sp
 				if not examples.has(ty):
 					examples[ty] = "x-%0.1f tiles %d° p%.2f nose %+d°" % [e.back, e.deg, e.pow, e.nose]
+				if OS.get_environment("HITS") != "":
+					print("      hit %-8s back %4.1f  %2d°  p%.1f  nose %+d" % [ty, e.back, e.deg, e.pow, e.nose])
 			d.queue_free()
 		else:
 			live += 1

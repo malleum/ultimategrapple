@@ -46,6 +46,10 @@ var remote_ghosts := {}
 var split_layer: CanvasLayer = null
 
 var basket_pos := Vector2.ZERO
+## The basket can be mounted sideways on a wall (its up turned by this many
+## radians) or float in the air with no pole down to the ground.
+var basket_rot := 0.0
+var basket_float := false
 var has_basket := true
 var spawn := Vector2.ZERO
 var kill_y := 4000.0
@@ -64,6 +68,8 @@ func _ready() -> void:
 	level_id = str(level_data.get("id", "custom"))
 	spawn = _v(level_data.get("spawn", [0, 0]))
 	basket_pos = _v(level_data.get("basket", [0, 0]))
+	basket_rot = float(level_data.get("basket_rot", 0.0))
+	basket_float = bool(level_data.get("basket_float", false))
 	kill_y = float(level_data.get("kill_y", 4000))
 	medals = level_data.get("medals", {})
 	if local_players.is_empty():
@@ -316,8 +322,15 @@ func _build_world() -> void:
 		basket = Basket.new()
 		basket.th = th
 		basket.position = basket_pos
+		basket.rot = basket_rot
+		basket.floating = basket_float
 		world.add_child(basket)
 
+
+
+## A point in the basket's own frame (y up = negative) in the world.
+func basket_point(local: Vector2) -> Vector2:
+	return basket_pos + local.rotated(basket_rot)
 
 func _build_runners() -> void:
 	var n := local_players.size()

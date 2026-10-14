@@ -9,7 +9,7 @@ const PORT := 24680
 ## Lobby protocol: bump when the RPC list or a message's shape changes. The
 ## server puts it in the lobby settings and checks the one a client registers
 ## with, so a mismatch says so instead of silently doing nothing.
-const PROTOCOL := 2   # 2: 2nd / 3rd score part of a point (wins are floats)
+const PROTOCOL := 3   # 2: 2nd / 3rd score part of a point (wins are floats); 3: wall-mounted / floating baskets in course data
 ## Public dedicated server (minimus, UDP 24680). Players can type another.
 const ONLINE_SERVER := "joshammer.com"
 const DISCOVERY_PORT := 24681

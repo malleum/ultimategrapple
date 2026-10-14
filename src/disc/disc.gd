@@ -521,27 +521,46 @@ func _check_support(_dt: float) -> void:
 
 func _chained(dt: float) -> void:
 	chain_timer += dt
-	var target: Vector2 = level.basket_pos + Vector2(clampf(global_position.x - level.basket_pos.x, -24, 24), Basket.CATCH_Y)
+	var target: Vector2 = _catch_point()
 	velocity = velocity.lerp(Vector2.ZERO, 8.0 * dt)
 	global_position = global_position.move_toward(target, 500.0 * dt)
 	if chain_timer > 0.35 or global_position.distance_to(target) < 4.0:
 		_score()
 
 
+## Where a caught disc settles: in the tray, under where it came in.
+func _catch_point() -> Vector2:
+	var l: Vector2 = (global_position - level.basket_pos).rotated(-level.basket_rot)
+	return level.basket_point(Vector2(clampf(l.x, -24, 24), Basket.CATCH_Y))
+
+
+## Move the disc across the basket (its own x) to lx, keeping its height.
+func _set_basket_x(lx: float) -> void:
+	if level.basket_rot == 0.0:
+		global_position.x = level.basket_pos.x + lx   # upright: exactly as before (replays)
+	else:
+		var l: Vector2 = (global_position - level.basket_pos).rotated(-level.basket_rot)
+		global_position = level.basket_point(Vector2(lx, l.y))
+
+
+## The basket's catch zones, in its own frame (it can be mounted sideways on
+## a wall: level.basket_rot), so the same throws work at any angle.
 func _check_basket() -> void:
 	if level == null or not level.has_basket:
 		return
-	var l: Vector2 = global_position - level.basket_pos
+	var rot: float = level.basket_rot
+	var l: Vector2 = (global_position - level.basket_pos).rotated(-rot)
 	if absf(l.x) > Basket.HALF_W + 40.0 or l.y > 10.0 or l.y < Basket.BAND_TOP - 20.0:
 		return
 	var spd := velocity.length()
+	var v: Vector2 = velocity.rotated(-rot)
 	# chains
 	if state != CHAINED and absf(l.x) < Basket.CHAIN_HALF and l.y > Basket.CHAIN_TOP and l.y < Basket.CHAIN_BOT:
 		if spd > 1500.0 and absf(l.x) > Basket.SPIT_X:
 			# too hot off the edge of the chains: spit out
-			velocity = Vector2(-velocity.x * 0.25, velocity.y * 0.3 - 120.0)
+			velocity = Vector2(-v.x * 0.25, v.y * 0.3 - 120.0).rotated(rot)
 			impact.emit("chain_spit", spd)
-			global_position.x = level.basket_pos.x + signf(l.x) * (Basket.CHAIN_HALF + 3.0)
+			_set_basket_x(signf(l.x) * (Basket.CHAIN_HALF + 3.0))
 			_set_state(FLIGHT)
 			return
 		_set_state(CHAINED)
@@ -549,20 +568,22 @@ func _check_basket() -> void:
 		impact.emit("chains", spd)
 		return
 	# dropping into the tray from above
-	if absf(l.x) < Basket.TRAY_HALF and l.y > Basket.TRAY_TOP and l.y < Basket.TRAY_BOT and velocity.y > -50.0 and state != CHAINED:
+	if absf(l.x) < Basket.TRAY_HALF and l.y > Basket.TRAY_TOP and l.y < Basket.TRAY_BOT and v.y > -50.0 and state != CHAINED:
 		_set_state(CHAINED)
 		chain_timer = 0.2
 		impact.emit("chains", spd)
 		return
-	# pole
-	if absf(l.x) < Basket.POLE_HALF + RADIUS and l.y > Basket.TRAY_BOT and l.y < 0.0 and state == FLIGHT:
-		velocity.x = -velocity.x * 0.4
-		global_position.x = level.basket_pos.x + signf(l.x if l.x != 0 else -velocity.x) * (Basket.POLE_HALF + RADIUS + 1.0)
+	# pole (a floating basket has none below the tray)
+	if not level.basket_float and absf(l.x) < Basket.POLE_HALF + RADIUS and l.y > Basket.TRAY_BOT and l.y < 0.0 and state == FLIGHT:
+		v.x = -v.x * 0.4
+		velocity = v.rotated(rot)
+		_set_basket_x(signf(l.x if l.x != 0 else -v.x) * (Basket.POLE_HALF + RADIUS + 1.0))
 		impact.emit("pole", spd)
 	# top band
 	if absf(l.x) < Basket.HALF_W and l.y > Basket.BAND_TOP - 2.0 and l.y < Basket.BAND_BOT and state == FLIGHT:
 		var mid := (Basket.BAND_TOP + Basket.BAND_BOT) * 0.5
-		velocity.y = -absf(velocity.y) * 0.4 if l.y < mid else absf(velocity.y) * 0.3
+		v.y = -absf(v.y) * 0.4 if l.y < mid else absf(v.y) * 0.3
+		velocity = v.rotated(rot)
 		impact.emit("pole", spd)
 
 
@@ -576,7 +597,7 @@ func _check_gates() -> void:
 
 
 func _score() -> void:
-	global_position = level.basket_pos + Vector2(clampf(global_position.x - level.basket_pos.x, -24, 24), Basket.CATCH_Y)
+	global_position = _catch_point()
 	velocity = Vector2.ZERO
 	_set_state(SCORED)
 	scored.emit()

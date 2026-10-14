@@ -24,6 +24,10 @@ var th: Dictionary = {}
 var t := 0.0
 var shake := 0.0
 var scored := false
+## Mounted sideways (radians its up is turned by: -PI/2 = on a wall to its
+## right, facing left) / floating in the air (no pole down to a base).
+var rot := 0.0
+var floating := false
 
 
 func _physics_process(dt: float) -> void:
@@ -48,12 +52,21 @@ func _draw_timed() -> void:
 	var gc: Color = th.get("basket", Color(2.2, 2.0, 0.3))
 	# beacon column (visible from afar)
 	var beacon := Color(gc, 0.07 + 0.03 * sin(t * 3.0))
-	draw_rect(Rect2(-24, -1440, 48, 1300), beacon)
-	draw_rect(Rect2(-8, -1440, 16, 1300), Color(gc, 0.08))
-	# base
-	draw_rect(Rect2(-30, -5, 60, 5), metal)
-	# pole
-	draw_line(Vector2(0, 0), Vector2(0, BAND_TOP), metal, 7.0)
+	var m := Vector2(0, -85).rotated(rot)       # always straight up from the chains
+	draw_rect(Rect2(m.x - 24, m.y - 1355, 48, 1300), beacon)
+	draw_rect(Rect2(m.x - 8, m.y - 1355, 16, 1300), Color(gc, 0.08))
+	draw_set_transform(Vector2.ZERO, rot)
+	if floating:
+		# hovering: a glow under the tray instead of a pole down to a base
+		var hv := 0.5 + 0.5 * sin(t * 4.0)
+		draw_circle(Vector2(0, TRAY_BOT + 10), 16 + 4 * hv, Color(gc, 0.18))
+		draw_circle(Vector2(0, TRAY_BOT + 10), 7, Color(gc, 0.5))
+		draw_line(Vector2(0, TRAY_BOT), Vector2(0, BAND_TOP), metal, 7.0)
+	else:
+		# base (on a wall: the mounting plate)
+		draw_rect(Rect2(-30, -5, 60, 5), metal)
+		# pole
+		draw_line(Vector2(0, 0), Vector2(0, BAND_TOP), metal, 7.0)
 	# tray
 	var tl := Vector2(-HALF_W, TRAY_TOP)
 	var tr := Vector2(HALF_W, TRAY_TOP)

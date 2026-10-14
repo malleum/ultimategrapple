@@ -4,7 +4,7 @@ extends SceneTree
 ##   slide        run in, hold down              -> through, alive
 ##   slide_let_go slide in, release down inside  -> stays low, through, alive
 ##   slide_jump   slide in, press jump inside    -> jump held back, alive
-##   stand        run in without crouching       -> dies (the hazard is real)
+##   stand        run in without crouching       -> dies or is stopped (never through)
 ## godot --headless --fixed-fps 120 -s tools/test_tunnels.gd
 
 const Gen = preload("res://src/level/generator.gd")
@@ -36,7 +36,12 @@ func _physics_process(_dt: float) -> bool:
 	var j: Dictionary = jobs[job_i]
 	var c: String = CASES[case_i]
 	if frame == 2:
-		p.global_position = Vector2(j.x0 - 7 * Gen.T, j.floor_y)
+		# on whatever floor is there 7 tiles out (a slide chute's ramp is above
+		# the tunnel floor: dropped at the floor height you'd be inside it)
+		var sx: float = j.x0 - 7 * Gen.T
+		var q := PhysicsRayQueryParameters2D.create(Vector2(sx, j.floor_y - 12 * Gen.T), Vector2(sx, j.floor_y + 8))
+		var hit: Dictionary = lvl.get_world_2d().direct_space_state.intersect_ray(q)
+		p.global_position = Vector2(sx, float(hit.position.y) if not hit.is_empty() else j.floor_y)
 		p.velocity = Vector2.ZERO
 		lvl.runners[0].deaths = 0
 		Input.action_press("move_right")
@@ -53,7 +58,9 @@ func _physics_process(_dt: float) -> bool:
 	var deaths: int = lvl.runners[0].deaths
 	var through: bool = p.global_position.x > j.x1 + 20.0
 	if deaths > 0 or through or frame > MAX_FRAMES:
-		var ok: bool = (deaths > 0) if c == "stand" else (deaths == 0 and through)
+		# standing you don't get through: the spikes get you, or (coming down a
+		# slide chute's ramp, head above the spikes) the cliff stops you
+		var ok: bool = (deaths > 0 or not through) if c == "stand" else (deaths == 0 and through)
 		runs += 1
 		if not ok:
 			fails += 1

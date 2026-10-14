@@ -9,12 +9,15 @@ extends SceneTree
 ##   switchback, lift_shaft: the intended way through works, several seeds
 ##   glass_floor   a throw down through the pane, drop into the lane below
 ##   ring_ledges   a straight throw at the ring builds the ledge (checked
-##                 after it lands; the runner then climbs the zig-zag)
+##                 after it lands; the runner then climbs up off it)
+##   updraft       drop into the column and ride it up onto the high ledge
+##   swing_chain, wrap_block, grip_ceiling, crosswind: wider than any jump
+##                 now; zipping point to point (or along the grip) gets over
 ## godot --headless --fixed-fps 120 -s tools/test_pieces.gd [-- piece]
 
 const Gen = preload("res://src/level/generator.gd")
 const T := 32.0
-const ACTS := ["move_left", "move_right", "move_down", "jump"]
+const ACTS := ["move_left", "move_right", "move_down", "jump", "grapple", "zip"]
 
 var cases: Array = []
 var ci := -1
@@ -29,6 +32,7 @@ var st := {}
 var goal := Vector2.ZERO
 var x0 := 0.0
 var seg_y := 0.0
+var aim := Vector2.ZERO
 
 
 func _check(name: String, ok: bool, detail: String) -> void:
@@ -47,7 +51,8 @@ func _initialize() -> void:
 		seeds = [int(OS.get_environment("SEED"))]
 	for sd in seeds:
 		cases.append({"piece": "tailwind_gap", "seed": sd, "carry": false, "pass": true})
-		for pc in ["pad_climb", "pit_launch", "slide_chute", "vent_shaft", "drop_shaft", "drop_well", "switchback", "lift_shaft", "glass_floor", "ring_ledges"]:
+		for pc in ["pad_climb", "pit_launch", "slide_chute", "vent_shaft", "drop_shaft", "drop_well", "switchback", "lift_shaft", "glass_floor", "ring_ledges",
+				"updraft", "swing_chain", "wrap_block", "grip_ceiling", "crosswind"]:
 			cases.append({"piece": pc, "seed": sd, "carry": false, "pass": true})
 	cases.append({"piece": "tailwind_gap", "seed": 11, "carry": true, "pass": false})
 	if only != "":
@@ -116,6 +121,8 @@ func _next() -> void:
 	f = 0
 	if c.piece in ["glass_floor", "ring_ledges"]:
 		c["limit"] = 14.0
+	aim = p.center()
+	r.inp.mouse_world_fn = func() -> Vector2: return aim
 	if not c.carry and not c.piece in ["glass_floor", "ring_ledges"]:
 		# thrown on ahead: it waits past the segment
 		p.has_disc = false
@@ -220,6 +227,19 @@ func _drive() -> void:
 					st.erase("jt")
 		"lift_shaft":
 			_lift()
+		"updraft":
+			# off the edge into the column, hold jump to ride it, then right
+			# once above the ledge
+			var wind := _ent_rect("wind")
+			var high: bool = py < goal.y - 0.5 * T
+			_hold("jump", px > wind.position.x - 1.5 * T)
+			if px < wind.position.x + 1.0 * T or high:
+				_hold("move_right", true)
+				_hold("move_left", false)
+			else:
+				_steer(wind.get_center().x)
+		"swing_chain", "wrap_block", "grip_ceiling", "crosswind":
+			_zip_across()
 		"glass_floor":
 			var pane := _ent_rect("glass")
 			if not st.has("thrown") and p.on_floor and absf(p.velocity.x) < 1.0 and px > pane.position.x - 2.0 * T:
@@ -234,7 +254,64 @@ func _drive() -> void:
 				_throw_at(ring, 1500.0)
 			if f == 240 and not r.gates[0].triggered:
 				_check("ring_ledges s%d ring" % c.seed, false, "a straight throw at the ring didn't build the ledge")
-			_climb_zigzag()
+			_climb_ledge()
+
+
+## Grapple gaps: jump off the edge, zip to the furthest point ahead in reach
+## (or a spot on the grip ceiling ahead), jump off the zip near it, repeat.
+func _zip_across() -> void:
+	var px: float = p.global_position.x
+	_hold("move_right", true)
+	if p.on_floor:
+		_hold("zip", false)
+		if px > goal.x - 2.0 * T:
+			return
+		var edge := _gap_start()
+		_hold("jump", px > edge - 1.0 * T)
+		return
+	var attached: bool = p.state == p.ZIP or p.state == p.SWING
+	if attached:
+		var tp: Vector2 = st.get("tp", Vector2.ZERO)
+		if p.center().distance_to(tp) < 90.0 or p.center().x > tp.x - 10.0 or f - int(st.get("zt", f)) > 70:
+			_hold("zip", false)
+			_hold("jump", true)
+			st["off"] = f
+		return
+	if st.has("off") and f - int(st.off) < 3:
+		return
+	_hold("jump", false)
+	# next point: furthest ahead in reach
+	var best := Vector2.ZERO
+	for gp in r.grapple_points:
+		var gpos: Vector2 = gp.global_position
+		if gp.active and gpos.x > p.center().x + 1.5 * T and p.center().distance_to(gpos) < 640.0 and gpos.x > best.x:
+			best = gpos
+	if best == Vector2.ZERO:
+		# a grip ceiling: a spot on it up ahead
+		for sd in lvl.level_data.solids:
+			if str(sd.k) == "grip":
+				var gr := Rect2(sd.r[0], sd.r[1], sd.r[2], sd.r[3])
+				var gx := minf(p.center().x + 8.0 * T, gr.end.x - 16.0)
+				if gx > p.center().x + T:
+					best = Vector2(gx, gr.end.y)
+	if best == Vector2.ZERO or p.velocity.y < -250.0:
+		return
+	aim = best
+	st["tp"] = best
+	st["zt"] = f
+	_hold("zip", true)
+
+
+## Where the floor ends ahead of the start pad (the gap's near edge).
+func _gap_start() -> float:
+	var space: PhysicsDirectSpaceState2D = lvl.get_world_2d().direct_space_state
+	var x := x0
+	while x < goal.x:
+		var q := PhysicsRayQueryParameters2D.create(Vector2(x, seg_y - 8.0), Vector2(x, seg_y + 40.0))
+		if space.intersect_ray(q).is_empty():
+			return x
+		x += 16.0
+	return goal.x
 
 
 func _ent_rect(kind: String) -> Rect2:
@@ -261,8 +338,8 @@ func _throw_at(target: Vector2, speed: float, lob := true) -> void:
 	r.disc.launch(from, (aim - from).normalized() * speed, 1, 1.0, 0.0, 0.0, 1.0)
 
 
-## Ring ledges: on the ledge if it's there, else up the zig-zag.
-func _climb_zigzag() -> void:
+## Ring ledges: up onto the ledge, then from it onto the top.
+func _climb_ledge() -> void:
 	var px: float = p.global_position.x
 	var py: float = p.global_position.y
 	var dr: Rect2 = r.gates[0].door_rect

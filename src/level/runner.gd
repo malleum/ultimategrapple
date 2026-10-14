@@ -530,7 +530,7 @@ func _update_camera(dt: float) -> void:
 		cam_look = cam_look.lerp(rawg, 1.0 - exp(-3.0 * dt))
 		target = watched.position + Vector2(0, -22) + cam_look
 	elif done:
-		target = level.basket_pos + Vector2(0, -140)
+		target = level.basket_point(Vector2(0, -140))
 	elif follow_fn.is_valid():
 		# match playback: ride along with the recorded runner being watched
 		var fv: Array = follow_fn.call()
@@ -648,8 +648,8 @@ func _on_scored() -> void:
 	finish_time = total_time()
 	var th: Dictionary = level.th
 	level.basket.hit(1500.0)
-	spawn_burst(level.basket_pos + Vector2(0, -85), th.get("basket", Color(2, 2, 0.3)), 60)
-	spawn_burst(level.basket_pos + Vector2(0, -85), player.color * 2.0, 40)
+	spawn_burst(level.basket_point(Vector2(0, -85)), th.get("basket", Color(2, 2, 0.3)), 60)
+	spawn_burst(level.basket_point(Vector2(0, -85)), player.color * 2.0, 40)
 	play_sfx("chains_big", level.basket_pos)
 	rumble("chains")
 	play_sfx("fanfare", level.basket_pos)

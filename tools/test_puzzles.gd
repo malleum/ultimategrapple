@@ -16,6 +16,9 @@ extends SceneTree
 ##             runner sprints across it (boosted) instead of dropping in
 ##   backstop  a hard roller in the roller lane rolls back off the uphill
 ##             ramp instead of away down the course
+##   wallbskt  a basket mounted sideways on the end wall: a disc dropping in
+##             along the wall scores, one thrown flat at it bounces off the band
+##   floatbskt a floating basket: a throw at its chains scores
 ## godot --headless --fixed-fps 120 -s tools/test_puzzles.gd
 
 const Gen = preload("res://src/level/generator.gd")
@@ -71,6 +74,13 @@ func _put(p: Vector2) -> void:
 	r.player.respawn(p)
 	r.player.velocity = Vector2.ZERO
 	r.player.reset_physics_interpolation()
+
+
+## The floor top under a point (searching down).
+func _floor_under(p: Vector2) -> float:
+	var q := PhysicsRayQueryParameters2D.create(p, p + Vector2(0, 2000))
+	var hit: Dictionary = lvl.get_world_2d().direct_space_state.intersect_ray(q)
+	return float(hit.position.y) if not hit.is_empty() else p.y
 
 
 func _launch(from: Vector2, vel: Vector2, type_id: String) -> void:
@@ -330,6 +340,41 @@ func _physics_process(_dt: float) -> bool:
 				_check("backstop", r.gates[0].triggered and r.disc.global_position.x < float(m.ramp_end) and r.penalty == 0.0,
 					"hard roller: plate %s, disc stopped %.0f px before the backstop top (no out of bounds: %s)" % [r.gates[0].triggered,
 					float(m.ramp_end) - r.disc.global_position.x, r.penalty == 0.0])
+				phase = "wall_load"
+		"wall_load":
+			_play(_course(["run_gaps"], 7))
+			phase = "wall_basket"
+		"wall_basket":
+			if f == 3:
+				var bp2: Vector2 = lvl.basket_pos
+				m["rot"] = lvl.basket_rot
+				_put(Vector2(bp2.x - 300.0, _floor_under(Vector2(bp2.x - 300.0, bp2.y))))
+				# flat at it, chest height: off the band
+				var from2: Vector2 = r.player.hand()
+				_launch(from2, (lvl.basket_point(Vector2(0, -150)) - from2).normalized() * 1000.0, "forehand")
+			if f == 150:
+				m["flat"] = r.disc.state == Disc.SCORED
+				r.player.has_disc = true
+				r.disc.hold()
+				# a lob coming down just in front of the wall
+				r.player.has_disc = false
+				r.disc.launch(lvl.basket_point(Vector2(0, -95)) + Vector2(-40, -260), Vector2(60, 100), 0, 1.0, 0.0, 0.1, 1.0)
+			if f == 400:
+				_check("wallbskt", absf(float(m.rot)) > 1.0 and not bool(m.flat) and r.disc.state == Disc.SCORED and r.done,
+					"mounted %.0f°: flat throw scored %s; dropped in along the wall: disc state %d, finished %s" % [rad_to_deg(float(m.rot)), m.flat, r.disc.state, r.done])
+				phase = "float_load"
+		"float_load":
+			_play(_course(["run_gaps"], 8))
+			phase = "float_basket"
+		"float_basket":
+			if f == 3:
+				var bp3: Vector2 = lvl.basket_pos
+				_put(Vector2(bp3.x - 360.0, _floor_under(Vector2(bp3.x - 360.0, bp3.y))))
+			if f == 10:
+				var from3: Vector2 = r.player.hand()
+				_launch(from3, (lvl.basket_point(Vector2(0, -150)) - from3).normalized() * 1000.0, "forehand")   # it drops ~55 px on the way
+			if f == 300:
+				_check("floatbskt", lvl.basket_float and r.disc.state == Disc.SCORED and r.done, "floating %s: disc state %d, finished %s" % [lvl.basket_float, r.disc.state, r.done])
 				print("puzzles: %d failures" % fails)
 				quit(0 if fails == 0 else 1)
 				return true

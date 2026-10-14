@@ -17,8 +17,15 @@ func _process(_dt: float) -> bool:
 		started = true
 		args = OS.get_cmdline_user_args()
 		G.main = root
+		# xvfb (no window manager) hands out odd window sizes, and a saved
+		# fullscreen / maximized setting can override them
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+		DisplayServer.window_set_size(Vector2i(1600, 900))
+		root.size = Vector2i(1600, 900)
 		var g := Gen.new()
 		g.force_segments = [args[0]]
+		if OS.get_environment("FINALE") != "":
+			g.force_finale = int(OS.get_environment("FINALE"))
 		var sd := int(args[3]) if args.size() > 3 else 4242
 		var df := float(args[4]) if args.size() > 4 else 0.6
 		lvl = G.play_level(g.generate(sd, args[1], df, 1))
@@ -31,7 +38,7 @@ func _process(_dt: float) -> bool:
 		var box := Rect2()
 		var has := false
 		var x0 := 8.0 * Gen.T
-		var x1: float = lvl.basket_pos.x - 6.0 * Gen.T
+		var x1: float = lvl.basket_pos.x + (8.0 if OS.get_environment("FINALE") != "" else -6.0) * Gen.T
 		for s in lvl.level_data.solids:
 			var rr := Rect2(s.r[0], s.r[1], s.r[2], mini(int(s.r[3]), 12 * Gen.T))
 			if rr.end.x <= x0 or rr.position.x >= x1:

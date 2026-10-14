@@ -46,24 +46,32 @@ static func check(d: Dictionary) -> Array:
 	var ents: Array = d.get("entities", [])
 	var spawn := Vector2(d.spawn[0], d.spawn[1])
 	var basket := Vector2(d.basket[0], d.basket[1])
+	# a basket can be mounted sideways on a wall (its foot is in the wall) or
+	# float (nothing under it)
+	var brot := float(d.get("basket_rot", 0.0))
+	var bfloat := bool(d.get("basket_float", false))
+	var bfoot := basket + Vector2(0, 4).rotated(brot)
+	var bmouth := Rect2(basket + Vector2(-50, -150).rotated(brot), Vector2.ZERO)
+	for c in [Vector2(50, -150), Vector2(-50, -8), Vector2(50, -8)]:
+		bmouth = bmouth.expand(basket + c.rotated(brot))
 	var spawn_ok := false
-	var basket_ok := false
+	var basket_ok := bfloat
 	for s in solids:
 		var r := _rect(s.r)
 		if r.size.x <= 0 or r.size.y <= 0:
 			errs.append("degenerate solid %s" % [s.r])
 		if r.has_point(spawn + Vector2(0, 4)):
 			spawn_ok = true
-		if r.has_point(basket + Vector2(0, 4)):
+		if r.has_point(bfoot):
 			basket_ok = true
 		if r.intersects(Rect2(spawn + Vector2(-10, -44), Vector2(20, 40))):
 			errs.append("spawn inside solid")
-		if r.intersects(Rect2(basket + Vector2(-50, -150), Vector2(100, 142))):
+		if r.intersects(bmouth):
 			errs.append("basket blocked by solid %s" % [s.r])
 	if not spawn_ok:
 		errs.append("no ground under spawn")
 	if not basket_ok:
-		errs.append("no ground under basket")
+		errs.append("no ground (or wall) under basket")
 	if float(d.kill_y) < basket.y:
 		errs.append("kill_y above basket")
 
@@ -80,6 +88,19 @@ static func check(d: Dictionary) -> Array:
 				var hr := _rect(e.r)
 				hazards.append(hr)
 				errs.append_array(_check_spikes(solids, hr, str(e.get("dir", "up"))))
+
+	# a slick wall with a grippy solid overlapping it isn't slick: the wall
+	# check hits the grippy body and you wall-jump up it anyway
+	for s in solids:
+		if str(s.get("k", "")) != "slick":
+			continue
+		var sr := _rect(s.r)
+		for o in solids:
+			if str(o.get("k", "")) in ["slick", "oneway", "fence"]:
+				continue
+			var ov := sr.intersection(_rect(o.r))
+			if ov.size.x > 0.5 and ov.size.y > 0.5:
+				errs.append("slick wall %s overlapped by %s %s" % [s.r, o.get("k", ""), o.r])
 
 	# solid ceilings that leave a gap nobody fits through
 	for s in solids:
