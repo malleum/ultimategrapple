@@ -14,7 +14,7 @@ const Arena = preload("res://src/world/arena.gd")
 var lvl
 var run
 var p
-var tests := ["sword", "axe", "pike", "bow", "block", "enemy_hit", "arena", "leader"]
+var tests := ["sword", "axe", "axe_splash", "pike", "pike_run", "bow", "bow_guard", "block", "enemy_hit", "arena", "leader"]
 var ti := -1
 var f := 0
 var fails := 0
@@ -44,7 +44,7 @@ func _check(name: String, ok: bool, detail: String) -> void:
 
 
 ## A harmless target: it never moves, attacks or recovers from a hit.
-func _dummy(kind: String, x: float) -> Node:
+func _dummy(kind: String, x: float, shielded := false) -> Node:
 	var e := Enemy.new()
 	e.level = lvl
 	e.setup({"k": kind, "p": [x, 0], "x0": x, "x1": x, "a": -1}, lvl.th)
@@ -55,6 +55,12 @@ func _dummy(kind: String, x: float) -> Node:
 	e.state = Enemy.STAGGER
 	e.st = 1e9
 	e.face = -1.0
+	if shielded:
+		# stands with its shield up and never reacts
+		e.cfg["stagger"] = 0.0
+		e.cfg["sight"] = 0.0
+		e.state = Enemy.PATROL
+		e.st = 0.0
 	return e
 
 
@@ -126,6 +132,39 @@ func _physics_process(_dt: float) -> bool:
 				_check("pike", is_equal_approx(float(d.still_hp), 2.0) and not dummy.alive(),
 					"standing thrust leaves hp %.1f (dmg 1.0); at %.0f px/s the thrust kills (%s)" % [d.still_hp, d.get("speed", 0.0), not dummy.alive()])
 				_next()
+		"axe_splash":
+			_tap("throw", 5)
+			if f == 110:
+				var near: Node = d.near
+				_check("axe_splash", not dummy.alive() and not near.alive() and d.far.alive() and is_equal_approx(float(d.far.hp), 3.0),
+					"the swing killed its target (%s) and the grunt beside it (%s); the one 400 px away is untouched (hp %.1f)" % [not dummy.alive(), not near.alive(), d.far.hp])
+				d.near.queue_free()
+				d.far.queue_free()
+				lvl.enemies.erase(d.near)
+				lvl.enemies.erase(d.far)
+				_next()
+		"pike_run":
+			# no attack key at all: running into the dummy at speed hurts it
+			if f == 2:
+				Input.action_press("move_right")
+			if f == 200:
+				_check("pike_run", not dummy.alive(), "ran into a grunt at %.0f px/s with the pike down and no swing: dead=%s" % [d.get("speed", p.velocity.length()), not dummy.alive()])
+				_next()
+			d["speed"] = maxf(float(d.get("speed", 0.0)), p.velocity.length())
+		"bow_guard":
+			if f == 5:
+				Input.action_press("throw")
+			if f == 5 + 90:
+				Input.action_release("throw")
+			if f == 200:
+				d["after_full"] = dummy.hp
+				Input.action_press("throw")
+			if f == 200 + 48:
+				Input.action_release("throw")   # a quick, weak draw: only chips the shield
+			if f == 400:
+				_check("bow_guard", is_equal_approx(float(d.after_full), 2.0) and dummy.hp < float(d.after_full) and dummy.hp > 0.0,
+					"full draw through the shield: hp 5 -> %.1f; a part-drawn arrow still chips it: %.2f" % [d.after_full, dummy.hp])
+				_next()
 		"bow":
 			if f == 5:
 				Input.action_press("throw")
@@ -181,13 +220,14 @@ func _physics_process(_dt: float) -> bool:
 					d["t"] = f
 			elif ph == 1 and f == int(d.t) + 240:
 				_check("arena_lock", p.global_position.x < 5632.0 and ar.exit_body.process_mode != Node.PROCESS_MODE_DISABLED, "locked in, stopped at x=%.0f before the door at 5632" % p.global_position.x)
+				lvl.enemies[2].take_hit(99.0, lvl.enemies[2].position.x - 30.0, 0.0, true, 0.0)   # the archer falls first
 				Input.action_release("move_right")
 				p.die("enemy")
 				d["ph"] = 2
 				d["t"] = f
 			elif ph == 2 and f == int(d.t) + 220:
-				var back_ok: bool = ar.state == Arena.IDLE and lvl.enemies[1].alive() and lvl.enemies[1].hp == float(Weapons.ENEMIES.grunt.hp) and p.global_position.x < 4000.0
-				_check("arena_reset", back_ok, "after dying the fight is reset (state %d) and you are back at the entrance x=%.0f" % [ar.state, p.global_position.x])
+				var back_ok: bool = ar.state == Arena.IDLE and lvl.enemies[1].alive() and not lvl.enemies[2].alive() and p.global_position.x < 4000.0
+				_check("arena_reset", back_ok, "after dying you are back at the entrance x=%.0f, the arena reopens (state %d), the dead archer stays dead (%s), the grunt is still there (%s)" % [p.global_position.x, ar.state, not lvl.enemies[2].alive(), lvl.enemies[1].alive()])
 				Input.action_press("move_right")
 				d["ph"] = 3
 			elif ph == 3 and ar.state == Arena.LOCKED:
@@ -241,8 +281,8 @@ func _next() -> void:
 	p.weapon = "sword"
 	p.aim_override = null
 	match tests[ti]:
-		"sword", "axe", "pike", "bow":
-			p.weapon = tests[ti]
+		"sword", "axe", "axe_splash", "pike", "pike_run", "bow", "bow_guard":
+			p.weapon = tests[ti].get_slice("_", 0)
 			p.respawn(Vector2(-3000, 0))
 			p.facing = 1.0
 			p.aim_override = Vector2(-3000 + 600, -22)
@@ -253,6 +293,18 @@ func _next() -> void:
 				"pike":
 					dummy = _dummy("grunt", -3000.0 + 60.0)
 					p.aim_override = Vector2(-3000 + 600, -22)
+				"axe_splash":
+					dummy = _dummy("grunt", -3000.0 + 52.0)
+					d["near"] = _dummy("grunt", -3000.0 + 52.0 + 110.0)
+					d["far"] = _dummy("grunt", -3000.0 + 52.0 + 400.0)
+					d["near"].face = -1.0
+				"pike_run":
+					dummy = _dummy("grunt", -2400.0)
+					p.aim_override = Vector2(2000.0, -22.0)
+				"bow_guard":
+					dummy = _dummy("guard", -3000.0 + 700.0, true)
+					dummy.face = -1.0
+					p.aim_override = Vector2(-3000 + 700, -22 - 30)
 				_:
 					dummy = _dummy("grunt", -3000.0 + 52.0)
 			p.inv_t = 0.0

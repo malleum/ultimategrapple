@@ -61,6 +61,14 @@ func reset() -> void:
 	queue_redraw()
 
 
+## Back to patrolling after the runner died (health is kept: nobody heals or respawns).
+func calm() -> void:
+	state = PATROL
+	st = 0.0
+	kx = 0.0
+	struck = false
+
+
 func alive() -> bool:
 	return state != DEAD
 
@@ -84,16 +92,21 @@ func shield_up() -> bool:
 
 
 ## A hit from the player (sword, axe, pike, arrow). Returns whether it hurt.
-func take_hit(dmg: float, from_x: float, knock: float, breaks_shield: bool, speed: float) -> bool:
+func take_hit(dmg: float, from_x: float, knock: float, breaks_shield: bool, speed: float, ranged := false, shield_mult := 0.5) -> bool:
 	if state == DEAD:
 		return false
 	var from_front := signf(from_x - position.x) == face or absf(from_x - position.x) < 4.0
 	if shield_up() and from_front and not breaks_shield and speed < float(cfg.get("pierce_speed", 650.0)):
-		flash = 0.6
+		if not ranged:
+			flash = 0.6
+			level.battle_sfx("clang", center())
+			level.spawn_burst(center() + Vector2(face * 16.0, 0), Color(1.0, 0.9, 0.6), 6)
+			kx = -face * 90.0
+			return false
+		# an arrow that is not fully drawn only chips a shield
+		dmg *= shield_mult
 		level.battle_sfx("clang", center())
-		level.spawn_burst(center() + Vector2(face * 16.0, 0), Color(2.2, 2.0, 1.2), 6)
-		kx = -face * 90.0
-		return false
+		level.spawn_burst(center() + Vector2(face * 16.0, 0), Color(1.0, 0.9, 0.6), 4)
 	hp -= dmg
 	flash = 1.0
 	level.battle_sfx("hit", center())
@@ -268,7 +281,7 @@ func _draw() -> void:
 	var h: float = cfg.h
 	var f := face
 	var bob := sin(t * 9.0) * 1.5 if state in [PATROL, CHARGE] and absf(kx) < 1.0 else 0.0
-	var col := c.lerp(Color(3, 3, 3), flash * 0.7)
+	var col := c.lerp(Color(1.4, 1.4, 1.4), flash * 0.7)
 	col.a = fade
 	# body
 	draw_rect(Rect2(-w * 0.5, -h * 0.72 + bob, w, h * 0.72), Color(col, 0.22 * fade))
@@ -282,33 +295,33 @@ func _draw() -> void:
 	var tele := 0.0
 	if state == WINDUP:
 		tele = 1.0 - clampf(st / (float(cfg.windup) / _rage()), 0.0, 1.0)
-		draw_arc(Vector2(0, -h - 14.0), 9.0 + tele * 6.0, 0, TAU, 20, Color(3, 0.5, 0.4, 0.4 + 0.6 * tele), 3.0)
-		draw_line(Vector2(0, -h - 22.0), Vector2(0, -h - 14.0 + 2.0), Color(3, 0.5, 0.4, 0.9), 3.0)
+		draw_arc(Vector2(0, -h - 14.0), 9.0 + tele * 6.0, 0, TAU, 20, Color(1.0, 0.25, 0.2, 0.4 + 0.6 * tele), 3.0)
+		draw_line(Vector2(0, -h - 22.0), Vector2(0, -h - 14.0 + 2.0), Color(1.0, 0.25, 0.2, 0.9), 3.0)
 	match kind:
 		"archer":
 			var bow_c := Color(col, fade)
 			draw_arc(Vector2(f * (w * 0.5 + 6.0), -h * 0.5), 18.0, -PI * 0.5 - 0.0 if f > 0 else PI * 0.5, PI * 0.5 if f > 0 else PI * 1.5, 14, bow_c, 3.0)
 			if state == WINDUP:
-				draw_line(Vector2(f * (w * 0.5 + 6.0), -h * 0.5), Vector2(f * (w * 0.5 + 6.0) - f * (4.0 + tele * 14.0), -h * 0.5), Color(3, 3, 1, 0.9), 2.0)
+				draw_line(Vector2(f * (w * 0.5 + 6.0), -h * 0.5), Vector2(f * (w * 0.5 + 6.0) - f * (4.0 + tele * 14.0), -h * 0.5), Color(1.0, 1.0, 0.6, 0.9), 2.0)
 		"guard":
 			if shield_up():
 				var sx := f * (w * 0.5 + 8.0)
-				draw_rect(Rect2(sx - 5.0, -h * 0.85, 10.0, h * 0.8), Color(2.4, 1.8, 0.6, 0.35 * fade))
-				draw_rect(Rect2(sx - 5.0, -h * 0.85, 10.0, h * 0.8), Color(2.4, 1.8, 0.6, fade), false, 3.0)
+				draw_rect(Rect2(sx - 5.0, -h * 0.85, 10.0, h * 0.8), Color(0.95, 0.75, 0.3, 0.35 * fade))
+				draw_rect(Rect2(sx - 5.0, -h * 0.85, 10.0, h * 0.8), Color(0.95, 0.75, 0.3, fade), false, 3.0)
 			_draw_weapon(col, f, w, h, tele)
 		_:
 			_draw_weapon(col, f, w, h, tele)
 	if kind == "leader":
 		# crown
 		var cy := -h * 1.0 - 4.0
-		var cc := Color(3, 2.4, 0.5, fade)
+		var cc := Color(1.0, 0.85, 0.25, fade)
 		draw_polyline(PackedVector2Array([Vector2(-10, cy), Vector2(-10, cy - 10), Vector2(-5, cy - 4), Vector2(0, cy - 12), Vector2(5, cy - 4), Vector2(10, cy - 10), Vector2(10, cy)]), cc, 2.5)
 	# hp bar once hurt
 	if hp < max_hp and state != DEAD and kind != "leader":
 		var bw := 38.0
 		var by := -h - 30.0
 		draw_rect(Rect2(-bw * 0.5, by, bw, 5.0), Color(0, 0, 0, 0.6))
-		draw_rect(Rect2(-bw * 0.5, by, bw * hp / max_hp, 5.0), Color(2.0, 0.4, 0.4))
+		draw_rect(Rect2(-bw * 0.5, by, bw * hp / max_hp, 5.0), Color(0.95, 0.3, 0.3))
 
 
 func _draw_weapon(col: Color, f: float, w: float, h: float, tele: float) -> void:
@@ -319,4 +332,4 @@ func _draw_weapon(col: Color, f: float, w: float, h: float, tele: float) -> void
 	var tip := base + Vector2(f * cos(ang), sin(ang)) * (float(cfg.reach) * (0.7 if kind != "leader" else 0.85))
 	draw_line(base, tip, col, 4.0 if kind != "leader" else 6.0)
 	if state == STRIKE:
-		draw_arc(base, float(cfg.reach) * 0.7, -1.0 if f > 0.0 else PI - 0.6, 0.6 if f > 0.0 else PI + 1.0, 12, Color(3, 1.0, 0.8, 0.5), 5.0)
+		draw_arc(base, float(cfg.reach) * 0.7, -1.0 if f > 0.0 else PI - 0.6, 0.6 if f > 0.0 else PI + 1.0, 12, Color(1.0, 0.5, 0.4, 0.5), 5.0)

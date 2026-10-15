@@ -163,6 +163,7 @@ var draw_t := 0.0
 var block_t := 0.0           # sword: time left holding the block
 var block_cd := 0.0
 var inv_t := 0.0             # grace after coming back from a hit
+var pike_cd: Dictionary = {} # pike: enemy -> time until running into it hurts again
 var move_factor := 0.0
 var last_snap_quality := ""
 var last_snap_score := 0.0
@@ -1304,6 +1305,7 @@ func _clear_battle() -> void:
 	block_t = 0.0
 	block_cd = 0.0
 	atk_hit.clear()
+	pike_cd.clear()
 
 
 func hurt_rect() -> Rect2:
@@ -1355,6 +1357,8 @@ func _handle_battle(dt: float) -> void:
 		_bow(dt, w)
 	else:
 		_melee(dt, w)
+		if weapon == "pike":
+			_pike_run(dt, w)
 
 
 func _aim_from_hand() -> Vector2:
@@ -1425,6 +1429,46 @@ func _melee_hit(w: Dictionary) -> void:
 			pierce_speed = speed
 		var hurt: bool = e.take_hit(dmg, global_position.x, float(w.knock), bool(w.get("breaks_shield", false)), pierce_speed)
 		fx.emit("hit_enemy" if hurt else "hit_shield", e.center(), {"dmg": dmg, "weapon": weapon})
+		if hurt and float(w.get("splash", 0.0)) > 0.0:
+			_splash(e, dmg * float(w.splash_mult), float(w.splash), float(w.knock) * 0.6, bool(w.get("breaks_shield", false)))
+
+
+## Axe: the blow rips through the crowd, everyone near the enemy it landed on is hurt too.
+func _splash(src: Node, dmg: float, radius: float, knock: float, breaks: bool) -> void:
+	var at: Vector2 = src.center()
+	fx.emit("splash", at, radius)
+	for o in level.enemies:
+		if o == src or not is_instance_valid(o) or not o.alive() or atk_hit.has(o):
+			continue
+		if o.center().distance_to(at) > radius:
+			continue
+		atk_hit.append(o)
+		var h: bool = o.take_hit(dmg, at.x, knock, breaks, 0.0)
+		if h:
+			fx.emit("hit_enemy", o.center(), {"dmg": dmg, "weapon": weapon})
+
+
+## Pike: running into someone at speed hurts them, swinging or not.
+func _pike_run(dt: float, w: Dictionary) -> void:
+	for k in pike_cd.keys():
+		pike_cd[k] = float(pike_cd[k]) - dt
+		if float(pike_cd[k]) <= 0.0 or not is_instance_valid(k):
+			pike_cd.erase(k)
+	var speed := velocity.length()
+	if level == null or speed < float(w.run_min) or state == DEAD:
+		return
+	var dir := velocity / speed
+	var c := center()
+	var tip := c + dir * float(w.run_reach)
+	for e in level.enemies:
+		if not is_instance_valid(e) or not e.alive() or pike_cd.has(e) or atk_hit.has(e):
+			continue
+		if not Arrow.seg_hits_rect(c, tip, e.hurt_rect().grow(8.0)):
+			continue
+		pike_cd[e] = float(w.run_cd)
+		var dmg := Weapons.pike_damage(w, speed)
+		var hurt: bool = e.take_hit(dmg, global_position.x, float(w.knock), false, speed)
+		fx.emit("hit_enemy" if hurt else "hit_shield", e.center(), {"dmg": dmg, "weapon": weapon})
 
 
 func _bow(dt: float, w: Dictionary) -> void:
@@ -1461,6 +1505,8 @@ func _loose(w: Dictionary) -> void:
 	ar.dmg = lerpf(float(w.dmg_min), float(w.dmg_max), c)
 	ar.color = w.color
 	ar.pierce = bool(w.get("pierce", false))
+	ar.breaks_shield = c >= float(w.get("full_draw", 0.9))
+	ar.shield_mult = float(w.get("shield_mult", 0.5))
 	var dir := _aim_from_hand()
 	ar.vel = dir * lerpf(float(w.speed_min), float(w.speed_max), c) + velocity * 0.3
 	ar.global_position = hand() + dir * 18.0

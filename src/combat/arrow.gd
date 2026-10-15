@@ -14,6 +14,8 @@ var gravity := 0.0
 var life := 2.5
 var color := Color(2, 1, 0.5)
 var pierce := false
+var breaks_shield := false   # a fully drawn arrow goes through a guard's shield
+var shield_mult := 0.5
 var _hit: Array = []
 
 
@@ -84,7 +86,7 @@ func _step(dt: float) -> void:
 				continue
 			if seg_hits_rect(from, to, e.hurt_rect()):
 				_hit.append(e)
-				e.take_hit(dmg, from.x, 180.0, false, 0.0)
+				e.take_hit(dmg, from.x, 180.0, breaks_shield, 0.0, true, shield_mult)
 				level.battle_sfx("hit", to)
 				if not pierce:
 					queue_free()

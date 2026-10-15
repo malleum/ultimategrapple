@@ -168,13 +168,13 @@ its own personal best, splits, ghost and replay on a course):
 | Weapon | Attack | Notes |
 |---|---|---|
 | Sword | quick swing, medium damage | hold the snap key to block (negates a hit from the front) |
-| Bow & Arrow | hold the throw key to draw, release to loose | ranged, arrows arc a little, a full draw hits hardest |
-| Battle Axe | slow wind-up and recovery, massive damage | slows you while swinging, breaks guards' shields |
-| Pike | long thrust, damage scales with your speed | fast enough and it goes through a shield |
+| Bow & Arrow | hold the throw key to draw, release to loose | ranged, arrows arc a little, a full draw hits hardest and goes through a guard's shield (a part-drawn arrow only chips it) |
+| Battle Axe | slow wind-up and recovery, massive damage | splash: everything near the enemy it lands on takes 70% too; slows you while swinging, breaks guards' shields |
+| Pike | long thrust, damage scales with your speed | running into an enemy at speed hurts it even without a thrust; fast enough and it goes through a shield |
 
 The attack key is the throw key and block is the snap key (both rebindable under CONTROLS). The grapple, zip and
 every movement trick work as usual. Enemies: grunts (melee), guards (a shield from the front; strike when they
-swing, or break it), archers and the leader (volleys of arrows). Any enemy hit sends you back to a safe spot away
+swing, or break it), archers and the leader (volleys of arrows). Enemies never respawn (kills stay kills, even if you die in the arena). Any enemy hit sends you back to a safe spot away
 from them, like a spike (a second of grace on return). Fighting happens in **arenas**: the door behind you shuts and
 the way out stays closed until everything inside is dead; dying inside resets the fight. Enemies only move while the
 run clock does, so every attempt meets them the same way. Tuning lives in `src/combat/weapons.gd`.

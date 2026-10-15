@@ -640,10 +640,10 @@ func on_enemy_killed(e: Node) -> void:
 		if e.kind == "leader":
 			Stats.add("leaders_slain")
 	play_sfx("kill", e.center(), 0.8, 1.2)
-	spawn_burst(e.center(), e.cfg.color * 1.5, 26)
+	spawn_burst(e.center(), e.cfg.color, 26)
 	shake(8.0 if e.kind == "leader" else 3.0)
 	if e.kind == "leader":
-		hud.popup("LEADER SLAIN", Color(3.0, 2.4, 0.6), 2.0)
+		hud.popup("LEADER SLAIN", Color(1.0, 0.85, 0.25), 2.0)
 	else:
 		hud.popup("%s DOWN" % str(e.kind).to_upper(), e.cfg.color, 0.6)
 		hud.flow_event("KILL")
@@ -960,6 +960,9 @@ func _on_player_fx(kind: String, pos: Vector2, data) -> void:
 			rumble("hit_landed", 0.5 + 0.1 * float(data.dmg))
 		"hit_shield":
 			play_sfx("pole", pos, 0.8)
+		"splash":
+			spawn_burst(pos, Color(1.0, 0.6, 0.3), 24, Vector2(float(data), 40.0))
+			shake(5.0)
 		"block_up":
 			play_sfx("pad", pos, 0.4, 1.6)
 		"block":

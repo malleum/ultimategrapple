@@ -76,10 +76,15 @@ func reset() -> void:
 
 ## Dying mid-fight: the arena starts over.
 func reset_fight() -> void:
+	# the dead stay dead; whoever is left goes back to patrolling
+	var alive := 0
 	for e in level.enemies:
-		if is_instance_valid(e) and e.arena_id == id:
-			e.reset()
+		if is_instance_valid(e) and e.arena_id == id and e.alive():
+			alive += 1
+			e.calm()
 	reset()
+	if alive == 0 and not leader:
+		_clear()
 
 
 func _lock() -> void:
