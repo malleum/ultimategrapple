@@ -74,7 +74,9 @@ var _throw_from := Vector2.ZERO # stats: where the disc in flight was thrown fro
 var _throw_t := -1.0            # stats: its flight time so far (-1: none)
 var done := false
 var deaths := 0
+var kills := 0                  # Battle Rush: enemies slain this run
 var lie := Vector2.ZERO
+var lie_trail: Array = []       # Battle Rush: safe floor spots passed, newest last
 var respawn_t := -1.0
 ## A death holds you this long before respawning (the camera glides to the
 ## lie meanwhile) so you can plan the next attempt.
@@ -181,6 +183,8 @@ func _ready() -> void:
 	player.inp = inp
 	player.disc = disc
 	player.throw_type = Game.default_throw()
+	if level.is_battle():
+		player.setup_battle(level.battle_weapon())
 	player.collision_mask = 1 | personal_layer() | Solid.FENCE_LAYER | personal_fence_layer()
 	add_child(player)
 	player.fx.connect(_on_player_fx)
@@ -252,6 +256,8 @@ func restart() -> void:
 	running = false
 	done = false
 	deaths = 0
+	kills = 0
+	lie_trail.clear()
 	respawn_t = -1.0
 	lie = level.spawn
 	rec_frames.clear()
@@ -268,7 +274,7 @@ func restart() -> void:
 		if is_instance_valid(r) and r.has_method("reset"):
 			r.reset()
 	player.respawn(level.spawn + Vector2(index * 26, 0))
-	player.has_disc = true
+	player.has_disc = not level.is_battle()
 	player.throws = 0
 	player.facing = 1.0
 	disc.hold()
@@ -363,7 +369,7 @@ func _physics_process_timed(dt: float) -> void:
 	# disc cam clip; online, keep sending a moment after the chains too so the
 	# others' disc cam sees it go in
 	var post := done and pov_after < POV_AFTER
-	if running or post:
+	if (running or post) and not level.is_battle():
 		if done:
 			pov_after += 1
 		_record_pov()
@@ -482,11 +488,16 @@ func _any_input() -> bool:
 
 
 func _update_lie() -> void:
-	if player.state == Player.DEAD or not player.has_disc or not player.on_floor:
+	if player.state == Player.DEAD or not (player.has_disc or level.is_battle()) or not player.on_floor:
 		return
 	var col := player.get_last_slide_collision()
 	if col and col.get_collider() is StaticBody2D and not col.get_collider().has_meta("glass") and col.get_normal().y < -0.7:
 		lie = player.global_position
+		# Battle Rush: remember the way, so a hit can send you back past the enemy
+		if level.is_battle() and (lie_trail.is_empty() or lie_trail[-1].distance_to(lie) > 96.0):
+			lie_trail.append(lie)
+			if lie_trail.size() > 60:
+				lie_trail.pop_front()
 
 
 ## Online: the others still on the course, for watching after you finish.
@@ -579,10 +590,17 @@ func _on_player_died() -> void:
 	deaths += 1
 	respawn_t = RESPAWN_WAIT
 	shake(10.0)
+	if level.is_battle():
+		# back to a spot away from the enemies (or the arena's door, fight reset)
+		lie = level.battle_respawn(lie, lie_trail)
 
 
 func _do_respawn() -> void:
 	player.respawn(lie)
+	if level.is_battle():
+		play_sfx("respawn", lie)
+		spawn_burst(player.center(), player.color * 2.0, 20)
+		return
 	if not player.has_disc and disc.state != Disc.SCORED:
 		player.has_disc = true
 		disc.hold()
@@ -612,6 +630,27 @@ func _penalize(seconds: float, what: String, c: Color) -> void:
 	else:
 		player.freeze(seconds)
 		hud.popup("%s  FROZEN %.0fs" % [what, seconds], c)
+
+
+## Battle Rush: an enemy fell.
+func on_enemy_killed(e: Node) -> void:
+	kills += 1
+	if _stats_on():
+		Stats.add("kills")
+		if e.kind == "leader":
+			Stats.add("leaders_slain")
+	play_sfx("kill", e.center(), 0.8, 1.2)
+	spawn_burst(e.center(), e.cfg.color * 1.5, 26)
+	shake(8.0 if e.kind == "leader" else 3.0)
+	if e.kind == "leader":
+		hud.popup("LEADER SLAIN", Color(3.0, 2.4, 0.6), 2.0)
+	else:
+		hud.popup("%s DOWN" % str(e.kind).to_upper(), e.cfg.color, 0.6)
+		hud.flow_event("KILL")
+
+
+func on_battle_won() -> void:
+	_on_scored()
 
 
 func _on_recalled() -> void:
@@ -647,12 +686,18 @@ func _on_scored() -> void:
 	running = false
 	finish_time = total_time()
 	var th: Dictionary = level.th
-	level.basket.hit(1500.0)
-	spawn_burst(level.basket_point(Vector2(0, -85)), th.get("basket", Color(2, 2, 0.3)), 60)
-	spawn_burst(level.basket_point(Vector2(0, -85)), player.color * 2.0, 40)
-	play_sfx("chains_big", level.basket_pos)
-	rumble("chains")
-	play_sfx("fanfare", level.basket_pos)
+	if level.is_battle():
+		spawn_burst(level.basket_point(Vector2(0, -60)), Color(3.0, 2.4, 0.6), 70)
+		spawn_burst(level.basket_point(Vector2(0, -60)), player.color * 2.0, 40)
+		rumble("chains")
+		play_sfx("fanfare", level.basket_pos)
+	else:
+		level.basket.hit(1500.0)
+		spawn_burst(level.basket_point(Vector2(0, -85)), th.get("basket", Color(2, 2, 0.3)), 60)
+		spawn_burst(level.basket_point(Vector2(0, -85)), player.color * 2.0, 40)
+		play_sfx("chains_big", level.basket_pos)
+		rumble("chains")
+		play_sfx("fanfare", level.basket_pos)
 	shake(12.0)
 	pb_ghost.stop()
 	for rg in rival_ghosts:
@@ -697,8 +742,11 @@ func _on_scored() -> void:
 				Stats.add("medal_" + medal)
 			if is_pb:
 				Stats.add("pbs")
+			if level.is_battle():
+				Stats.add("battle_wins")
 			Stats.save()
-			Online.post_stats(level.level_id)
+			if not level.is_battle():
+				Online.post_stats(level.level_id)
 		if is_pb and split_count() > 0:
 			split_ref = (Game.get_splits(level.level_id, split_count()).pb as Array).duplicate()
 			Game.set_pb_splits(level.level_id, split_count(), split_times)
@@ -709,7 +757,7 @@ func _on_scored() -> void:
 			Game.save_ghost(level.level_id, rec_frames)
 			Game.save_replay(last_replay)
 			# built-in course: post it to the online leaderboard
-			if bool(Game.settings.get("share_records", true)):
+			if bool(Game.settings.get("share_records", true)) and not level.is_battle():
 				Online.submit_run(level.level_id, finish_time, player.throws, medal, rec_frames, split_times)
 		hud.show_results(finish_time, medal, is_pb, old_pb if is_pb else -1.0)
 	elif level.mode == "replay":
@@ -901,6 +949,24 @@ func _on_player_fx(kind: String, pos: Vector2, data) -> void:
 			play_sfx("tick", pos, 0.4)
 		"charge":
 			play_sfx("charge", pos, 0.4)
+		"swing":
+			play_sfx("dash", pos, 0.7, 1.4 if str(data) == "sword" else (0.7 if str(data) == "axe" else 1.0))
+		"draw":
+			play_sfx("charge", pos, 0.4, 0.8)
+		"loose":
+			play_sfx("throw", pos, 0.6, 1.4)
+		"hit_enemy":
+			shake(3.0 + float(data.dmg) * 0.6)
+			rumble("hit_landed", 0.5 + 0.1 * float(data.dmg))
+		"hit_shield":
+			play_sfx("pole", pos, 0.8)
+		"block_up":
+			play_sfx("pad", pos, 0.4, 1.6)
+		"block":
+			play_sfx("pole", pos, 1.0, 1.3)
+			spawn_burst(pos, Color(0.6, 1.8, 2.4), 12)
+			hud.popup("BLOCKED", Color(0.6, 1.8, 2.4), 0.6)
+			shake(4.0)
 
 
 # ================================================================== stats
@@ -908,7 +974,8 @@ func _on_player_fx(kind: String, pos: Vector2, data) -> void:
 func _exit_tree() -> void:
 	if _stats_on():
 		Stats.save()
-		Online.post_stats(level.level_id)
+		if not level.is_battle():
+			Online.post_stats(level.level_id)
 
 
 ## Local stats count the local player's own live play (not replays, watched
@@ -979,7 +1046,7 @@ func _stat_fx(kind: String, pos: Vector2, data) -> void:
 				_: Stats.add("snap_none")
 		"death":
 			Stats.add("deaths")
-			Stats.add("death_" + ("fall" if str(data) == "fall" else "hazard"))
+			Stats.add("death_" + ("fall" if str(data) == "fall" else ("enemy" if str(data) == "enemy" else "hazard")))
 			Stats.add_level(level.level_id, "deaths")
 
 

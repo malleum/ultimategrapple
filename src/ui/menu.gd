@@ -229,6 +229,7 @@ func show_page(p: String) -> void:
 		"couch": _page_couch()
 		"courses": _page_courses()
 		"random": _page_random()
+		"battle": _page_battle()
 		"elo": _page_elo()
 		"multi", "lan": _page_multi()
 		"controls": _page_controls()
@@ -267,6 +268,7 @@ func _page_title() -> void:
 	v.add_child(col)
 	col.add_child(UI.button("COURSES", func(): show_page("courses"), 30))
 	col.add_child(UI.button("RANDOM", func(): show_page("random"), 30))
+	col.add_child(UI.button("BATTLE RUSH", func(): show_page("battle"), 30))
 	var ranked := UI.button("RANKED" if Elo.playable() else "RANKED  ·  WIP", func(): show_page("elo"), 30)
 	if not Elo.playable():
 		ranked.modulate = Color(1, 1, 1, 0.4)   # greyed: opens the ratings, play is closed
@@ -338,6 +340,88 @@ func _page_random() -> void:
 	h.add_child(_back_button())
 	v.add_child(h)
 	v.add_child(UI.label("Tip: same seed + settings = same course. Press P in-game to pin it.", 16, UI.DIM))
+
+
+# ------------------------------------------------------------------ battle rush
+
+const WeaponsDb = preload("res://src/combat/weapons.gd")
+const StatsDb = preload("res://src/core/stats.gd")
+var b_len := 8
+
+
+func _page_battle() -> void:
+	var c := _clear()
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(820, 0)
+	c.add_child(panel)
+	var v := UI.vbox(14)
+	panel.add_child(v)
+	v.add_child(UI.label("BATTLE RUSH", 48, Color(2.2, 0.6, 0.5)))
+	v.add_child(UI.label("Speedrun the battle. Clear the arenas, kill the leader, stop the clock.", 18, UI.DIM))
+	# weapon picker: a button per weapon, the chosen one lit
+	var wrow := UI.hbox(10)
+	var blurb := UI.label("", 18, Color(0.8, 0.9, 1.0))
+	var btns := {}
+	var refresh := func():
+		var cur := Game.battle_weapon()
+		blurb.text = str(WeaponsDb.get_weapon(cur).blurb)
+		for id in btns:
+			btns[id].modulate = Color(1, 1, 1, 1) if id == cur else Color(1, 1, 1, 0.45)
+	for id in WeaponsDb.ORDER:
+		var b := UI.button(str(WeaponsDb.get_weapon(id).name).to_upper(), func():
+			Game.set_battle_weapon(id)
+			refresh.call(), 20)
+		btns[id] = b
+		wrow.add_child(b)
+	v.add_child(wrow)
+	v.add_child(blurb)
+	refresh.call()
+	var sh := UI.hbox()
+	sh.add_child(UI.label("Seed", 22))
+	seed_edit = LineEdit.new()
+	seed_edit.text = str(r_seed)
+	seed_edit.custom_minimum_size = Vector2(240, 0)
+	seed_edit.text_changed.connect(func(tx): r_seed = int(tx) if tx.is_valid_int() else tx.hash() % 1000000)
+	sh.add_child(seed_edit)
+	sh.add_child(UI.button("🎲 REROLL", func(): r_seed = randi() % 1000000; seed_edit.text = str(r_seed), 20))
+	v.add_child(sh)
+	var th_row := UI.hbox()
+	th_row.add_child(UI.label("Theme", 22))
+	var ob := OptionButton.new()
+	ob.add_item("Random")
+	for id in Themes.ORDER:
+		ob.add_item(Themes.THEMES[id].name)
+	ob.selected = 0 if r_theme == "" else Themes.ORDER.find(r_theme) + 1
+	ob.item_selected.connect(func(i): r_theme = "" if i == 0 else Themes.ORDER[i - 1])
+	th_row.add_child(ob)
+	v.add_child(th_row)
+	var dl := UI.label("Difficulty  %d" % int(r_diff * 10), 22)
+	v.add_child(dl)
+	v.add_child(UI.slider(0, 1, r_diff, 0.1, func(x): r_diff = x; dl.text = "Difficulty  %d" % int(round(x * 10))))
+	var ll := UI.label("Length  %d segments" % b_len, 22)
+	v.add_child(ll)
+	v.add_child(UI.slider(3, 24, b_len, 1, func(x): b_len = int(x); ll.text = "Length  %d segments" % int(x)))
+	var h := UI.hbox()
+	h.add_child(UI.button("PLAY", func(): Game.start_battle(r_seed, r_theme, r_diff, b_len), 30))
+	h.add_child(UI.button("QUICK BATTLE", func(): Game.start_battle(randi() % 1000000, "", 0.5, 8), 30))
+	h.add_child(_back_button())
+	v.add_child(h)
+	# your best runs, per weapon
+	var rows := []
+	for id in Game.records:
+		if not str(id).begins_with("b") or not str(id).contains("_v"):
+			continue
+		var rec = Game.records[id]
+		if rec is Dictionary and rec.has("time"):
+			rows.append([id, float(rec.time)])
+	rows.sort_custom(func(a, b): return a[1] < b[1])
+	if not rows.is_empty():
+		v.add_child(UI.label("YOUR BEST BATTLES", 20, UI.NEON))
+		for i in mini(rows.size(), 6):
+			var rid: String = rows[i][0]
+			var wid: String = rid.get_slice("_", rid.get_slice_count("_") - 1)
+			var nm := str(StatsDb.level(rid).get("name", rid))
+			v.add_child(UI.label("%s  ·  %s  ·  %s" % [Game.format_time(rows[i][1]), str(WeaponsDb.get_weapon(wid).name), nm], 16, Color(0.8, 0.9, 1.0)))
 
 
 # ------------------------------------------------------------------ elo run

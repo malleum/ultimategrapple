@@ -12,6 +12,13 @@ var low := false
 var swinging := false
 var has_disc := true
 var charging := false
+# Battle Rush weapon pose (empty weapon: none)
+var weapon := ""
+var atk_phase := 0
+var atk_prog := 0.0        # 0..1 through the current phase
+var atk_dir := Vector2.RIGHT
+var blocking := false
+var draw_amt := 0.0        # bow: how far the string is drawn, 0..1
 var dead := false
 var facing := 1.0
 var aim_dir := Vector2.RIGHT
@@ -89,6 +96,13 @@ func update_from_player(p) -> void:
 	facing = p.facing
 	aim_dir = p.aim_dir
 	charge = p.charge_power() if p.charging else 0.0
+	weapon = p.weapon if p.battle else ""
+	if weapon != "":
+		atk_phase = p.atk_phase
+		atk_prog = 1.0 - clampf(p.atk_t / maxf(p.atk_len, 0.001), 0.0, 1.0) if p.atk_phase != 0 else 0.0
+		atk_dir = p.atk_dir
+		blocking = p.block_t > 0.0
+		draw_amt = clampf(p.draw_t / 0.55, 0.0, 1.0) if p.drawing else 0.0
 	mantling = p.mantle_t > 0.0
 	if swinging and not p.anchors.is_empty():
 		anchor_local = p.anchors[-1] - p.global_position
@@ -494,6 +508,8 @@ func _draw_timed() -> void:
 			var a := TAU * i / 12.0
 			pts.append(dp + Vector2(cos(a) * 9.0, sin(a) * 3.0))
 		draw_colored_polygon(pts, Color(disc_color, alpha))
+	if weapon != "" and not swinging:
+		_draw_weapon(shoulder, hand_b, c)
 	draw_set_transform(Vector2.ZERO)
 	if stunned:
 		# dizzy stars circling the head
@@ -511,3 +527,87 @@ func _draw_timed() -> void:
 			draw_string(ThemeDB.fallback_font, Vector2(-30, -80 if name_tag != "" else -62), "%.1f" % frozen, HORIZONTAL_ALIGNMENT_CENTER, 60, 16, Color(0.8, 1.6, 2.2, alpha))
 	if name_tag != "":
 		draw_string(ThemeDB.fallback_font, Vector2(-40, -62), name_tag, HORIZONTAL_ALIGNMENT_CENTER, 80, 14, Color(c, 0.8 * alpha))
+
+
+## Battle Rush: the weapon in the front hand, and the swing arc while it hits.
+func _draw_weapon(shoulder: Vector2, hand_pos: Vector2, c: Color) -> void:
+	var W := preload("res://src/combat/weapons.gd")
+	var cfg: Dictionary = W.get_weapon(weapon)
+	var wc: Color = cfg.color
+	wc.a = alpha
+	var f := facing
+	var base := shoulder + Vector2(f * 8.0, 4.0)
+	match weapon:
+		"sword":
+			var ang := -0.9
+			if atk_phase == 1:
+				ang = lerpf(-0.9, -2.2, atk_prog)
+			elif atk_phase == 2:
+				ang = lerpf(-2.2, 0.9, atk_prog)
+				_arc(base, 54.0, f, -2.2, 0.9, atk_prog, wc)
+			elif atk_phase == 3:
+				ang = lerpf(0.9, -0.9, atk_prog)
+			if blocking:
+				ang = -1.45
+			var d := Vector2(f * cos(ang), sin(ang))
+			draw_line(base, base + d * 40.0, Color(0.02, 0.0, 0.06, 0.7 * alpha), 6.0, true)
+			draw_line(base, base + d * 40.0, wc, 3.5, true)
+			var n := Vector2(-d.y, d.x)
+			draw_line(base + d * 8.0 - n * 7.0, base + d * 8.0 + n * 7.0, wc, 3.0, true)
+			if blocking:
+				var sc := Vector2(f * 26.0, -22.0)
+				draw_arc(sc, 20.0, -PI * 0.5, PI * 0.5 if f > 0.0 else PI * 1.5, 16, Color(0.6, 1.8, 2.4, 0.9 * alpha), 4.0, true)
+		"axe":
+			var ang2 := -1.0
+			if atk_phase == 1:
+				ang2 = lerpf(-1.0, -2.6, atk_prog)
+			elif atk_phase == 2:
+				ang2 = lerpf(-2.6, 1.1, atk_prog)
+				_arc(base, 70.0, f, -2.6, 1.1, atk_prog, wc)
+			elif atk_phase == 3:
+				ang2 = lerpf(1.1, -1.0, atk_prog)
+			var d2 := Vector2(f * cos(ang2), sin(ang2))
+			var tip := base + d2 * 50.0
+			draw_line(base, tip, Color(0.02, 0.0, 0.06, 0.7 * alpha), 6.0, true)
+			draw_line(base, tip, Color(0.7, 0.55, 0.4, alpha), 4.0, true)
+			var n2 := Vector2(-d2.y, d2.x) * f
+			draw_colored_polygon(PackedVector2Array([tip - d2 * 4.0 + n2 * 4.0, tip + n2 * 20.0, tip + d2 * 10.0, tip - n2 * 12.0 - d2 * 4.0]), wc)
+		"pike":
+			var d3 := atk_dir if atk_phase != 0 else Vector2(f, -0.28).normalized()
+			var ext := 0.0
+			if atk_phase == 1:
+				ext = lerpf(0.0, -14.0, atk_prog)
+			elif atk_phase == 2:
+				ext = lerpf(-14.0, 40.0, atk_prog)
+			elif atk_phase == 3:
+				ext = lerpf(40.0, 0.0, atk_prog)
+			var a3 := base + d3 * ext - d3 * 34.0
+			var b3 := base + d3 * ext + d3 * 62.0
+			draw_line(a3, b3, Color(0.02, 0.0, 0.06, 0.7 * alpha), 5.0, true)
+			draw_line(a3, b3, Color(0.75, 0.6, 0.4, alpha), 3.0, true)
+			var n3 := Vector2(-d3.y, d3.x)
+			draw_colored_polygon(PackedVector2Array([b3 + n3 * 4.0, b3 + d3 * 16.0, b3 - n3 * 4.0]), wc)
+		"bow":
+			var dd := atk_dir
+			if draw_amt > 0.0 or atk_phase == 3:
+				dd = aim_dir
+			else:
+				dd = Vector2(f, -0.15).normalized()
+			var bp := base + dd * 14.0
+			draw_arc(bp, 17.0, dd.angle() - 1.15, dd.angle() + 1.15, 14, wc, 3.0, true)
+			var t1 := bp + dd.rotated(-1.15) * 17.0
+			var t2 := bp + dd.rotated(1.15) * 17.0
+			var pull := bp - dd * (4.0 + draw_amt * 12.0)
+			draw_line(t1, pull, Color(1, 1, 1, 0.7 * alpha), 1.5, true)
+			draw_line(t2, pull, Color(1, 1, 1, 0.7 * alpha), 1.5, true)
+			if draw_amt > 0.0:
+				draw_line(pull, bp + dd * 16.0, wc, 2.0, true)
+
+
+func _arc(center_pt: Vector2, r: float, f: float, a0: float, a1: float, prog: float, col: Color) -> void:
+	var pts := PackedVector2Array()
+	var n := 10
+	for i in n + 1:
+		var a := lerpf(a0, lerpf(a0, a1, prog), float(i) / n)
+		pts.append(center_pt + Vector2(f * cos(a), sin(a)) * r)
+	draw_polyline(pts, Color(col.r, col.g, col.b, 0.5 * alpha), 5.0, true)

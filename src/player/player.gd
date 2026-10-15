@@ -8,6 +8,8 @@ const ThrowTypes = preload("res://src/disc/throw_types.gd")
 const PlayerVisual = preload("res://src/player/player_visual.gd")
 const Disc = preload("res://src/disc/disc.gd")
 const PlayerInput = preload("res://src/core/player_input.gd")
+const Weapons = preload("res://src/combat/weapons.gd")
+const Arrow = preload("res://src/combat/arrow.gd")
 
 signal died
 signal fx(kind: String, pos: Vector2, data: Variant)
@@ -148,6 +150,19 @@ var air_pivot_ready := true
 var pivot_threw_t := -1.0
 var throws := 0
 var aim_dir := Vector2.RIGHT
+# Battle Rush: a weapon instead of the disc (see Runner / Level.is_battle)
+var battle := false
+var weapon := "sword"
+var atk_phase := 0           # 0 ready, 1 wind-up, 2 swing (hits), 3 recover
+var atk_t := 0.0
+var atk_len := 0.1           # length of the current phase, for the visuals
+var atk_dir := Vector2.RIGHT
+var atk_hit: Array = []      # enemies this swing already struck
+var drawing := false         # bow: string drawn
+var draw_t := 0.0
+var block_t := 0.0           # sword: time left holding the block
+var block_cd := 0.0
+var inv_t := 0.0             # grace after coming back from a hit
 var move_factor := 0.0
 var last_snap_quality := ""
 var last_snap_score := 0.0
@@ -225,6 +240,8 @@ func reset_run_state(seed_value: int) -> void:
 	move_factor = 0.0
 	input_x = 0.0
 	anim_t = 0.0
+	_clear_battle()
+	inv_t = 0.0
 
 
 ## Aim point for drawing the reticle: live mouse every frame.
@@ -289,7 +306,10 @@ func _physics_process_timed(dt: float) -> void:
 		return
 	_timers(dt)
 	_read_input()
-	_handle_disc_input(dt)
+	if battle:
+		_handle_battle(dt)
+	else:
+		_handle_disc_input(dt)
 	_handle_grapple_input()
 	match state:
 		NORMAL:
@@ -367,6 +387,8 @@ func adjust_nose(dir: int) -> void:
 
 
 func carry_mult() -> float:
+	if battle:
+		return _battle_speed_mult()
 	return CARRY_SPEED_MULT if has_disc else 1.0
 
 
@@ -1264,6 +1286,188 @@ func recall() -> void:
 	fx.emit("recall", center(), null)
 
 
+# ================================================================== battle rush
+# The weapon replaces the disc: `throw` attacks, `snap` blocks (sword). Every
+# timer counts physics ticks, so a replay re-simulates the same fight.
+
+func setup_battle(weapon_id: String) -> void:
+	battle = true
+	weapon = Weapons.clean(weapon_id)
+	has_disc = false
+
+
+func _clear_battle() -> void:
+	atk_phase = 0
+	atk_t = 0.0
+	drawing = false
+	draw_t = 0.0
+	block_t = 0.0
+	block_cd = 0.0
+	atk_hit.clear()
+
+
+func hurt_rect() -> Rect2:
+	var sz := rect_shape.size
+	return Rect2(global_position.x - sz.x * 0.5, global_position.y - sz.y, sz.x, sz.y)
+
+
+func is_blocking() -> bool:
+	return block_t > 0.0
+
+
+## Slowed while committed to a heavy swing or a drawn bow.
+func _battle_speed_mult() -> float:
+	if weapon == "axe" and atk_phase != 0:
+		return 0.55
+	if weapon == "bow" and drawing:
+		return 0.78
+	if atk_phase == 1 or atk_phase == 3:
+		return 0.88
+	return 1.0
+
+
+## An enemy blow or arrow reaches the player. Returns true if it hurt.
+func battle_hit(from: Vector2, src: String) -> bool:
+	if state == DEAD or inv_t > 0.0:
+		return false
+	if block_t > 0.0 and signf(from.x - global_position.x) == facing:
+		block_t = maxf(block_t, 0.08)   # the block holds through the hit
+		fx.emit("block", center() + Vector2(facing * 22.0, -4.0), src)
+		return false
+	die("enemy")
+	return true
+
+
+func _handle_battle(dt: float) -> void:
+	has_disc = false
+	inv_t -= dt
+	block_t -= dt
+	block_cd -= dt
+	if not input_enabled:
+		_clear_battle()
+		return
+	var w := Weapons.get_weapon(weapon)
+	if bool(w.get("block", false)) and inp.just_pressed("snap") and block_cd <= 0.0 and atk_phase == 0:
+		block_t = float(w.block_time)
+		block_cd = float(w.block_time) + float(w.block_cd)
+		fx.emit("block_up", center(), null)
+	if str(w.kind) == "bow":
+		_bow(dt, w)
+	else:
+		_melee(dt, w)
+
+
+func _aim_from_hand() -> Vector2:
+	var aim := mouse_world() - hand()
+	return aim.normalized() if aim.length() > 4.0 else Vector2(facing, 0.0)
+
+
+func _melee(dt: float, w: Dictionary) -> void:
+	if atk_phase == 0:
+		if inp.just_pressed("throw") and block_t <= 0.0:
+			var a := _aim_from_hand()
+			if str(w.shape) == "box":
+				a = Vector2(signf(a.x) if absf(a.x) > 0.05 else facing, 0.0)
+			atk_dir = a
+			if absf(a.x) > 0.05:
+				facing = signf(a.x)
+			atk_phase = 1
+			atk_t = float(w.windup)
+			atk_len = maxf(atk_t, 0.001)
+			atk_hit.clear()
+			fx.emit("swing", center(), weapon)
+		return
+	atk_t -= dt
+	if atk_phase == 1 and atk_t <= 0.0:
+		atk_phase = 2
+		atk_t = float(w.active)
+		atk_len = atk_t
+		if float(w.lunge) > 0.0 and absf(atk_dir.x) > 0.05:
+			velocity.x += signf(atk_dir.x) * float(w.lunge)
+	if atk_phase == 2:
+		_melee_hit(w)
+		if atk_t <= 0.0:
+			atk_phase = 3
+			atk_t = float(w.recover)
+			atk_len = maxf(atk_t, 0.001)
+	elif atk_phase == 3 and atk_t <= 0.0:
+		atk_phase = 0
+
+
+func _melee_hit(w: Dictionary) -> void:
+	if level == null:
+		return
+	var c := center()
+	var reach: float = w.reach
+	var thick: float = w.height
+	var box := Rect2()
+	var is_line := str(w.shape) == "line"
+	if not is_line:
+		box = Rect2(c.x + (-4.0 if atk_dir.x > 0.0 else -reach), c.y - thick * 0.5, reach + 4.0, thick)
+	var tip := c + atk_dir * reach
+	var speed := velocity.length()
+	for e in level.enemies:
+		if not is_instance_valid(e) or not e.alive() or atk_hit.has(e):
+			continue
+		var er: Rect2 = e.hurt_rect()
+		var hit := false
+		if is_line:
+			hit = Arrow.seg_hits_rect(c, tip, er.grow(thick * 0.5))
+		else:
+			hit = box.intersects(er)
+		if not hit:
+			continue
+		atk_hit.append(e)
+		var dmg: float = w.dmg
+		var pierce_speed := 0.0
+		if weapon == "pike":
+			dmg = Weapons.pike_damage(w, speed)
+			pierce_speed = speed
+		var hurt: bool = e.take_hit(dmg, global_position.x, float(w.knock), bool(w.get("breaks_shield", false)), pierce_speed)
+		fx.emit("hit_enemy" if hurt else "hit_shield", e.center(), {"dmg": dmg, "weapon": weapon})
+
+
+func _bow(dt: float, w: Dictionary) -> void:
+	if atk_phase == 3:
+		atk_t -= dt
+		if atk_t <= 0.0:
+			atk_phase = 0
+		return
+	if not drawing:
+		if inp.just_pressed("throw"):
+			drawing = true
+			draw_t = 0.0
+			fx.emit("draw", center(), null)
+		return
+	draw_t += dt
+	aim_dir = _aim_from_hand()
+	if aim_dir.x != 0.0 and absf(aim_dir.x) > 0.05:
+		facing = signf(aim_dir.x)
+	if not inp.pressed("throw"):
+		drawing = false
+		if draw_t >= float(w.draw_min):
+			_loose(w)
+			atk_phase = 3
+			atk_t = float(w.recover)
+			atk_len = atk_t
+
+
+func _loose(w: Dictionary) -> void:
+	var c := clampf((draw_t - float(w.draw_min)) / (float(w.draw_full) - float(w.draw_min)), 0.0, 1.0)
+	var ar := Arrow.new()
+	ar.level = level
+	ar.friendly = true
+	ar.gravity = Weapons.ARROW_GRAVITY
+	ar.dmg = lerpf(float(w.dmg_min), float(w.dmg_max), c)
+	ar.color = w.color
+	ar.pierce = bool(w.get("pierce", false))
+	var dir := _aim_from_hand()
+	ar.vel = dir * lerpf(float(w.speed_min), float(w.speed_max), c) + velocity * 0.3
+	ar.global_position = hand() + dir * 18.0
+	level.world.add_child(ar)
+	fx.emit("loose", hand(), c)
+
+
 # ================================================================== triggers
 
 func trigger_enter(kind: String, node: Node) -> void:
@@ -1306,6 +1510,7 @@ func die(reason: String) -> void:
 	state = DEAD
 	velocity = Vector2.ZERO
 	charging = false
+	_clear_battle()
 	fx.emit("death", center(), reason)
 	died.emit()
 
@@ -1447,6 +1652,9 @@ func respawn(pos: Vector2) -> void:
 	stun_t = 0.0
 	down_t = 0.0
 	stumble_t = 0.0
+	_clear_battle()
+	if battle:
+		inv_t = Weapons.RESPAWN_INVULN
 
 
 ## Compact state for network ghosts / replays.

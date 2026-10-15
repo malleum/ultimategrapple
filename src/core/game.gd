@@ -6,6 +6,7 @@ const LevelScript = preload("res://src/level/level.gd")
 const MenuScript = preload("res://src/ui/menu.gd")
 const Bindings = preload("res://src/core/bindings.gd")
 const ThrowTypes = preload("res://src/disc/throw_types.gd")
+const Weapons = preload("res://src/combat/weapons.gd")
 
 const SAVE_PATH := "user://save.json"
 const SETTINGS_PATH := "user://settings.json"
@@ -291,6 +292,34 @@ func list_pinned_levels() -> Array:
 func generate_level(seed_value: int, theme: String = "", difficulty: float = 0.5, length: int = 12) -> Dictionary:
 	var gen := LevelGen.new()
 	return gen.generate(seed_value, theme, difficulty, length)
+
+
+## A Battle Rush course: enemies and arenas, ending at the leader. The weapon
+## is part of the course id, so every weapon keeps its own PB, splits and replay.
+func battle_level(seed_value: int, theme: String, difficulty: float, length: int, weapon: String) -> Dictionary:
+	var gen := LevelGen.new()
+	gen.battle = true
+	var data := gen.generate(seed_value, theme, difficulty, length)
+	weapon = Weapons.clean(weapon)
+	data["battle"] = {"weapon": weapon}
+	data["id"] = str(data.id) + "_" + weapon
+	return data
+
+
+func battle_weapon() -> String:
+	return Weapons.clean(str(settings.get("battle_weapon", "sword")))
+
+
+func set_battle_weapon(id: String) -> void:
+	settings["battle_weapon"] = Weapons.clean(id)
+	save_settings()
+
+
+func start_battle(seed_value: int, theme: String, difficulty: float, length: int, weapon: String = "") -> void:
+	if weapon == "":
+		weapon = battle_weapon()
+	session = {"kind": "battle", "theme": theme, "difficulty": difficulty, "length": length, "weapon": weapon}
+	play_level(battle_level(seed_value, theme, difficulty, length, weapon))
 
 
 ## Save a level permanently. Tries the project folder (when running from source),
@@ -1036,6 +1065,8 @@ func next_level() -> void:
 	match session.get("kind", "random"):
 		"pinned":
 			start_pinned(int(session.index) + 1)
+		"battle":
+			start_battle(randi() % 1000000, session.get("theme", ""), session.get("difficulty", 0.5), session.get("length", 8), session.get("weapon", ""))
 		_:
 			start_random(randi() % 1000000, session.get("theme", ""), session.get("difficulty", 0.5), session.get("length", 12))
 

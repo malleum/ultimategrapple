@@ -15,6 +15,7 @@ const Perf = preload("res://src/core/perf.gd")
 const UI = preload("res://src/ui/ui.gd")
 const DiscCam = preload("res://src/ui/disc_cam.gd")
 const ThrowTypes = preload("res://src/disc/throw_types.gd")
+const Weapons = preload("res://src/combat/weapons.gd")
 const Player = preload("res://src/player/player.gd")
 const Disc = preload("res://src/disc/disc.gd")
 const Bindings = preload("res://src/core/bindings.gd")
@@ -517,6 +518,8 @@ func _draw_timer(ci: Control, vs: Vector2) -> void:
 			_text(ci, cr.position + Vector2(0, 17), chip, 15, mcol.lightened(0.25), HORIZONTAL_ALIGNMENT_CENTER, cw, _bold, 0)
 	# throws / deaths / penalty chips
 	var stats := [["◎", str(runner.player.throws), Color(0.6, 0.9, 1.0)], ["✕", str(runner.deaths), Color(1.0, 0.55, 0.55)]]
+	if level.is_battle():
+		stats[0] = ["⚔", str(runner.kills), Color(1.0, 0.8, 0.4)]
 	if runner.penalty > 0.0:
 		stats.append(["+", "%.0fs" % runner.penalty, Color(1.0, 0.65, 0.3)])
 	var sx := r.position.x + 4.0
@@ -699,6 +702,9 @@ func _draw_splits(ci: Control, vs: Vector2) -> void:
 
 
 func _draw_throw_cards(ci: Control, vs: Vector2, p) -> void:
+	if level.is_battle():
+		_draw_battle(ci, vs, p)
+		return
 	var n := ThrowTypes.count()
 	var cw := 74.0
 	var gap := 10.0
@@ -738,7 +744,57 @@ func _draw_throw_cards(ci: Control, vs: Vector2, p) -> void:
 	_text(ci, Vector2(vs.x * 0.5 - 400, y0 + 94), ty2.desc, 14, Color(0.75, 0.8, 0.9, 0.85), HORIZONTAL_ALIGNMENT_CENTER, 800, null, 3)
 
 
+## Battle Rush: the weapon card, its cooldown, the leader's health and the
+## enemies left in a locked arena.
+func _draw_battle(ci: Control, vs: Vector2, p) -> void:
+	var w: Dictionary = Weapons.get_weapon(p.weapon)
+	var wc: Color = _ldr(w.color)
+	var pad: bool = runner.inp.is_pad_aim()
+	var card := Rect2(vs.x * 0.5 - 170, vs.y - 112, 340, 78)
+	_slab(ci, card, 10.0, Color(0.03, 0.02, 0.08, 0.82), Color(wc, 0.9))
+	_text(ci, card.position + Vector2(0, 28), str(w.name).to_upper(), 24, Color(1, 1, 1), HORIZONTAL_ALIGNMENT_CENTER, card.size.x, _bold, 4)
+	var keys: String = "%s  attack" % Bindings.label("throw", pad)
+	if w.get("block", false):
+		keys += "   ·   %s  block" % Bindings.label("snap", pad)
+	_text(ci, card.position + Vector2(0, 48), keys, 14, Color(0.8, 0.85, 0.95, 0.85), HORIZONTAL_ALIGNMENT_CENTER, card.size.x, null, 3)
+	# readiness bar: bow draw, block time / cooldown, or the swing
+	var bar := Rect2(card.position.x + 20, card.end.y - 20, card.size.x - 40, 8)
+	var frac := 1.0
+	var bc := wc
+	if str(w.kind) == "bow":
+		frac = clampf(p.draw_t / float(w.draw_full), 0.0, 1.0) if p.drawing else (0.0 if p.atk_phase == 3 else 0.0)
+		if p.drawing and p.draw_t < float(w.draw_min):
+			bc = Color(1, 1, 1, 0.5)
+	elif p.is_blocking():
+		frac = clampf(p.block_t / float(w.block_time), 0.0, 1.0)
+		bc = Color(0.6, 1.8, 2.4)
+	elif p.atk_phase != 0:
+		frac = clampf(1.0 - p.atk_t / maxf(p.atk_len, 0.001), 0.0, 1.0)
+		bc = Color(1.6, 1.0, 0.4)
+	elif p.block_cd > 0.0:
+		frac = 1.0 - clampf(p.block_cd / (float(w.get("block_time", 0.5)) + float(w.get("block_cd", 0.3))), 0.0, 1.0)
+		bc = Color(0.6, 0.6, 0.7)
+	ci.draw_rect(bar, Color(0, 0, 0, 0.55))
+	ci.draw_rect(Rect2(bar.position, Vector2(bar.size.x * frac, bar.size.y)), bc)
+	if p.inv_t > 0.0:
+		_text(ci, card.position + Vector2(0, -8), "SHIELDED", 12, Color(0.6, 1.8, 2.4, 0.8), HORIZONTAL_ALIGNMENT_CENTER, card.size.x, _bold, 2)
+	# the leader's health, once the fight is on
+	for e in level.enemies:
+		if is_instance_valid(e) and e.kind == "leader" and e.alive():
+			var close: bool = e.position.distance_to(p.global_position) < 1500.0 or e.hp < float(e.cfg.hp)
+			if close:
+				var lb := Rect2(vs.x * 0.5 - 260, vs.y - 150, 520, 14)
+				_text(ci, lb.position + Vector2(0, -6), "THE LEADER", 14, Color(1, 0.85, 0.5), HORIZONTAL_ALIGNMENT_CENTER, lb.size.x, _bold, 3)
+				ci.draw_rect(lb.grow(3.0), Color(0, 0, 0, 0.6))
+				ci.draw_rect(Rect2(lb.position, Vector2(lb.size.x * clampf(e.hp / float(e.cfg.hp), 0.0, 1.0), lb.size.y)), Color(1.9, 0.4, 1.3))
+	for a in level.arenas:
+		if a.state == 1 and not a.leader:
+			_text(ci, Vector2(vs.x * 0.5 - 200, vs.y - 150), "%d ENEMIES LEFT" % a.left, 18, Color(1.0, 0.55, 0.45), HORIZONTAL_ALIGNMENT_CENTER, 400, _bold, 3)
+
+
 func _draw_nose(ci: Control, vs: Vector2, p) -> void:
+	if level.is_battle():
+		return
 	var n := ThrowTypes.count()
 	var x := vs.x * 0.5 - (n * 84.0) * 0.5 - 92.0
 	var c := Vector2(x, vs.y - 74.0)
@@ -766,6 +822,8 @@ func _draw_nose(ci: Control, vs: Vector2, p) -> void:
 
 
 func _draw_badges(ci: Control, vs: Vector2, p) -> void:
+	if level.is_battle():
+		return
 	var n := ThrowTypes.count()
 	var x := vs.x * 0.5 + (n * 84.0) * 0.5 + 40.0
 	var y := vs.y - 74.0
@@ -802,6 +860,8 @@ func _draw_badges(ci: Control, vs: Vector2, p) -> void:
 
 
 func _draw_charge(ci: Control, vs: Vector2, p) -> void:
+	if level.is_battle():
+		return
 	if p.state == Player.PIVOT:
 		var lim: float = Player.AIR_PIVOT_MAX if p.pivot_air else Player.PIVOT_MAX
 		var stall: float = clampf(p.pivot_t / lim, 0.0, 1.0)
@@ -888,6 +948,10 @@ func _draw_hints(ci: Control, vs: Vector2) -> void:
 		hints = [[Bindings.label("restart", pad), "restart"], [Bindings.label("recall", pad), "recall +3s"], [Bindings.label("pause", pad), "pause"]]
 		if level.is_elo():
 			hints.pop_front()   # ranked: one go per seed, no restart
+		if level.is_battle():
+			hints = [[Bindings.label("throw", pad), "attack"], [Bindings.label("restart", pad), "restart"], [Bindings.label("pause", pad), "pause"]]
+			if Weapons.get_weapon(level.battle_weapon()).get("block", false):
+				hints.insert(1, [Bindings.label("snap", pad), "block"])
 	else:
 		hints = [[Bindings.label("restart", pad), "reset"], [Bindings.label("recall", pad), "recall +3s"], [Bindings.label("pause", pad), "menu"]]
 	hints = hints.filter(func(h): return h[0] != "")
@@ -914,6 +978,10 @@ const ACT_ROWS := [
 	[["recall", "RECALL"], ["pivot", "PIVOT"]],
 	[["grapple", "SWING"], ["zip", "ZIP"]],
 	[["throw", "THROW"], ["snap", "SNAP"]],
+]
+const ACT_ROWS_BATTLE := [
+	[["throw", "ATTACK"], ["snap", "BLOCK"]],
+	[["grapple", "SWING"], ["zip", "ZIP"]],
 ]
 
 
@@ -949,9 +1017,10 @@ func _draw_keys(ci: Control, vs: Vector2) -> void:
 			x += w + gap
 	# action cluster
 	var ax := ox + 3.0 * (cap.x + gap) + 14.0
-	for ri in ACT_ROWS.size():
-		for c2 in ACT_ROWS[ri].size():
-			var k2: Array = ACT_ROWS[ri][c2]
+	var act_rows: Array = ACT_ROWS_BATTLE if level.is_battle() else ACT_ROWS
+	for ri in act_rows.size():
+		for c2 in act_rows[ri].size():
+			var k2: Array = act_rows[ri][c2]
 			_keycap(ci, Rect2(ax + c2 * (cap.x + 12 + gap), oy + ri * (cap.y + gap), cap.x + 12, cap.y), k2[0], str(labels.get(k2[0], "")), k2[1], acc, dt)
 
 
@@ -981,6 +1050,11 @@ func _keycap(ci: Control, r: Rect2, action: String, key: String, caption: String
 
 
 func _draw_offscreen(ci: Control, vs: Vector2, p) -> void:
+	if level.is_battle():
+		for e in level.enemies:
+			if is_instance_valid(e) and e.kind == "leader" and e.alive():
+				_offscreen(ci, e.center(), _ldr(e.cfg.color), "LEADER", vs, 0)
+		return
 	_offscreen(ci, level.basket_point(Vector2(0, -85)), _ldr(level.th.get("basket", UI.GOLD)), "BASKET", vs, 0)
 	if not p.has_disc and runner.disc.state != Disc.SCORED:
 		_offscreen(ci, runner.disc.global_position, _ldr(runner.disc.color), "DISC", vs, 1)
@@ -1329,6 +1403,8 @@ func show_results(tm: float, medal: String, is_pb: bool, old_pb := -1.0) -> void
 	panel.add_child(v)
 	var replaying: bool = level.mode == "replay"
 	var head := "CHAINS!"
+	if level.is_battle():
+		head = "VICTORY!"
 	if replaying:
 		head = "REPLAY  ·  %s" % str(level.replay.get("player", "Runner"))
 	v.add_child(UI.label(head, 30, Color(1, 0.85, 0.35), HORIZONTAL_ALIGNMENT_CENTER))
@@ -1359,7 +1435,11 @@ func show_results(tm: float, medal: String, is_pb: bool, old_pb := -1.0) -> void
 			v.add_child(UI.label("first clear", 18, UI.DIM, HORIZONTAL_ALIGNMENT_CENTER))
 	var chips := UI.hbox(26)
 	chips.alignment = BoxContainer.ALIGNMENT_CENTER
-	chips.add_child(UI.label("◎ %d throws" % runner.player.throws, 20, Color(0.6, 0.9, 1.0)))
+	if level.is_battle():
+		chips.add_child(UI.label("⚔ %d kills" % runner.kills, 20, Color(1, 0.8, 0.4)))
+		chips.add_child(UI.label(str(Weapons.get_weapon(level.battle_weapon()).name), 20, Color(0.7, 0.9, 1.0)))
+	else:
+		chips.add_child(UI.label("◎ %d throws" % runner.player.throws, 20, Color(0.6, 0.9, 1.0)))
 	chips.add_child(UI.label("✕ %d deaths" % runner.deaths, 20, Color(1, 0.6, 0.6)))
 	if runner.penalty > 0.0:
 		chips.add_child(UI.label("+%.0fs penalty" % runner.penalty, 20, Color(1, 0.7, 0.3)))
@@ -1367,7 +1447,7 @@ func show_results(tm: float, medal: String, is_pb: bool, old_pb := -1.0) -> void
 		chips.add_child(UI.label("FLOW ×%d" % flow_best, 20, Color(1, 0.5, 0.9)))
 	v.add_child(chips)
 	# online leaderboard rank (built-in courses, filled in when the server answers)
-	if level.mode == "solo" and Online.course_key(level.level_id) != "" and Online.is_online():
+	if level.mode == "solo" and not level.is_battle() and Online.course_key(level.level_id) != "" and Online.is_online():
 		var ol := UI.label("", 20, Color(0.5, 0.9, 1.0), HORIZONTAL_ALIGNMENT_CENTER)
 		v.add_child(ol)
 		var ck := Online.course_key(level.level_id)
@@ -1432,7 +1512,7 @@ func show_results(tm: float, medal: String, is_pb: bool, old_pb := -1.0) -> void
 	else:
 		h.add_child(UI.button("RETRY  [R]", func(): level.restart_when_released()))
 		h.add_child(UI.button("NEXT  [N]", _next))
-		if Online.is_online() and not bool(level.level_data.get("_builtin", false)):
+		if Online.is_online() and not bool(level.level_data.get("_builtin", false)) and not level.is_battle():
 			h.add_child(_save_course_button())
 		if not runner.last_replay.is_empty():
 			# this run (PB or not), with your PB ghost alongside

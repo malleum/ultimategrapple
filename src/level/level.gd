@@ -14,6 +14,8 @@ const Solid = preload("res://src/world/solid.gd")
 const Zone = preload("res://src/world/zone.gd")
 const Mover = preload("res://src/world/mover.gd")
 const Basket = preload("res://src/world/basket.gd")
+const Enemy = preload("res://src/world/enemy.gd")
+const Arena = preload("res://src/world/arena.gd")
 const Decor = preload("res://src/world/decor.gd")
 const Ghost = preload("res://src/player/ghost.gd")
 const Bindings = preload("res://src/core/bindings.gd")
@@ -51,6 +53,10 @@ var basket_pos := Vector2.ZERO
 var basket_rot := 0.0
 var basket_float := false
 var has_basket := true
+## Battle Rush (level_data.battle): enemies and arenas instead of a basket.
+var enemies: Array = []
+var arenas: Array = []
+var battle_over := false
 var spawn := Vector2.ZERO
 var kill_y := 4000.0
 var medals: Dictionary = {}
@@ -70,6 +76,7 @@ func _ready() -> void:
 	basket_pos = _v(level_data.get("basket", [0, 0]))
 	basket_rot = float(level_data.get("basket_rot", 0.0))
 	basket_float = bool(level_data.get("basket_float", false))
+	has_basket = not is_battle()
 	kill_y = float(level_data.get("kill_y", 4000))
 	medals = level_data.get("medals", {})
 	if local_players.is_empty():
@@ -310,6 +317,20 @@ func _build_world() -> void:
 				m.setup(e, th)
 				world.add_child(m)
 				shared_resettables.append(m)
+			"enemy":
+				var en := Enemy.new()
+				en.level = self
+				en.setup(e, th)
+				world.add_child(en)
+				enemies.append(en)
+				shared_resettables.append(en)
+			"arena":
+				var ar := Arena.new()
+				ar.level = self
+				ar.setup(e, th)
+				world.add_child(ar)
+				arenas.append(ar)
+				shared_resettables.append(ar)
 			"decor", "sign":
 				if e.t == "sign":
 					e = e.duplicate()
@@ -419,6 +440,80 @@ func is_elo() -> bool:
 	return mode == "solo" and level_data.has("elo")
 
 
+## Battle Rush run (solo or its replay): kill the leader to finish.
+func is_battle() -> bool:
+	return level_data.has("battle")
+
+
+func battle_weapon() -> String:
+	return str(level_data.get("battle", {}).get("weapon", "sword"))
+
+
+func battle_player():
+	return runners[0].player if not runners.is_empty() else null
+
+
+func battle_reset() -> void:
+	battle_over = false
+	for a in get_tree().get_nodes_in_group("battle_arrows"):
+		a.queue_free()
+
+
+func enemies_alive() -> int:
+	var n := 0
+	for e in enemies:
+		if is_instance_valid(e) and e.alive():
+			n += 1
+	return n
+
+
+func on_enemy_killed(e: Node) -> void:
+	for r in runners:
+		r.on_enemy_killed(e)
+	if e.kind == "leader":
+		battle_won()
+
+
+func battle_won() -> void:
+	if battle_over:
+		return
+	battle_over = true
+	for r in runners:
+		r.on_battle_won()
+
+
+const BATTLE_SFX := {"hit": "disc_hit", "clang": "pole", "swing": "dash", "shoot": "throw", "gate": "gate", "kill": "death"}
+
+
+func battle_sfx(what: String, pos: Vector2, vol := 1.0, pitch := 1.0) -> void:
+	play_sfx(BATTLE_SFX.get(what, what), pos, vol, pitch)
+
+
+## Where a runner who died in a fight comes back: the entrance of the arena
+## it was locked in (the fight starts over), else the last safe floor spot
+## that is not within reach of a live enemy.
+func battle_respawn(lie: Vector2, trail: Array) -> Vector2:
+	for a in arenas:
+		if a.state == Arena.LOCKED:
+			a.reset_fight()
+			return a.spawn_pos
+	var best := lie
+	var i := trail.size()
+	while i >= 0:
+		var p: Vector2 = lie if i == trail.size() else trail[i]
+		if not _enemy_near(p, 340.0):
+			return p
+		i -= 1
+	return best
+
+
+func _enemy_near(p: Vector2, r: float) -> bool:
+	for e in enemies:
+		if is_instance_valid(e) and e.alive() and absf(e.position.x - p.x) < r and absf(e.position.y - p.y) < 220.0:
+			return true
+	return false
+
+
 ## The restart key in a time trial. Does nothing in a ranked game: one go per
 ## seed, and leaving is only ever on purpose (pause menu → forfeit).
 func user_restart() -> void:
@@ -439,6 +534,7 @@ func _inputs_held() -> bool:
 
 func restart() -> void:
 	_restart_pending = false
+	battle_reset()
 	if is_timetrial():
 		for s in shared_resettables:
 			if is_instance_valid(s) and s.has_method("reset"):

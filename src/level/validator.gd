@@ -122,6 +122,68 @@ static func check(d: Dictionary) -> Array:
 			if hr.intersects(body):
 				errs.append("route point %s inside spikes" % [rp])
 				break
+	if d.has("battle"):
+		errs.append_array(_check_battle(solids, ents))
+	return errs
+
+
+## Battle Rush: enemies stand on the floor they patrol, arenas can be entered
+## and left, no grippy solid touches a door (a door is slick and out of reach),
+## and exactly one leader waits at the end.
+static func _check_battle(solids: Array, ents: Array) -> Array:
+	var errs := []
+	var leaders := 0
+	var arena_ids := {}
+	var doors: Array = []
+	for e in ents:
+		match str(e.t):
+			"arena":
+				arena_ids[int(e.id)] = e
+				doors.append(_rect(e.entry))
+				if not (e.get("exit") as Array).is_empty():
+					doors.append(_rect(e.exit))
+				elif not bool(e.get("leader", false)):
+					errs.append("arena %d has no way out" % int(e.id))
+	for e in ents:
+		if str(e.t) != "enemy":
+			continue
+		if str(e.k) == "leader":
+			leaders += 1
+		var p := Vector2(e.p[0], e.p[1])
+		var x0 := float(e.get("x0", p.x))
+		var x1 := float(e.get("x1", p.x))
+		for x in [x0, p.x, x1]:
+			var stands := false
+			for s in solids:
+				var sr := _rect(s.r)
+				if str(s.get("k", "")) != "oneway" and absf(sr.position.y - p.y) < 1.0 and x >= sr.position.x and x <= sr.end.x:
+					stands = true
+					break
+			if not stands:
+				errs.append("%s at %s has no floor at x=%d" % [e.k, p, int(x)])
+				break
+		var body := Rect2(p.x - 13.0, p.y - 44.0, 26.0, 40.0)
+		for s in solids:
+			if _rect(s.r).intersects(body):
+				errs.append("%s at %s inside solid %s" % [e.k, p, s.r])
+				break
+		var a := int(e.get("a", -1))
+		if a != -1:
+			if not arena_ids.has(a):
+				errs.append("%s belongs to missing arena %d" % [e.k, a])
+			else:
+				var ar := _rect(arena_ids[a].r)
+				if x0 < ar.position.x or x1 > ar.end.x:
+					errs.append("%s patrols outside arena %d" % [e.k, a])
+	if leaders != 1:
+		errs.append("%d leaders (want 1)" % leaders)
+	for dr in doors:
+		for s in solids:
+			if str(s.get("k", "")) in ["slick", "oneway", "fence"]:
+				continue
+			var ov: Rect2 = dr.intersection(_rect(s.r))
+			if ov.size.x > 0.5 and ov.size.y > 0.5:
+				errs.append("door %s overlapped by %s %s" % [dr, s.get("k", ""), s.r])
 	return errs
 
 

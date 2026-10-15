@@ -140,7 +140,19 @@ const SEGMENTS := {
 	"pit_launch":    {"w": 2.5,  "min_d": 0.1, "dir": -1},
 	"slide_chute":   {"w": 3.0,  "min_d": 0.0, "dir": 1},
 	"ring_ledges":   {"w": 2.5,  "min_d": 0.15, "dir": -1, "disc": true},
+	# Battle Rush pieces (battle: only picked on battle courses; "disc" here
+	# only means "forced in every few segments", like the disc gates are)
+	"arena_flat":    {"w": 6.0,  "min_d": 0.0, "dir": 0, "battle": true, "disc": true},
+	"arena_tier":    {"w": 4.0,  "min_d": 0.15, "dir": 0, "battle": true, "disc": true},
+	"arena_shield":  {"w": 3.0,  "min_d": 0.3, "dir": 0, "battle": true, "disc": true},
+	"skirmish":      {"w": 7.0,  "min_d": 0.0, "dir": 0, "battle": true},
 }
+
+## Throw / disc pieces a battle course never uses (no disc to throw).
+const BATTLE_BANNED := ["disc_gate", "disc_bridge", "glass", "hammer_wall", "roll_lane", "throw_lane", "lob_wall",
+	"bonus_ring", "chase_gap", "stacked", "lob_skylight", "glass_floor", "ring_ledges", "tailwind_gap"]
+const NAME_BATTLE := ["Siege", "Skirmish", "Onslaught", "Charge", "Assault", "Raid", "Crusade", "Vanguard", "Reckoning", "Rampage"]
+const DOOR_H := 16             # arena doors are slick and out of reach (WALL_TALL + a margin)
 
 ## Course shapes: most run along, some climb or descend a long way.
 ##   up / down: weight multipliers for segments heading that way
@@ -214,6 +226,9 @@ var force_segments: Array = []
 var force_finale := -1
 var basket_rot := 0.0      # the finale's basket: mounted sideways / floating
 var basket_float := false
+## Battle Rush: enemies + arenas, no baskets or throw gates (see seg_arena_*)
+var battle := false
+var _aid := 0
 
 # staging buffers for the segment currently being attempted
 var _s_solids: Array = []
@@ -238,6 +253,7 @@ func generate(seed_value: int, theme_id: String = "", difficulty: float = 0.5, l
 	profile = _pick_profile()
 	solids.clear(); polys.clear(); ents.clear(); route.clear(); reserves.clear(); seg_log.clear(); sections.clear(); locks.clear(); musts.clear()
 	est_time = 0.0
+	_aid = 0
 
 	# --- start pad
 	_begin()
@@ -281,7 +297,7 @@ func generate(seed_value: int, theme_id: String = "", difficulty: float = 0.5, l
 	_begin()
 	basket_rot = 0.0
 	basket_float = false
-	var basket: Vector2 = _finale(cur.x, cur.y)
+	var basket: Vector2 = _finale_battle(cur.x, cur.y) if battle else _finale(cur.x, cur.y)
 	_commit("finale")
 
 	_add_shortcuts()
@@ -299,10 +315,10 @@ func generate(seed_value: int, theme_id: String = "", difficulty: float = 0.5, l
 	var kill_y := bounds.end.y + 10 * T
 
 	var times := _medals()
-	var name := "%s %s" % [_pick(NAME_A[theme]), _pick(NAME_B if profile == "flat" else PROFILE_NAMES[profile])]
+	var name := "%s %s" % [_pick(NAME_A[theme]), _pick(NAME_BATTLE if battle else (NAME_B if profile == "flat" else PROFILE_NAMES[profile]))]
 	# the version is in the id from v5 on: the same seed lays out differently,
 	# so PBs / ghosts / splits of the older layout stay with that one
-	var id := "g%d_%s_%d_%d_v%d" % [seed_value, theme, int(round(d * 10)), length, VERSION]
+	var id := "%s%d_%s_%d_%d_v%d" % ["b" if battle else "g", seed_value, theme, int(round(d * 10)), length, VERSION]
 	var out := {
 		"version": VERSION,
 		"id": id,
@@ -324,6 +340,8 @@ func generate(seed_value: int, theme_id: String = "", difficulty: float = 0.5, l
 		"sections": sections,
 		"medals": times,
 	}
+	if battle:
+		out["battle"] = {"weapon": "sword"}   # the weapon is picked at the start (Game.start_battle)
 	if basket_rot != 0.0:
 		out["basket_rot"] = basket_rot
 	if basket_float:
@@ -516,6 +534,10 @@ func _pick_segment(cur: Vector2i, last: Array, force_disc: bool) -> String:
 	var total := 0.0
 	for seg in SEGMENTS:
 		var info: Dictionary = SEGMENTS[seg]
+		if bool(info.get("battle", false)) != false and not battle:
+			continue
+		if battle and BATTLE_BANNED.has(seg):
+			continue
 		if d < info.min_d:
 			continue
 		if seg == last[1] or (seg == last[0] and seg != "run_gaps"):
@@ -1979,6 +2001,148 @@ func _finale(x: int, y: int) -> Vector2:
 	if variant >= 5:
 		lock(x, end_x)   # no sky line straight to the chains
 	return Vector2(bx * T, by * T)
+
+
+# ============================================================ battle rush
+
+func enemy(kind: String, x: float, y: float, x0: float, x1: float, aid := -1) -> void:
+	_ent({"t": "enemy", "k": kind, "p": [int(round(x * T)), int(round(y * T))], "x0": int(round(x0 * T)), "x1": int(round(x1 * T)), "a": aid},
+		x0 - 1, y - 3, x1 - x0 + 2, 3)
+
+
+## Enemies for an arena of `w` tiles: [kind, offset from the first inner tile, platform height].
+func _arena_plan(w: int, style: String) -> Array:
+	var grunts := 1 + dl(1, 3)
+	var archers := dl(0, 2)
+	var guards := 0 if d < 0.25 else dl(0, 2)
+	match style:
+		"tier":
+			archers += 1
+		"shield":
+			guards = 1 + dl(1, 2)
+			grunts = maxi(1, grunts - 1)
+	var kinds := []
+	for i in guards:
+		kinds.append("guard")
+	for i in grunts:
+		kinds.append("grunt")
+	var plan := []
+	var n := kinds.size() + archers
+	var k := 0
+	for kind in kinds:
+		var off := int(w * 0.38 + (w * 0.5) * float(k) / maxf(n - 1, 1.0))
+		plan.append([kind, off + ri(-2, 2), 0])
+		k += 1
+	for i in archers:
+		var off2 := int(w * 0.38 + (w * 0.5) * float(k) / maxf(n - 1, 1.0))
+		plan.append(["archer", off2 + ri(-1, 1), 3 if style == "tier" else 0])
+		k += 1
+	return plan
+
+
+## Door to door arena: the way in closes behind the runner, the way out opens
+## once everything inside is dead (Arena). Returns the cursor.
+func _arena(x: int, y: int, w: int, style: String) -> Vector2i:
+	_aid += 1
+	var aid := _aid
+	var ex := x + 6                 # entry door tile
+	var in0 := ex + 1
+	var in1 := in0 + w              # exit door tile
+	ground(x, in1 + 9, y)
+	var top := y - DOOR_H
+	_ent({"t": "arena", "id": aid, "r": [in0 * T, top * T, w * T, DOOR_H * T], "entry": [ex * T, top * T, T, DOOR_H * T],
+		"exit": [in1 * T, top * T, T, DOOR_H * T], "spawn": [(ex - 3) * T, y * T], "leader": false},
+		x, top, in1 + 9 - x, DOOR_H + 1)
+	var plan := _arena_plan(w, style)
+	for it in plan:
+		var kind: String = it[0]
+		var ox: int = clampi(int(it[1]), 5, w - 4)
+		var px := in0 + ox
+		var plat: int = it[2]
+		if plat > 0:
+			block(px - 2, y - plat, 4, 1)
+			enemy(kind, px, y - plat, px, px, aid)
+		elif kind == "archer":
+			enemy(kind, px, y, px, px, aid)
+		else:
+			enemy(kind, px, y, maxi(in0 + 3, px - 5), mini(in1 - 3, px + 5), aid)
+	if style == "tier":
+		# a raised ledge in the middle: cover and a jump-in for the sword
+		block(in0 + int(w * 0.3), y - 3, 3, 1)
+	_route(ex - 2, y)
+	_route(in1 + 2, y)
+	lock(x - 2, in1 + 9)
+	_s_est += float(w + 14) / RUN_EMPTY + 1.4 * plan.size() + 2.5
+	return Vector2i(in1 + 9, y)
+
+
+func seg_arena_flat(x: int, y: int) -> Vector2i:
+	return _arena(x, y, 34 + dl(0, 10), "flat")
+
+
+func seg_arena_tier(x: int, y: int) -> Vector2i:
+	return _arena(x, y, 38 + dl(0, 10), "tier")
+
+
+func seg_arena_shield(x: int, y: int) -> Vector2i:
+	return _arena(x, y, 36 + dl(0, 10), "shield")
+
+
+## An open field with a few enemies, no doors: kill them or run through.
+func seg_skirmish(x: int, y: int) -> Vector2i:
+	var len := 40 + dl(0, 14)
+	ground(x, x + len, y)
+	var n := 2 + dl(0, 3)
+	var spread := float(len - 16) / maxf(n, 1)
+	for i in n:
+		var px := x + 10 + int(spread * i + ri(0, 3))
+		var r := rng.randf()
+		if d > 0.3 and r < 0.2:
+			enemy("guard", px, y, px - 4, px + 4)
+		elif r < 0.55:
+			enemy("grunt", px, y, px - 6, px + 6)
+		else:
+			var plat := 4 if chance(0.5) else 0
+			if plat > 0:
+				block(px - 2, y - plat, 4, 1)
+			enemy("archer", px, y - plat, px, px)
+	_route(x + len, y)
+	_s_est += float(len) / RUN_EMPTY + 0.8 * n
+	return Vector2i(x + len, y)
+
+
+## The leader's arena: no way out, the run ends when the leader falls.
+func _finale_battle(x: int, y: int) -> Vector2:
+	_aid += 1
+	var aid := _aid
+	var w := 46
+	var ex := x + 6
+	var in0 := ex + 1
+	var in1 := in0 + w
+	ground(x, in1 + 2, y)
+	block(in1, y - 40, 2, 40)         # the back wall
+	var top := y - DOOR_H
+	_ent({"t": "arena", "id": aid, "r": [in0 * T, top * T, w * T, DOOR_H * T], "entry": [ex * T, top * T, T, DOOR_H * T],
+		"exit": [], "spawn": [(ex - 3) * T, y * T], "leader": true}, x, top, in1 + 2 - x, DOOR_H + 1)
+	var lx := in1 - 9
+	enemy("leader", lx, y, in0 + int(w * 0.45), in1 - 4, aid)
+	# escorts, and ledges for the archers (clear of the leader's mouth)
+	var esc := 2 + dl(0, 2)
+	for i in esc:
+		var px := in0 + 8 + int((w * 0.45) * float(i) / maxf(esc, 1.0)) + ri(0, 3)
+		enemy("grunt" if i % 2 == 0 or d < 0.3 else "guard", px, y, px - 4, px + 4, aid)
+	var ax := in0 + int(w * 0.25)
+	block(ax - 2, y - 3, 4, 1)
+	enemy("archer", ax, y - 3, ax, ax, aid)
+	if d > 0.4:
+		var bx := in0 + int(w * 0.6)
+		block(bx - 2, y - 3, 4, 1)
+		enemy("archer", bx, y - 3, bx, bx, aid)
+	_route(ex - 2, y)
+	_route(lx, y)
+	lock(x - 2, in1 + 2)
+	_s_est += float(w + 10) / RUN_EMPTY + 1.4 * (esc + 3) + 8.0
+	return Vector2(lx * T, y * T)
 
 
 # ============================================================ shortcuts & decor
