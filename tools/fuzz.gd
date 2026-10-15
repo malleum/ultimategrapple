@@ -28,7 +28,12 @@ func _next() -> void:
 		quit()
 		return
 	var themes := ["field", "cyber", "fantasy", "heaven", "foundry", "frost", "canyon"]
-	lvl = Game.play_level(Game.generate_level(5000 + idx, themes[idx % 7], rng.randf(), 8 + idx % 10))
+	if OS.get_environment("BATTLE") != "":
+		# BATTLE=1: Battle Rush courses, every weapon in turn
+		var weapons := ["sword", "bow", "axe", "pike"]
+		lvl = Game.play_level(Game.battle_level(5000 + idx, themes[idx % 7], rng.randf(), 6 + idx % 8, weapons[idx % 4]))
+	else:
+		lvl = Game.play_level(Game.generate_level(5000 + idx, themes[idx % 7], rng.randf(), 8 + idx % 10))
 	frame = 0
 	idx += 1
 

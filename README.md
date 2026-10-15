@@ -159,9 +159,29 @@ ghost to race. Restart (press twice), quit or a crash after the seed is shown is
 Your rating (Elo, start 1000) moves against the average time on each seed, and only counts once a second
 player has played that seed.
 
+## Battle Rush
+
+Menu → BATTLE RUSH. Instead of disc golf you speedrun a battle: there are no throw gates, and the run
+ends when you kill the enemy leader. Pick a weapon before the run (one weapon per run, and each weapon keeps
+its own personal best, splits, ghost and replay on a course):
+
+| Weapon | Attack | Notes |
+|---|---|---|
+| Sword | quick swing, medium damage | hold the snap key to block (negates a hit from the front) |
+| Bow & Arrow | hold the throw key to draw, release to loose | ranged, arrows arc a little, a full draw hits hardest |
+| Battle Axe | slow wind-up and recovery, massive damage | slows you while swinging, breaks guards' shields |
+| Pike | long thrust, damage scales with your speed | fast enough and it goes through a shield |
+
+The attack key is the throw key and block is the snap key (both rebindable under CONTROLS). The grapple, zip and
+every movement trick work as usual. Enemies: grunts (melee), guards (a shield from the front; strike when they
+swing, or break it), archers and the leader (volleys of arrows). Any enemy hit sends you back to a safe spot away
+from them, like a spike (a second of grace on return). Fighting happens in **arenas**: the door behind you shuts and
+the way out stays closed until everything inside is dead; dying inside resets the fight. Enemies only move while the
+run clock does, so every attempt meets them the same way. Tuning lives in `src/combat/weapons.gd`.
+
 ## Stats
 
-**Menu.** COURSES · RANDOM (seed / theme / difficulty, or QUICK RANDOM) · ELO RUN (one run per seed, rated against everyone who played it) · LEADERBOARDS ·
+**Menu.** COURSES · RANDOM (seed / theme / difficulty, or QUICK RANDOM) · BATTLE RUSH · ELO RUN (one run per seed, rated against everyone who played it) · LEADERBOARDS ·
 REPLAYS · STATS · MULTIPLAYER (tabs: ONLINE, which joins the public server straight away,
 COUCH VERSUS and LAN) · SETTINGS (CONTROLS and rebinding inside); QUIT is in the top-right
 corner. Leaving a course or a replay takes you back to the page you came from (the same
@@ -356,7 +376,8 @@ src/core     game state, settings, input (per-device PlayerInput), themes
 src/level    generator, level (shared world), runner (per-player context), overlay
 src/player   player controller, procedural visual, ghosts
 src/disc     disc aerodynamics, throw archetypes
-src/world    solids, grapple points, zones/hazards, movers, gates, glass, basket, decor
+src/combat   Battle Rush weapons / enemy tuning (weapons.gd) and arrows
+src/world    solids, grapple points, zones/hazards, movers, gates, glass, basket, decor, enemies, arenas
 src/audio    synth, SFX bank, generative music
 src/net      ENet lobby / race sets / LAN discovery
 src/ui       HUD, menus, UI theme

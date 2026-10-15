@@ -781,12 +781,12 @@ func _draw_battle(ci: Control, vs: Vector2, p) -> void:
 	# the leader's health, once the fight is on
 	for e in level.enemies:
 		if is_instance_valid(e) and e.kind == "leader" and e.alive():
-			var close: bool = e.position.distance_to(p.global_position) < 1500.0 or e.hp < float(e.cfg.hp)
+			var close: bool = e.position.distance_to(p.global_position) < 1500.0 or e.hp < e.max_hp
 			if close:
 				var lb := Rect2(vs.x * 0.5 - 260, vs.y - 150, 520, 14)
 				_text(ci, lb.position + Vector2(0, -6), "THE LEADER", 14, Color(1, 0.85, 0.5), HORIZONTAL_ALIGNMENT_CENTER, lb.size.x, _bold, 3)
 				ci.draw_rect(lb.grow(3.0), Color(0, 0, 0, 0.6))
-				ci.draw_rect(Rect2(lb.position, Vector2(lb.size.x * clampf(e.hp / float(e.cfg.hp), 0.0, 1.0), lb.size.y)), Color(1.9, 0.4, 1.3))
+				ci.draw_rect(Rect2(lb.position, Vector2(lb.size.x * clampf(e.hp / e.max_hp, 0.0, 1.0), lb.size.y)), Color(1.9, 0.4, 1.3))
 	for a in level.arenas:
 		if a.state == 1 and not a.leader:
 			_text(ci, Vector2(vs.x * 0.5 - 200, vs.y - 150), "%d ENEMIES LEFT" % a.left, 18, Color(1.0, 0.55, 0.45), HORIZONTAL_ALIGNMENT_CENTER, 400, _bold, 3)

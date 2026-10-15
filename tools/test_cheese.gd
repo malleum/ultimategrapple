@@ -27,7 +27,11 @@ const PIECES := {
 	"ring_ledges": "any", "disc_gate": "any", "glass": "any", "disc_bridge": "any",
 	"swing_chain": "any", "grip_ceiling": "any", "wrap_block": "any", "crosswind": "any",
 	"stacked": "musts", "lasers": "musts",
+	# Battle Rush: the enemies stand still (harmless), so only the doors are tested:
+	# reaching past the exit door without killing anything is a cheese
+	"arena_flat": "arena", "arena_tier": "arena", "arena_shield": "arena",
 }
+const Enemy = preload("res://src/world/enemy.gd")
 
 var cases: Array = []
 var ci := -1
@@ -105,7 +109,7 @@ func _physics_process(_dt: float) -> bool:
 		st["best_f"] = f
 	var stuck := f - int(st.get("best_f", 0)) > 360
 	if reached or died or stuck or f > 1500:
-		if reached and not died and (mode == "any" or not st.has("must")):
+		if reached and not died and (mode == "any" or mode == "arena" or not st.has("must")):
 			case_cheese.append("%s (%.1fs)" % [_desc(pol), f / 120.0])
 		_next_pol()
 	return false
@@ -191,6 +195,7 @@ func _next_case() -> void:
 	var g := Gen.new()
 	g.force_segments = [c.piece]
 	g.force_finale = 0
+	g.battle = mode == "arena"
 	data = g.generate(int(c.seed), "field", 0.7, 1)
 	musts = g.musts.duplicate()
 	pols = _policies()
@@ -216,5 +221,15 @@ func _next_pol() -> void:
 	x0 = 8.0 * T
 	st = {}
 	f = 0
+	if mode == "arena":
+		for e in data.entities:
+			if str(e.t) == "arena" and not (e.exit as Array).is_empty():
+				goal = Vector2(float(e.exit[0] + e.exit[2]) + 3.0 * T, float(e.exit[1] + e.exit[3]))
+		for en in lvl.enemies:
+			en.cfg = en.cfg.duplicate(true)
+			en.cfg["stagger"] = 1e9
+			en.state = Enemy.STAGGER
+			en.st = 1e9
+		return
 	p.has_disc = false
 	r.disc.launch(goal + Vector2(10.0 * T, -40.0), Vector2.ZERO, 0, 1.0, 0.0, 0.0)

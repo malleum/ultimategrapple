@@ -2005,9 +2005,11 @@ func _finale(x: int, y: int) -> Vector2:
 
 # ============================================================ battle rush
 
-func enemy(kind: String, x: float, y: float, x0: float, x1: float, aid := -1) -> void:
-	_ent({"t": "enemy", "k": kind, "p": [int(round(x * T)), int(round(y * T))], "x0": int(round(x0 * T)), "x1": int(round(x1 * T)), "a": aid},
-		x0 - 1, y - 3, x1 - x0 + 2, 3)
+func enemy(kind: String, x: float, y: float, x0: float, x1: float, aid := -1, hp := 0) -> void:
+	var e := {"t": "enemy", "k": kind, "p": [int(round(x * T)), int(round(y * T))], "x0": int(round(x0 * T)), "x1": int(round(x1 * T)), "a": aid}
+	if hp > 0:
+		e["hp"] = hp
+	_ent(e, x0 - 1, y - 3, x1 - x0 + 2, 3)
 
 
 ## Enemies for an arena of `w` tiles: [kind, offset from the first inner tile, platform height].
@@ -2125,7 +2127,7 @@ func _finale_battle(x: int, y: int) -> Vector2:
 	_ent({"t": "arena", "id": aid, "r": [in0 * T, top * T, w * T, DOOR_H * T], "entry": [ex * T, top * T, T, DOOR_H * T],
 		"exit": [], "spawn": [(ex - 3) * T, y * T], "leader": true}, x, top, in1 + 2 - x, DOOR_H + 1)
 	var lx := in1 - 9
-	enemy("leader", lx, y, in0 + int(w * 0.45), in1 - 4, aid)
+	enemy("leader", lx, y, in0 + int(w * 0.45), in1 - 4, aid, 12 + dl(0, 10))
 	# escorts, and ledges for the archers (clear of the leader's mouth)
 	var esc := 2 + dl(0, 2)
 	for i in esc:

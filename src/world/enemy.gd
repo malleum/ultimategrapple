@@ -20,6 +20,7 @@ var home := Vector2.ZERO
 var x0 := 0.0
 var x1 := 0.0
 var hp := 1.0
+var max_hp := 1.0       # the kind's health, or the course's own (entity "hp")
 var state := PATROL
 var st := 0.0           # time left in WINDUP / STRIKE / RECOVER / STAGGER
 var face := -1.0
@@ -36,6 +37,7 @@ func setup(data: Dictionary, p_theme: Dictionary) -> void:
 	th = p_theme
 	kind = str(data.get("k", "grunt"))
 	cfg = Weapons.ENEMIES[kind]
+	max_hp = float(data.get("hp", cfg.hp))
 	arena_id = int(data.get("a", -1))
 	home = Vector2(data.p[0], data.p[1])
 	x0 = float(data.get("x0", home.x))
@@ -45,7 +47,7 @@ func setup(data: Dictionary, p_theme: Dictionary) -> void:
 
 func reset() -> void:
 	position = home
-	hp = float(cfg.hp)
+	hp = max_hp
 	state = PATROL
 	st = 0.0
 	face = -1.0
@@ -74,7 +76,7 @@ func center() -> Vector2:
 
 
 func _rage() -> float:
-	return 1.0 + (0.35 if kind == "leader" and hp <= float(cfg.hp) * 0.5 else 0.0)
+	return 1.0 + (0.35 if kind == "leader" and hp <= max_hp * 0.5 else 0.0)
 
 
 func shield_up() -> bool:
@@ -302,11 +304,11 @@ func _draw() -> void:
 		var cc := Color(3, 2.4, 0.5, fade)
 		draw_polyline(PackedVector2Array([Vector2(-10, cy), Vector2(-10, cy - 10), Vector2(-5, cy - 4), Vector2(0, cy - 12), Vector2(5, cy - 4), Vector2(10, cy - 10), Vector2(10, cy)]), cc, 2.5)
 	# hp bar once hurt
-	if hp < float(cfg.hp) and state != DEAD and kind != "leader":
+	if hp < max_hp and state != DEAD and kind != "leader":
 		var bw := 38.0
 		var by := -h - 30.0
 		draw_rect(Rect2(-bw * 0.5, by, bw, 5.0), Color(0, 0, 0, 0.6))
-		draw_rect(Rect2(-bw * 0.5, by, bw * hp / float(cfg.hp), 5.0), Color(2.0, 0.4, 0.4))
+		draw_rect(Rect2(-bw * 0.5, by, bw * hp / max_hp, 5.0), Color(2.0, 0.4, 0.4))
 
 
 func _draw_weapon(col: Color, f: float, w: float, h: float, tele: float) -> void:

@@ -197,9 +197,15 @@ static func sections() -> Array:
 	out.append(["MISHAPS", [
 		["Deaths", n.call("deaths")],
 		["Hazards", n.call("death_hazard")],
+		["Cut down by enemies", n.call("death_enemy")],
 		["Falls", n.call("death_fall")],
 		["Got tackled", n.call("tackled")],
 		["Hit by discs", n.call("disc_hit")],
+	]])
+	out.append(["BATTLE RUSH", [
+		["Enemies slain", n.call("kills")],
+		["Leaders slain", n.call("leaders_slain")],
+		["Battles won", n.call("battle_wins")],
 	]])
 	out.append(["VERSUS", [
 		["Rounds raced", n.call("rounds")],
