@@ -46,7 +46,7 @@ func _physics_process(_dt: float) -> bool:
 		lvl.runners[0].deaths = 0
 		Input.action_press("move_right")
 	var to_entry: float = j.x0 - p.global_position.x
-	if c != "stand" and frame > 2 and to_entry < 70.0 and not Input.is_action_pressed("move_down") and p.global_position.x < j.x0:
+	if c != "stand" and frame > 2 and to_entry < 160.0 and not Input.is_action_pressed("move_down") and p.global_position.x < j.x0:
 		Input.action_press("move_down")
 	var inside: bool = p.global_position.x > j.x0 + 40.0 and p.global_position.x < j.x1 - 10.0
 	if inside and c == "slide_let_go":
